@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "pt_text": "A capoeira é mais do que luta: é dança, música e expressão cultural. No ritmo do berimbau, o corpo aprende leveza e estratégia. Cada movimento exige atenção, equilíbrio e criatividade.",
+    "en_text": "Capoeira is more than just fighting; it’s dance, music, and cultural expression. To the rhythm of the berimbau, the body learns grace and strategy. Every movement demands focus, balance, and creativity.",
+    "pt_file": "pt_Lesson2_1.mp3",
+    "en_file": "en_Lesson2_1.mp3"
+  },
+  {
+    "id": 2,
+    "pt_text": "O jogo ensina respeito, malícia e cooperação entre parceiros. A prática fortalece o corpo, a mente e a identidade cultural. Na roda, vitória e derrota se transformam em aprendizado.",
+    "en_text": "The game teaches respect, cunning, and cooperation between partners. Practice strengthens the body, the mind, and cultural identity. In the circle, victory and defeat become lessons.",
+    "pt_file": "pt_Lesson2_2.mp3",
+    "en_file": "en_Lesson2_2.mp3"
+  },
+  {
+    "id": 3,
+    "pt_text": "A capoeira inspira disciplina, alegria e liberdade de espírito.",
+    "en_text": "Capoeira inspires discipline, joy, and freedom of spirit.",
+    "pt_file": "pt_Lesson2_3.mp3",
+    "en_file": "en_Lesson2_3.mp3"
+  }
+]
