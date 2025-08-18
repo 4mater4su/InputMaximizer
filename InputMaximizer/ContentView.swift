@@ -301,18 +301,32 @@ struct ContentView: View {
             
             Divider()
             
+            
             HStack(spacing: 20) {
-                Button(audioManager.isPlayingPT ? "⏸ Pause PT" : "▶️ Play PT") {
+                // Play/Pause PT
+                Button {
                     audioManager.togglePlayPause()
+                } label: {
+                    Image(systemName: audioManager.isPlayingPT ? "pause.fill" : "play.fill")
+                        .imageScale(.large)
                 }
-                .buttonStyle(.borderedProminent)
-                
-                Button("🇬🇧 Play ENG") {
+                .buttonStyle(MinimalIconButtonStyle())
+                .accessibilityLabel(audioManager.isPlayingPT ? "Pause Portuguese" : "Play Portuguese")
+                .accessibilityHint("Toggles Portuguese playback")
+
+                // Play English once (then resume PT)
+                Button {
                     audioManager.playEnglish()
+                } label: {
+                    Image(systemName: "globe")
+                        .imageScale(.large)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(MinimalIconButtonStyle())
+                .accessibilityLabel("Play English once")
+                .accessibilityHint("Plays current segment in English, then resumes Portuguese")
             }
             .padding(.bottom, 20)
+
         }
         .onAppear {
             // Load the initially selected lesson
