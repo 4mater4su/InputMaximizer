@@ -11,18 +11,38 @@ struct Segment: Codable, Identifiable {
     let en_file: String
 }
 
-// MARK: - Lesson Model & List
-struct Lesson: Identifiable, Hashable {
+// MARK: - Lesson Model & Loader
+struct Lesson: Identifiable, Hashable, Codable {
     let id: String
     let title: String
     let folderName: String
 }
 
-let availableLessons: [Lesson] = [
-    Lesson(id: "Lesson1", title: "Lesson 1", folderName: "Lesson1"),
-    Lesson(id: "Lesson2", title: "Lesson 2", folderName: "Lesson2"),
-    // Add more here…
-]
+final class LessonStore: ObservableObject {
+    @Published var lessons: [Lesson] = []
+    init() { load() }
+
+    func load() {
+        // Try subdirectory first (nice to have), then anywhere
+        if let url = Bundle.main.url(forResource: "lessons", withExtension: "json", subdirectory: "Lessons")
+            ?? (Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? [])
+                .first(where: { $0.lastPathComponent == "lessons.json" }) {
+
+            do {
+                let data = try Data(contentsOf: url)
+                lessons = try JSONDecoder().decode([Lesson].self, from: data)
+            } catch {
+                print("Failed to decode lessons.json: \(error)")
+                lessons = []
+            }
+        } else {
+            print("lessons.json not found in app bundle.")
+            lessons = []
+        }
+    }
+}
+
+
 
 // MARK: - Audio Manager
 class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
@@ -52,33 +72,57 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         setupRemoteControls()
     }
     
-    // Load a specific lesson folder: Lessons/<folderName>/segments.json
+    // Helper: find a resource anywhere in the bundle by exact filename
+    private func findResource(named filename: String) -> URL? {
+        let parts = (filename as NSString).deletingPathExtension
+        let ext   = (filename as NSString).pathExtension
+        if !ext.isEmpty, let url = Bundle.main.url(forResource: parts, withExtension: ext) {
+            return url
+        }
+        // Fallback: enumerate all files with the same extension and match lastPathComponent
+        let extToUse = ext.isEmpty ? nil : ext
+        let urls = Bundle.main.urls(forResourcesWithExtension: extToUse, subdirectory: nil) ?? []
+        return urls.first { $0.lastPathComponent == filename }
+    }
+
+    // Load segments by filename only
     func loadLesson(folderName: String, lessonTitle: String) {
         stop()
         currentIndex = 0
         segments = []
         currentLessonTitle = lessonTitle
 
-        // Keep a handle to the lesson folder (optional but handy if you resolve audio URLs from here)
-        currentLessonBaseURL = Bundle.main.url(forResource: "Lessons/\(folderName)", withExtension: nil)
-
-        // NEW: use unique JSON filename
-        let fileName = "segments_\(folderName).json"   // e.g., segments_Lesson1.json
-        guard let jsonURL = Bundle.main.url(forResource: fileName, withExtension: nil) else {
-            print("JSON not found: \(fileName)")
+        let filename = "segments_\(folderName).json"    // e.g. segments_Lesson1.json
+        guard let url = findResource(named: filename) else {
+            print("Segments manifest not found: \(filename)")
+            updateNowPlayingInfo()
             return
         }
 
         do {
-            let data = try Data(contentsOf: jsonURL)
+            let data = try Data(contentsOf: url)
             segments = try JSONDecoder().decode([Segment].self, from: data)
         } catch {
-            print("Error decoding \(fileName): \(error)")
+            print("Error decoding \(filename): \(error)")
         }
 
         updateNowPlayingInfo()
     }
 
+    // Play audio by filename only
+    private func playFile(named file: String) {
+        guard let url = findResource(named: file) else {
+            print("Audio file not found: \(file)")
+            return
+        }
+        do {
+            audioPlayer = try AVAudioPlayer(contentsOf: url)
+            audioPlayer?.delegate = self
+            audioPlayer?.play()
+        } catch {
+            print("Error playing audio: \(error)")
+        }
+    }
     
     // Toggle PT playback
     func togglePlayPause() {
@@ -127,21 +171,6 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         resumePTAfterENG = false
     }
     
-    // Low-level audio player (prefers lesson-local files)
-    private func playFile(named file: String) {
-        let resource = file.replacingOccurrences(of: ".mp3", with: "")
-        if let url = Bundle.main.url(forResource: resource, withExtension: "mp3") {
-            do {
-                audioPlayer = try AVAudioPlayer(contentsOf: url)
-                audioPlayer?.delegate = self
-                audioPlayer?.play()
-            } catch {
-                print("Error playing audio: \(error)")
-            }
-        } else {
-            print("File not found: \(file)")
-        }
-    }
 
 
     

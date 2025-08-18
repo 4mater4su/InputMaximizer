@@ -5,28 +5,35 @@
 //  Created by Robin Geske on 18.08.25.
 //
 
-import SwiftUICore
 import SwiftUI
 
 struct LessonSelectionView: View {
+    @StateObject private var store = LessonStore()
     @State private var selectedLesson: Lesson?
-    
+
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 16) {
-                    ForEach(availableLessons) { lesson in
-                        Button(action: {
-                            selectedLesson = lesson
-                        }) {
-                            Text(lesson.title)
-                                .font(.headline)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.blue.opacity(0.1))
-                                .cornerRadius(12)
+                    if store.lessons.isEmpty {
+                        Text("No lessons found.\nAdd entries to Lessons/lessons.json.")
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.secondary)
+                            .padding(.top, 40)
+                    } else {
+                        ForEach(store.lessons) { lesson in
+                            Button {
+                                selectedLesson = lesson
+                            } label: {
+                                Text(lesson.title)
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(12)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(PlainButtonStyle())
                     }
                 }
                 .padding()
@@ -34,14 +41,14 @@ struct LessonSelectionView: View {
             .navigationTitle("Select a Lesson")
             .background(
                 NavigationLink(
-                    destination: ContentView(selectedLesson: selectedLesson ?? availableLessons.first!),
-                    isActive: Binding<Bool>(
+                    destination: ContentView(
+                        selectedLesson: selectedLesson ?? store.lessons.first!
+                    ),
+                    isActive: Binding(
                         get: { selectedLesson != nil },
                         set: { if !$0 { selectedLesson = nil } }
                     )
-                ) {
-                    EmptyView()
-                }
+                ) { EmptyView() }
             )
         }
     }
