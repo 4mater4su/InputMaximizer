@@ -260,7 +260,7 @@ struct ContentView: View {
             
             Divider()
             
-            Text("Portuguese Learning Audio")
+            Text("Language Learning Audio")
                 .font(.title2)
                 .padding(.top, 4)
             

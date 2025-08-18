@@ -1,5 +1,10 @@
 [
   {
+    "id": "Capítulo 1",
+    "title": "Capítulo 1",
+    "folderName": "Capítulo 1"
+  },
+  {
     "id": "Aurora",
     "title": "Aurora",
     "folderName": "Aurora"
@@ -8,6 +13,21 @@
     "id": "BJJ Philosophy",
     "title": "BJJ Philosophy",
     "folderName": "BJJ Philosophy"
+  },
+  {
+    "id": "Lykke",
+    "title": "Lykke",
+    "folderName": "Lykke"
+  },
+  {
+    "id": "Nybegynnersinn",
+    "title": "Nybegynnersinn",
+    "folderName": "Nybegynnersinn"
+  },
+  {
+    "id": "Samurai",
+    "title": "Samurai",
+    "folderName": "Samurai"
   },
   {
     "id": "Supernova",
