@@ -1,0 +1,30 @@
+[
+  {
+    "id": 1,
+    "pt_text": "As tartarugas estão entre os animais mais antigos do planeta, existindo há mais de 200 milhões de anos. Conhecidas por sua longevidade, algumas espécies podem viver mais de um século.",
+    "en_text": "Turtles are among the oldest animals on the planet, having been around for more than 200 million years. Known for their longevity, some species can live for over a century.",
+    "pt_file": "pt_Tartarugas_1.mp3",
+    "en_file": "en_Tartarugas_1.mp3"
+  },
+  {
+    "id": 2,
+    "pt_text": "Sua carapaça rígida funciona como proteção contra predadores e é formada por ossos recobertos por placas resistentes. Apesar de sua incrível adaptação, muitas espécies de tartarugas marinhas e terrestres estão ameaçadas.",
+    "en_text": "A turtle’s rigid shell serves as protection against predators and is composed of bones covered by tough plates. Despite this remarkable adaptation, many species of sea and land turtles are threatened.",
+    "pt_file": "pt_Tartarugas_2.mp3",
+    "en_file": "en_Tartarugas_2.mp3"
+  },
+  {
+    "id": 3,
+    "pt_text": "Entre os principais riscos estão a perda de habitat, a poluição dos oceanos, a pesca acidental e o comércio ilegal de ovos e carne. O plástico, em especial, é um grande inimigo: confundido com alimento, pode causar a morte de milhares de indivíduos a cada ano.",
+    "en_text": "Among the main threats are habitat loss, ocean pollution, accidental capture in fishing gear, and the illegal trade in eggs and meat. Plastic, in particular, is a major threat: when mistaken for food, it can kill thousands of animals every year.",
+    "pt_file": "pt_Tartarugas_3.mp3",
+    "en_file": "en_Tartarugas_3.mp3"
+  },
+  {
+    "id": 4,
+    "pt_text": "Projetos de conservação em diversos países atuam na proteção de ninhos, no resgate de animais feridos e na conscientização sobre o descarte adequado de resíduos. A preservação das tartarugas é fundamental, pois elas têm papel importante nos ecossistemas, ajudando no equilíbrio das cadeias alimentares e na saúde dos ambientes marinhos e costeiros.",
+    "en_text": "Conservation projects in many countries work to protect nests, rescue injured animals, and raise awareness about proper waste disposal. Preserving turtles is crucial, as they play a key role in ecosystems, helping balance food chains and keep marine and coastal environments healthy.",
+    "pt_file": "pt_Tartarugas_4.mp3",
+    "en_file": "en_Tartarugas_4.mp3"
+  }
+]

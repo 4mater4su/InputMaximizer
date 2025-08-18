@@ -1,5 +1,12 @@
 [
-  { "id": "Lesson1", "title": "Lesson 1", "folderName": "Lesson1" },
-  { "id": "Lesson2", "title": "Lesson 2", "folderName": "Lesson2" }
+  {
+    "id": "Aurora",
+    "title": "Aurora",
+    "folderName": "Aurora"
+  },
+  {
+    "id": "Tartarugas",
+    "title": "Tartarugas",
+    "folderName": "Tartarugas"
+  }
 ]
-
