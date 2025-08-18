@@ -1,12 +1,10 @@
 import SwiftUI
 
 @main
-struct InputMaximizerApp: App {
-    @StateObject private var store = LessonStore()
+struct input_maximizerApp: App {
     var body: some Scene {
         WindowGroup {
-            LessonListView()
-                .environmentObject(store)
+            LessonSelectionView()
         }
     }
 }

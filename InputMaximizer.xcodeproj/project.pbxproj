@@ -10,10 +10,29 @@
 		0C38E3072E51D405002F7723 /* InputMaximizer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = InputMaximizer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		0C7F82FF2E51D93F00AEE1F0 /* Exceptions for "InputMaximizer" folder in "InputMaximizer" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				Untitled.swift,
+			);
+			target = 0C38E3062E51D405002F7723 /* InputMaximizer */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0C38E3092E51D405002F7723 /* InputMaximizer */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				0C7F82FF2E51D93F00AEE1F0 /* Exceptions for "InputMaximizer" folder in "InputMaximizer" target */,
+			);
 			path = InputMaximizer;
+			sourceTree = "<group>";
+		};
+		0CBDF4022E530A0200668B6D /* Lessons */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Lessons;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -32,6 +51,7 @@
 		0C38E2FE2E51D405002F7723 = {
 			isa = PBXGroup;
 			children = (
+				0CBDF4022E530A0200668B6D /* Lessons */,
 				0C38E3092E51D405002F7723 /* InputMaximizer */,
 				0C38E3082E51D405002F7723 /* Products */,
 			);
@@ -62,6 +82,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				0C38E3092E51D405002F7723 /* InputMaximizer */,
+				0CBDF4022E530A0200668B6D /* Lessons */,
 			);
 			name = InputMaximizer;
 			packageProductDependencies = (
@@ -255,6 +276,7 @@
 				DEVELOPMENT_TEAM = 8V6LBF8S5D;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = InputMaximizer/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -284,6 +306,7 @@
 				DEVELOPMENT_TEAM = 8V6LBF8S5D;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = InputMaximizer/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
