@@ -60,6 +60,9 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             UserDefaults.standard.set(segmentDelay, forKey: "segmentDelay")
         }
     }
+    @Published var isInDelay: Bool = false
+
+    private var pendingAdvance: DispatchWorkItem?
 
     // Track current lesson location
     private var currentLessonBaseURL: URL?
@@ -77,6 +80,31 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
         setupRemoteControls()
     }
+    
+    private func scheduleAdvanceAfterDelay() {
+        // Cancel any prior scheduled advance
+        pendingAdvance?.cancel()
+        
+        // If we're at the last segment, just stop the PT loop
+        guard currentIndex < segments.count - 1 else {
+            isPlayingPT = false
+            isPaused = false
+            isInDelay = false
+            updateNowPlayingInfo()
+            return
+        }
+
+        isInDelay = true
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.isInDelay = false
+            self.currentIndex += 1            // <-- advance ONLY now
+            self.playPortuguese(from: self.currentIndex)
+        }
+        pendingAdvance = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + segmentDelay, execute: work)
+    }
+
     
     // Helper: find a resource anywhere in the bundle by exact filename
     private func findResource(named filename: String) -> URL? {
@@ -130,12 +158,39 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
     
-    // Toggle PT playback
+    private func cancelPendingAdvance() {
+        pendingAdvance?.cancel()
+        pendingAdvance = nil
+        isInDelay = false
+    }
+
+    func playPortuguese(from index: Int) {
+        guard !segments.isEmpty else { return }
+        cancelPendingAdvance()
+        currentIndex = index
+        isPlayingPT = true
+        isPaused = false
+        resumePTAfterENG = false
+        playFile(named: segments[currentIndex].pt_file)
+        updateNowPlayingInfo()
+    }
+
+    func playEnglish() {
+        guard !segments.isEmpty else { return }
+        cancelPendingAdvance()                 // don't auto-advance while reviewing EN
+        isPlayingPT = false
+        isPaused = false
+        resumePTAfterENG = true                // after EN, come back to same PT segment
+        playFile(named: segments[currentIndex].en_file)
+        updateNowPlayingInfo(isPT: false)
+    }
+
     func togglePlayPause() {
         if let player = audioPlayer, player.isPlaying {
             player.pause()
             isPaused = true
             isPlayingPT = false
+            cancelPendingAdvance()
             updateNowPlayingInfo()
         } else if let player = audioPlayer, isPaused {
             player.play()
@@ -146,60 +201,22 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             playPortuguese(from: currentIndex)
         }
     }
-    
-    // Play PT from specific index
-    func playPortuguese(from index: Int) {
-        guard !segments.isEmpty else { return }
-        currentIndex = index
-        isPlayingPT = true
-        isPaused = false
-        resumePTAfterENG = false
-        playFile(named: segments[currentIndex].pt_file)
-        updateNowPlayingInfo()
-    }
-    
-    // Play ENG once, then resume PT
-    func playEnglish() {
-        guard !segments.isEmpty else { return }
-        isPlayingPT = false
-        isPaused = false
-        resumePTAfterENG = true
-        playFile(named: segments[currentIndex].en_file)
-        updateNowPlayingInfo(isPT: false)
-    }
-    
-    // Stop everything (used when switching lessons)
+
     func stop() {
         audioPlayer?.stop()
         audioPlayer = nil
         isPlayingPT = false
         isPaused = false
         resumePTAfterENG = false
+        cancelPendingAdvance()
     }
     
-
-
-    
-    // Handle when audio finishes
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         if resumePTAfterENG {
-            // After ENG, return to PT (same segment)
             resumePTAfterENG = false
-            playPortuguese(from: currentIndex)
+            playPortuguese(from: currentIndex)   // resume same segment
         } else if isPlayingPT {
-            // Advance PT with a short delay
-            if currentIndex < segments.count - 1 {
-                currentIndex += 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + segmentDelay) {
-                    self.playPortuguese(from: self.currentIndex)
-                }
-            } else {
-                // Finished all PT segments
-                isPlayingPT = false
-                isPaused = false
-                currentIndex = 0
-                updateNowPlayingInfo()
-            }
+            scheduleAdvanceAfterDelay()          // <-- no index change here
         }
     }
     
@@ -265,12 +282,6 @@ struct ContentView: View {
     
     var body: some View {
         VStack(spacing: 10) {
-            
-            Divider()
-            
-            Text("Language Learning Audio")
-                .font(.title2)
-                .padding(.top, 4)
             
             Divider()
             
