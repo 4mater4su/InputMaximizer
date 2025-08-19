@@ -53,8 +53,14 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     private var audioPlayer: AVAudioPlayer?
     private var resumePTAfterENG = false
-    private let segmentDelay: TimeInterval = 1.2 // delay between PT segments
-    
+
+    @Published var segmentDelay: TimeInterval = UserDefaults.standard.double(forKey: "segmentDelay") == 0 ? 1.2 : UserDefaults.standard.double(forKey: "segmentDelay") {
+        didSet {
+            if segmentDelay < 0 { segmentDelay = 0 }
+            UserDefaults.standard.set(segmentDelay, forKey: "segmentDelay")
+        }
+    }
+
     // Track current lesson location
     private var currentLessonBaseURL: URL?
     @Published var currentLessonTitle: String = ""
@@ -253,6 +259,8 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 // MARK: - SwiftUI View
 struct ContentView: View {
     @StateObject private var audioManager = AudioManager()
+    @AppStorage("segmentDelay") private var storedDelay: Double = 1.2
+    
     var selectedLesson: Lesson
     
     var body: some View {
@@ -301,6 +309,19 @@ struct ContentView: View {
             
             Divider()
             
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Pause Between Segments: \(storedDelay, specifier: "%.1f")s")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                // Slider
+                Slider(value: $storedDelay, in: 0...20, step: 1.0)
+                    .accessibilityLabel("Pause Between Segments")
+                    .accessibilityValue("\(storedDelay, specifier: "%.1f") seconds")
+                
+            }
+            .padding(.horizontal)
+
             
             HStack(spacing: 20) {
                 // Play/Pause PT
@@ -332,6 +353,12 @@ struct ContentView: View {
             // Load the initially selected lesson
             audioManager.loadLesson(folderName: selectedLesson.folderName,
                                                 lessonTitle: selectedLesson.title)
+            // Apply persisted delay to the audio manager
+            audioManager.segmentDelay = storedDelay
+        }
+        .onChange(of: storedDelay) {
+            // Live-update the delay used for the next auto-advance
+            audioManager.segmentDelay = storedDelay
         }
     }
 }
