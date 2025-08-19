@@ -42,7 +42,8 @@ struct LessonSelectionView: View {
             .background(
                 NavigationLink(
                     destination: ContentView(
-                        selectedLesson: selectedLesson ?? store.lessons.first!
+                        selectedLesson: selectedLesson ?? store.lessons.first!,
+                        lessons: store.lessons
                     ),
                     isActive: Binding(
                         get: { selectedLesson != nil },

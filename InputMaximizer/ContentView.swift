@@ -64,6 +64,9 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private var pendingAdvance: DispatchWorkItem?
 
+    @Published var didFinishLesson: Bool = false              // finished + reset to start
+    var requestNextLesson: (() -> Void)?                      // UI provides this closure
+    
     // Track current lesson location
     private var currentLessonBaseURL: URL?
     @Published var currentLessonTitle: String = ""
@@ -82,14 +85,15 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     private func scheduleAdvanceAfterDelay() {
-        // Cancel any prior scheduled advance
         pendingAdvance?.cancel()
-        
-        // If we're at the last segment, just stop the PT loop
+
+        // If we're at the last segment, end lesson and reset to start
         guard currentIndex < segments.count - 1 else {
             isPlayingPT = false
             isPaused = false
             isInDelay = false
+            didFinishLesson = true          // <-- mark lesson finished
+            currentIndex = 0                // <-- back to start
             updateNowPlayingInfo()
             return
         }
@@ -98,13 +102,12 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         let work = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
             self.isInDelay = false
-            self.currentIndex += 1            // <-- advance ONLY now
+            self.currentIndex += 1
             self.playPortuguese(from: self.currentIndex)
         }
         pendingAdvance = work
         DispatchQueue.main.asyncAfter(deadline: .now() + segmentDelay, execute: work)
     }
-
     
     // Helper: find a resource anywhere in the bundle by exact filename
     private func findResource(named filename: String) -> URL? {
@@ -167,6 +170,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func playPortuguese(from index: Int) {
         guard !segments.isEmpty else { return }
         cancelPendingAdvance()
+        didFinishLesson = false
         currentIndex = index
         isPlayingPT = true
         isPaused = false
@@ -178,6 +182,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func playEnglish() {
         guard !segments.isEmpty else { return }
         cancelPendingAdvance()                 // don't auto-advance while reviewing EN
+        didFinishLesson = false
         isPlayingPT = false
         isPaused = false
         resumePTAfterENG = true                // after EN, come back to same PT segment
@@ -192,11 +197,13 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             isPlayingPT = false
             cancelPendingAdvance()
             updateNowPlayingInfo()
+            didFinishLesson = false
         } else if let player = audioPlayer, isPaused {
             player.play()
             isPaused = false
             isPlayingPT = true
             updateNowPlayingInfo()
+            didFinishLesson = false
         } else {
             playPortuguese(from: currentIndex)
         }
@@ -209,6 +216,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isPaused = false
         resumePTAfterENG = false
         cancelPendingAdvance()
+        didFinishLesson = false
     }
     
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
@@ -234,6 +242,13 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         // Next track → Play English if PT is playing; otherwise next PT segment
         commandCenter.nextTrackCommand.addTarget { [weak self] _ in
             guard let self = self else { return .commandFailed }
+            
+            // If a lesson just finished (we're reset to start), double-press = next lesson
+            if self.didFinishLesson {
+                self.requestNextLesson?()
+                return .success
+            }
+            
             if self.isPlayingPT {
                 self.playEnglish()
                 return .success
@@ -276,9 +291,27 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 // MARK: - SwiftUI View
 struct ContentView: View {
     @StateObject private var audioManager = AudioManager()
+    
+    let lessons: [Lesson]
+    @State private var currentLessonIndex: Int
+    let selectedLesson: Lesson
+
+    init(selectedLesson: Lesson, lessons: [Lesson]) {
+        self.selectedLesson = selectedLesson
+        self.lessons = lessons
+        _currentLessonIndex = State(initialValue: lessons.firstIndex(of: selectedLesson) ?? 0)
+    }
+    
     @AppStorage("segmentDelay") private var storedDelay: Double = 1.2
     
-    var selectedLesson: Lesson
+    private func goToNextLessonAndPlay() {
+        guard !lessons.isEmpty else { return }
+        // Wrap-around to first lesson when at the end (change to `min(..., lessons.count-1)` if you don't want wrap)
+        currentLessonIndex = (currentLessonIndex + 1) % lessons.count
+        let next = lessons[currentLessonIndex]
+        audioManager.loadLesson(folderName: next.folderName, lessonTitle: next.title)
+        audioManager.playPortuguese(from: 0)
+    }
     
     var body: some View {
         VStack(spacing: 10) {
@@ -362,15 +395,28 @@ struct ContentView: View {
         }
         .onAppear {
             // Load the initially selected lesson
-            audioManager.loadLesson(folderName: selectedLesson.folderName,
-                                                lessonTitle: selectedLesson.title)
+            audioManager.loadLesson(
+                folderName: selectedLesson.folderName,
+                lessonTitle: selectedLesson.title
+            )
+
             // Apply persisted delay to the audio manager
             audioManager.segmentDelay = storedDelay
+
+            // Allow AirPods double-press (Next Track) at end-of-lesson to jump to next lesson
+            audioManager.requestNextLesson = { [weak audioManager] in
+                DispatchQueue.main.async {
+                    // assumes you added `goToNextLessonAndPlay()` in ContentView
+                    goToNextLessonAndPlay()
+                    audioManager?.didFinishLesson = false
+                }
+            }
         }
         .onChange(of: storedDelay) {
             // Live-update the delay used for the next auto-advance
             audioManager.segmentDelay = storedDelay
         }
+
     }
 }
 
