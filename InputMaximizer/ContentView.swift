@@ -367,7 +367,7 @@ struct ContentView: View {
             .padding(.horizontal)
 
             
-            HStack(spacing: 20) {
+            HStack(spacing: 60) {
                 // Play/Pause PT
                 Button {
                     audioManager.togglePlayPause()
