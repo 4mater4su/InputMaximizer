@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct LessonSelectionView: View {
+    @EnvironmentObject private var audioManager: AudioManager
     @StateObject private var store = LessonStore()
     @State private var selectedLesson: Lesson?
 
@@ -23,6 +24,7 @@ struct LessonSelectionView: View {
                     } else {
                         ForEach(store.lessons) { lesson in
                             Button {
+                                audioManager.stop()
                                 selectedLesson = lesson
                             } label: {
                                 Text(lesson.title)
@@ -44,7 +46,8 @@ struct LessonSelectionView: View {
                     destination: ContentView(
                         selectedLesson: selectedLesson ?? store.lessons.first!,
                         lessons: store.lessons
-                    ),
+                    )
+                    .environmentObject(audioManager),
                     isActive: Binding(
                         get: { selectedLesson != nil },
                         set: { if !$0 { selectedLesson = nil } }

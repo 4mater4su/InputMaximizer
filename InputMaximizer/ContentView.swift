@@ -84,6 +84,17 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         setupRemoteControls()
     }
     
+    deinit {
+        // ensure cleanup if this ever gets deallocated
+        stop()
+        removeRemoteControlTargets()
+        do {
+            try AVAudioSession.sharedInstance().setActive(false)
+        } catch {
+            print("Failed to deactivate audio session: \(error)")
+        }
+    }
+    
     private func scheduleAdvanceAfterDelay() {
         pendingAdvance?.cancel()
 
@@ -148,6 +159,9 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     // Play audio by filename only
     private func playFile(named file: String) {
+        audioPlayer?.stop()                      // ⬅️ stop any previous playback
+        audioPlayer = nil
+        
         guard let url = findResource(named: file) else {
             print("Audio file not found: \(file)")
             return
@@ -228,8 +242,19 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
     
+    private func removeRemoteControlTargets() {
+        let cc = MPRemoteCommandCenter.shared()
+        cc.playCommand.removeTarget(nil)
+        cc.pauseCommand.removeTarget(nil)
+        cc.nextTrackCommand.removeTarget(nil)
+        cc.previousTrackCommand.removeTarget(nil)
+    }
+    
     // MARK: - Remote Control Center
     private func setupRemoteControls() {
+        // prevent duplicate handlers if setup is called more than once
+        removeRemoteControlTargets()
+        
         let commandCenter = MPRemoteCommandCenter.shared()
         commandCenter.playCommand.addTarget { [weak self] _ in
             self?.togglePlayPause()
@@ -290,7 +315,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
 // MARK: - SwiftUI View
 struct ContentView: View {
-    @StateObject private var audioManager = AudioManager()
+    @EnvironmentObject private var audioManager : AudioManager
     
     let lessons: [Lesson]
     @State private var currentLessonIndex: Int
