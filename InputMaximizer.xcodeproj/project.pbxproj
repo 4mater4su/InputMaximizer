@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		0C5A8ACD2E568287007E8987 /* silence.caf in Resources */ = {isa = PBXBuildFile; fileRef = 0C5A8ACC2E568287007E8987 /* silence.caf */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		0C38E3072E51D405002F7723 /* InputMaximizer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = InputMaximizer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0C5A8ACC2E568287007E8987 /* silence.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = silence.caf; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -50,6 +55,7 @@
 		0C38E2FE2E51D405002F7723 = {
 			isa = PBXGroup;
 			children = (
+				0C5A8ACC2E568287007E8987 /* silence.caf */,
 				0CBDF4022E530A0200668B6D /* Lessons */,
 				0C38E3092E51D405002F7723 /* InputMaximizer */,
 				0C38E3082E51D405002F7723 /* Products */,
@@ -129,6 +135,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0C5A8ACD2E568287007E8987 /* silence.caf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

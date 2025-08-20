@@ -53,6 +53,10 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     private var audioPlayer: AVAudioPlayer?
     private var resumePTAfterENG = false
+    
+    // Detect a fast second press when lesson just ended (or right after we replayed)
+    private var allowNextDoubleUntil: Date?
+    private let doubleTapWindow: TimeInterval = 0.6
 
     @Published var segmentDelay: TimeInterval = UserDefaults.standard.double(forKey: "segmentDelay") == 0 ? 1.2 : UserDefaults.standard.double(forKey: "segmentDelay") {
         didSet {
@@ -64,6 +68,53 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private var pendingAdvance: DispatchWorkItem?
 
+    private var keepalivePlayer: AVAudioPlayer?
+
+    private func startRemoteKeepalive() {
+        if let p = audioPlayer, p.isPlaying { return }
+        guard keepalivePlayer == nil,
+              let url = findResource(named: "silence.caf") else { return }
+        do {
+            let p = try AVAudioPlayer(contentsOf: url)
+            p.numberOfLoops = -1
+            p.volume = 0.0
+            p.prepareToPlay()
+            p.play()
+            keepalivePlayer = p
+
+            // Present a valid "now playing" while idle
+            var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+            let title = segments.isEmpty ? "Lesson" : segments[currentIndex].pt_text
+            let artist = currentLessonTitle.isEmpty ? "Portuguese ↔ English Learning" : currentLessonTitle
+            info[MPMediaItemPropertyTitle] = title
+            info[MPMediaItemPropertyArtist] = artist
+            info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
+            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = segments.count
+            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = currentIndex
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = p.currentTime
+            info[MPMediaItemPropertyPlaybackDuration] = p.duration
+            info[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        } catch {
+            print("Failed to start keepalive: \(error)")
+        }
+    }
+
+    private func stopRemoteKeepalive() {
+        keepalivePlayer?.stop()
+        keepalivePlayer = nil
+
+        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+        if let real = audioPlayer {
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = real.currentTime
+            info[MPMediaItemPropertyPlaybackDuration] = real.duration
+            info[MPNowPlayingInfoPropertyPlaybackRate] = real.isPlaying ? 1.0 : 0.0
+        } else {
+            info[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+    
     @Published var didFinishLesson: Bool = false              // finished + reset to start
     var requestNextLesson: (() -> Void)?                      // UI provides this closure
     
@@ -76,7 +127,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         // Set up audio session for background playback
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio, options: [])
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.allowBluetooth, .allowBluetoothA2DP])
             try session.setActive(true)
         } catch {
             print("Failed to set audio session: \(error)")
@@ -104,16 +155,21 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             isPaused = false
             isInDelay = false
             didFinishLesson = true          // <-- mark lesson finished
+            allowNextDoubleUntil = nil           // ⬅️ reset window
             currentIndex = 0                // <-- back to start
             updateNowPlayingInfo()
+            startRemoteKeepalive()
             return
         }
 
         isPlayingPT = false
         isInDelay = true
+        allowNextDoubleUntil = nil           // ⬅️ reset window
+        startRemoteKeepalive()
         let work = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
             self.isInDelay = false
+            self.stopRemoteKeepalive()
             self.currentIndex += 1
             self.playPortuguese(from: self.currentIndex)
         }
@@ -160,6 +216,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     // Play audio by filename only
     private func playFile(named file: String) {
+        stopRemoteKeepalive()
         audioPlayer?.stop()                      // ⬅️ stop any previous playback
         audioPlayer = nil
         
@@ -221,8 +278,8 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         } else {
             // Nothing playing
             if didFinishLesson {
-                requestNextLesson?()
-                //playPortuguese(from: 0)        // replay current lesson
+                //requestNextLesson?()
+                playPortuguese(from: 0)        // replay current lesson
                 didFinishLesson = false
             } else if isInDelay {
                 playEnglish()
@@ -259,6 +316,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         cc.pauseCommand.removeTarget(nil)
         cc.nextTrackCommand.removeTarget(nil)
         cc.previousTrackCommand.removeTarget(nil)
+        cc.togglePlayPauseCommand.removeTarget(nil)
     }
     
     // MARK: - Remote Control Center
@@ -270,13 +328,58 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         
         commandCenter.playCommand.addTarget { [weak self] _ in
             guard let self = self else { return .commandFailed }
+            let now = Date()
 
-            // AirPods may send Play when nothing is playing.
-            if self.didFinishLesson {
-                //self.requestNextLesson?()
-                self.playPortuguese(from: 0)   // replay current (reset) lesson
-                self.didFinishLesson = false
+            // --- End-of-lesson gestures ---
+            if self.didFinishLesson || self.allowNextDoubleUntil != nil {
+                if let until = self.allowNextDoubleUntil, now < until {
+                    // Second fast press -> treat as NEXT LESSON
+                    self.allowNextDoubleUntil = nil
+                    self.requestNextLesson?()
+                    self.didFinishLesson = false
+                    return .success
+                } else {
+                    // First press -> REPLAY current lesson, but open a short window for a "second press"
+                    self.allowNextDoubleUntil = now.addingTimeInterval(self.doubleTapWindow)
+                    self.playPortuguese(from: 0)
+                    self.didFinishLesson = false      // from here on we rely on the window, not didFinishLesson
+                    return .success
+                }
+            }
+
+            // --- Delay window (play EN once) ---
+            if self.isInDelay {
+                self.playEnglish()
                 return .success
+            }
+
+            // --- Normal toggle ---
+            self.togglePlayPause()
+            return .success
+        }
+
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            self?.togglePlayPause()
+            return .success
+        }
+        
+        let cc = MPRemoteCommandCenter.shared()
+        cc.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            let now = Date()
+
+            if self.didFinishLesson || self.allowNextDoubleUntil != nil {
+                if let until = self.allowNextDoubleUntil, now < until {
+                    self.allowNextDoubleUntil = nil
+                    self.requestNextLesson?()
+                    self.didFinishLesson = false
+                    return .success
+                } else {
+                    self.allowNextDoubleUntil = now.addingTimeInterval(self.doubleTapWindow)
+                    self.playPortuguese(from: 0)
+                    self.didFinishLesson = false
+                    return .success
+                }
             }
 
             if self.isInDelay {
@@ -287,15 +390,11 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             self.togglePlayPause()
             return .success
         }
-
-
-        commandCenter.pauseCommand.addTarget { [weak self] _ in
-            self?.togglePlayPause()
-            return .success
-        }
+        
         // Next track → Play English if PT is playing; otherwise next PT segment
         commandCenter.nextTrackCommand.addTarget { [weak self] _ in
             guard let self = self else { return .commandFailed }
+            self.allowNextDoubleUntil = nil
 
             // If a lesson just finished (we're reset to start), double-press = next lesson
             if self.didFinishLesson {
