@@ -109,6 +109,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             return
         }
 
+        isPlayingPT = false
         isInDelay = true
         let work = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
@@ -215,13 +216,23 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         } else if let player = audioPlayer, isPaused {
             player.play()
             isPaused = false
-            isPlayingPT = true
             updateNowPlayingInfo()
             didFinishLesson = false
         } else {
-            playPortuguese(from: currentIndex)
+            // Nothing playing
+            if didFinishLesson {
+                requestNextLesson?()
+                //playPortuguese(from: 0)        // replay current lesson
+                didFinishLesson = false
+            } else if isInDelay {
+                playEnglish()
+            } else {
+                playPortuguese(from: currentIndex)
+            }
         }
     }
+
+
 
     func stop() {
         audioPlayer?.stop()
@@ -256,10 +267,28 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         removeRemoteControlTargets()
         
         let commandCenter = MPRemoteCommandCenter.shared()
+        
         commandCenter.playCommand.addTarget { [weak self] _ in
-            self?.togglePlayPause()
+            guard let self = self else { return .commandFailed }
+
+            // AirPods may send Play when nothing is playing.
+            if self.didFinishLesson {
+                //self.requestNextLesson?()
+                self.playPortuguese(from: 0)   // replay current (reset) lesson
+                self.didFinishLesson = false
+                return .success
+            }
+
+            if self.isInDelay {
+                self.playEnglish()
+                return .success
+            }
+
+            self.togglePlayPause()
             return .success
         }
+
+
         commandCenter.pauseCommand.addTarget { [weak self] _ in
             self?.togglePlayPause()
             return .success
@@ -267,22 +296,25 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         // Next track → Play English if PT is playing; otherwise next PT segment
         commandCenter.nextTrackCommand.addTarget { [weak self] _ in
             guard let self = self else { return .commandFailed }
-            
+
             // If a lesson just finished (we're reset to start), double-press = next lesson
             if self.didFinishLesson {
                 self.requestNextLesson?()
                 return .success
             }
-            
-            if self.isPlayingPT {
-                self.playEnglish()
+
+            // Treat "in delay" the same as "PT is playing": play the EN translation
+            if self.isPlayingPT || self.isInDelay {
+                self.playEnglish()               // cancels pending auto-advance internally
                 return .success
             } else if self.currentIndex < self.segments.count - 1 {
                 self.playPortuguese(from: self.currentIndex + 1)
                 return .success
             }
+
             return .noSuchContent
         }
+
         // Previous track → go to previous PT segment
         commandCenter.previousTrackCommand.addTarget { [weak self] _ in
             guard let self = self else { return .commandFailed }
@@ -299,18 +331,23 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         guard !segments.isEmpty else { return }
         let segment = segments[currentIndex]
         let playingPT = isPT ?? isPlayingPT
-        
+
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: playingPT ? segment.pt_text : segment.en_text,
             MPMediaItemPropertyArtist: currentLessonTitle.isEmpty ? "Portuguese ↔ English Learning" : currentLessonTitle,
         ]
+
         if let player = audioPlayer {
             info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = player.currentTime
             info[MPMediaItemPropertyPlaybackDuration] = player.duration
             info[MPNowPlayingInfoPropertyPlaybackRate] = player.isPlaying ? 1.0 : 0.0
+        } else {
+            info[MPNowPlayingInfoPropertyPlaybackRate] = 0.0   // ⬅️ keep your app addressable
         }
+
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
+
 }
 
 // MARK: - SwiftUI View
@@ -384,7 +421,7 @@ struct ContentView: View {
                     .foregroundColor(.secondary)
 
                 // Slider
-                Slider(value: $storedDelay, in: 0...20, step: 1.0)
+                Slider(value: $storedDelay, in: 0...20, step: 0.5)
                     .accessibilityLabel("Pause Between Segments")
                     .accessibilityValue("\(storedDelay, specifier: "%.1f") seconds")
                 

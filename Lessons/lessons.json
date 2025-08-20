@@ -5,6 +5,11 @@
     "folderName": "Capítulo 1"
   },
   {
+    "id": "Amizade Espacial",
+    "title": "Amizade Espacial",
+    "folderName": "Amizade Espacial"
+  },
+  {
     "id": "Aurora",
     "title": "Aurora",
     "folderName": "Aurora"
@@ -20,6 +25,11 @@
     "folderName": "Dogs are Great"
   },
   {
+    "id": "Equilíbrio",
+    "title": "Equilíbrio",
+    "folderName": "Equilíbrio"
+  },
+  {
     "id": "Lappland",
     "title": "Lappland",
     "folderName": "Lappland"
@@ -33,6 +43,11 @@
     "id": "Nybegynnersinn",
     "title": "Nybegynnersinn",
     "folderName": "Nybegynnersinn"
+  },
+  {
+    "id": "Prova dos",
+    "title": "Prova dos",
+    "folderName": "Prova dos"
   },
   {
     "id": "Samurai",
