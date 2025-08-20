@@ -48,6 +48,7 @@ final class LessonStore: ObservableObject {
 class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var segments: [Segment] = []
     @Published var currentIndex: Int = 0
+    @Published var isPlaying: Bool = false
     @Published var isPlayingPT: Bool = false
     @Published var isPaused: Bool = false
     
@@ -228,6 +229,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             audioPlayer = try AVAudioPlayer(contentsOf: url)
             audioPlayer?.delegate = self
             audioPlayer?.play()
+            isPlaying = true
         } catch {
             print("Error playing audio: \(error)")
         }
@@ -266,13 +268,15 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         if let player = audioPlayer, player.isPlaying {
             player.pause()
             isPaused = true
-            isPlayingPT = false
+            //isPlayingPT = false
+            isPlaying = false
             cancelPendingAdvance()
             updateNowPlayingInfo()
             didFinishLesson = false
         } else if let player = audioPlayer, isPaused {
             player.play()
             isPaused = false
+            isPlaying = true
             updateNowPlayingInfo()
             didFinishLesson = false
         } else {
@@ -289,19 +293,19 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
-
-
     func stop() {
         audioPlayer?.stop()
         audioPlayer = nil
         isPlayingPT = false
         isPaused = false
+        isPlaying = false
         resumePTAfterENG = false
         cancelPendingAdvance()
         didFinishLesson = false
     }
     
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        isPlaying = false
         if resumePTAfterENG {
             resumePTAfterENG = false
             playPortuguese(from: currentIndex)   // resume same segment
@@ -533,7 +537,7 @@ struct ContentView: View {
                 Button {
                     audioManager.togglePlayPause()
                 } label: {
-                    Image(systemName: audioManager.isPlayingPT ? "pause.fill" : "play.fill")
+                    Image(systemName: audioManager.isPlaying ? "pause.fill" : "play.fill")
                         .imageScale(.large)
                 }
                 .buttonStyle(MinimalIconButtonStyle())
