@@ -42,8 +42,6 @@ final class LessonStore: ObservableObject {
     }
 }
 
-
-
 // MARK: - Audio Manager
 class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var segments: [Segment] = []

@@ -95,6 +95,11 @@ struct FolderDetailView: View {
     let folder: Folder
     let lessons: [Lesson]
 
+    // Inside FolderDetailView
+    private var folderedLessonIDs: Set<String> {
+        Set(folderStore.folders.flatMap { $0.lessonIDs })
+    }
+    
     // Always use the latest folder state from the store
     private var currentFolder: Folder { folderStore.folders.first(where: { $0.id == folder.id }) ?? folder }
 
@@ -143,7 +148,7 @@ struct FolderDetailView: View {
                     selectedLessonIDs = Set(currentFolder.lessonIDs)
                     showMembersSheet = true
                 } label: {
-                    Label("Add/Remove", systemImage: "plus.minus")
+                    Label("Add/Remove", systemImage: "plusminus")
                 }
                 Button {
                     renameText = currentFolder.name
@@ -166,9 +171,18 @@ struct FolderDetailView: View {
     private var membersSheet: some View {
         NavigationStack {
             List(lessons, id: \._id) { lesson in
-                HStack {
+                let isAlreadyInAFolder = folderedLessonIDs.contains(lesson.id)
+
+                HStack(spacing: 12) {
                     Image(systemName: selectedLessonIDs.contains(lesson.id) ? "checkmark.circle.fill" : "circle")
+                        .imageScale(.large)
+                        .symbolRenderingMode(.hierarchical)
+
                     Text(lesson.title)
+                        .font(.body)
+                        .foregroundStyle(isAlreadyInAFolder ? .orange : .primary)
+
+                    Spacer(minLength: 0) // keep everything left-aligned
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -178,7 +192,11 @@ struct FolderDetailView: View {
                         selectedLessonIDs.insert(lesson.id)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
+            .listStyle(.insetGrouped)
+
             .navigationTitle("Add/Remove Lessons")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -249,13 +267,6 @@ struct LessonSelectionView: View {
                             Label("Folders", systemImage: "folder")
                                 .font(.title3.bold())
                             Spacer()
-                            NavigationLink {
-                                FolderManagerView()
-                                    .environmentObject(folderStore)
-                            } label: {
-                                Label("Manage", systemImage: "slider.horizontal.3")
-                            }
-                            .buttonStyle(.bordered)
                             Button {
                                 newFolderName = ""
                                 selectedLessonIDs = []
@@ -356,22 +367,40 @@ struct LessonSelectionView: View {
                 }
                 Section("Include Lessons") {
                     // Multi-select list of lessons
-                    List(store.lessons, id: \._id, selection: $selectedLessonIDs) { lesson in
-                        HStack {
-                            Image(systemName: selectedLessonIDs.contains(lesson.id) ? "checkmark.circle.fill" : "circle")
-                            Text(lesson.title)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if selectedLessonIDs.contains(lesson.id) {
-                                selectedLessonIDs.remove(lesson.id)
-                            } else {
-                                selectedLessonIDs.insert(lesson.id)
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            ForEach(store.lessons, id: \._id) { lesson in
+                                let isAlreadyInAFolder = folderedLessonIDs.contains(lesson.id)
+
+                                HStack(spacing: 12) {
+                                    Image(systemName: selectedLessonIDs.contains(lesson.id) ? "checkmark.circle.fill" : "circle")
+                                        .imageScale(.large)
+                                        .symbolRenderingMode(.hierarchical)
+
+                                    Text(lesson.title)
+                                        .font(.body)
+                                        .foregroundStyle(isAlreadyInAFolder ? .orange : .primary)
+
+                                    Spacer(minLength: 0)
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    if selectedLessonIDs.contains(lesson.id) {
+                                        selectedLessonIDs.remove(lesson.id)
+                                    } else {
+                                        selectedLessonIDs.insert(lesson.id)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 4)
                             }
                         }
+                        .padding(.vertical, 4)
                     }
-                    .frame(minHeight: 240)
+                    .frame(minHeight: 400) // ⬅️ increase available height for scrolling
                 }
+
             }
             .navigationTitle("New Folder")
             .toolbar {
