@@ -158,9 +158,9 @@ struct FolderDetailView: View {
                 }
             }
         }
-        // Programmatic navigation using NavigationStack
+        // LessonSelectionView
         .navigationDestination(item: $selectedLesson) { lesson in
-            ContentView(selectedLesson: lesson, lessons: lessons)
+            ContentView(selectedLesson: lesson, lessons: lessonsInFolder)
                 .environmentObject(audioManager)
         }
         .sheet(isPresented: $showMembersSheet) { membersSheet }
@@ -350,7 +350,7 @@ struct LessonSelectionView: View {
             }
             // Programmatic lesson navigation
             .navigationDestination(item: $selectedLesson) { lesson in
-                ContentView(selectedLesson: lesson, lessons: store.lessons)
+                ContentView(selectedLesson: lesson, lessons: unfiledLessons)
                     .environmentObject(audioManager)
             }
             .sheet(isPresented: $showingCreateFolder) { createFolderSheet }
