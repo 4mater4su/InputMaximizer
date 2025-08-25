@@ -35,7 +35,6 @@ final class FolderStore: ObservableObject {
             let data = try Data(contentsOf: fileURL)
             folders = try JSONDecoder().decode([Folder].self, from: data)
         } catch {
-            // First run or decode error → start empty
             folders = []
         }
     }
@@ -49,39 +48,72 @@ final class FolderStore: ObservableObject {
         }
     }
 
+    // MARK: - CRUD
     func addFolder(named name: String, lessonIDs: [String]) {
-        let base = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !base.isEmpty else { return }
-        var unique = base
-        var n = 2
-        while folders.contains(where: { $0.name == unique }) {
-            unique = "\(base) \(n)"
-            n += 1
-        }
+        let unique = uniqueName(from: name)
         folders.append(Folder(name: unique, lessonIDs: lessonIDs))
     }
 
-    func remove(_ folder: Folder) {
-        folders.removeAll { $0.id == folder.id }
+    func remove(_ folder: Folder) { folders.removeAll { $0.id == folder.id } }
+
+    func index(of id: UUID) -> Int? { folders.firstIndex { $0.id == id } }
+
+    func move(from source: IndexSet, to destination: Int) { folders.move(fromOffsets: source, toOffset: destination) }
+
+    func rename(id: UUID, to newName: String) {
+        guard var idx = index(of: id) else { return }
+        var f = folders[idx]
+        let proposed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !proposed.isEmpty else { return }
+        f.name = uniqueName(from: proposed, excluding: f.id)
+        folders[idx] = f
+    }
+
+    func setLessonIDs(id: UUID, to lessonIDs: [String]) {
+        guard let idx = index(of: id) else { return }
+        folders[idx].lessonIDs = lessonIDs
+    }
+
+    // MARK: - Helpers
+    private func uniqueName(from baseName: String, excluding id: UUID? = nil) -> String {
+        let base = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !base.isEmpty else { return baseName }
+        var unique = base
+        var n = 2
+        while folders.contains(where: { $0.name == unique && $0.id != id }) {
+            unique = "\(base) \(n)"
+            n += 1
+        }
+        return unique
     }
 }
 
 // MARK: - Folder Detail (NEW)
 struct FolderDetailView: View {
     @EnvironmentObject private var audioManager: AudioManager
+    @EnvironmentObject private var folderStore: FolderStore
     let folder: Folder
     let lessons: [Lesson]
 
-    var lessonsInFolder: [Lesson] {
-        lessons.filter { folder.lessonIDs.contains($0.id) }
+    // Always use the latest folder state from the store
+    private var currentFolder: Folder { folderStore.folders.first(where: { $0.id == folder.id }) ?? folder }
+
+    // Preserve the folder's order for its lessons
+    private var lessonsInFolder: [Lesson] {
+        let ids = currentFolder.lessonIDs
+        return ids.compactMap { id in lessons.first(where: { $0.id == id }) }
     }
 
     @State private var selectedLesson: Lesson?
+    @State private var showMembersSheet = false
+    @State private var showRenameSheet = false
+    @State private var renameText: String = ""
+    @State private var selectedLessonIDs = Set<String>()
 
     var body: some View {
         List {
             if lessonsInFolder.isEmpty {
-                ContentUnavailableView("Empty Folder", systemImage: "folder", description: Text("Add lessons to this folder from the creator sheet."))
+                ContentUnavailableView("Empty Folder", systemImage: "folder", description: Text("Add lessons to this folder using the + Add/Remove button."))
             } else {
                 ForEach(lessonsInFolder) { lesson in
                     Button {
@@ -95,13 +127,92 @@ struct FolderDetailView: View {
                         }
                     }
                 }
+                .onMove { indices, newOffset in
+                    guard let idx = folderStore.index(of: currentFolder.id) else { return }
+                    var ids = folderStore.folders[idx].lessonIDs
+                    ids.move(fromOffsets: indices, toOffset: newOffset)
+                    folderStore.folders[idx].lessonIDs = ids
+                }
             }
         }
-        .navigationTitle(folder.name)
+        .navigationTitle(currentFolder.name)
+        .toolbar {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                EditButton() // enables drag-to-reorder lessons
+                Button {
+                    selectedLessonIDs = Set(currentFolder.lessonIDs)
+                    showMembersSheet = true
+                } label: {
+                    Label("Add/Remove", systemImage: "plus.minus")
+                }
+                Button {
+                    renameText = currentFolder.name
+                    showRenameSheet = true
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+            }
+        }
         // Programmatic navigation using NavigationStack
         .navigationDestination(item: $selectedLesson) { lesson in
             ContentView(selectedLesson: lesson, lessons: lessons)
                 .environmentObject(audioManager)
+        }
+        .sheet(isPresented: $showMembersSheet) { membersSheet }
+        .sheet(isPresented: $showRenameSheet) { renameSheet }
+    }
+
+    // MARK: - Sheets
+    private var membersSheet: some View {
+        NavigationStack {
+            List(lessons, id: \._id) { lesson in
+                HStack {
+                    Image(systemName: selectedLessonIDs.contains(lesson.id) ? "checkmark.circle.fill" : "circle")
+                    Text(lesson.title)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if selectedLessonIDs.contains(lesson.id) {
+                        selectedLessonIDs.remove(lesson.id)
+                    } else {
+                        selectedLessonIDs.insert(lesson.id)
+                    }
+                }
+            }
+            .navigationTitle("Add/Remove Lessons")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showMembersSheet = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        folderStore.setLessonIDs(id: currentFolder.id, to: Array(selectedLessonIDs))
+                        showMembersSheet = false
+                    }
+                }
+            }
+        }
+    }
+
+    private var renameSheet: some View {
+        NavigationStack {
+            Form {
+                TextField("Folder name", text: $renameText)
+                    .textInputAutocapitalization(.words)
+            }
+            .navigationTitle("Rename Folder")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showRenameSheet = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        folderStore.rename(id: currentFolder.id, to: renameText)
+                        showRenameSheet = false
+                    }
+                    .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
         }
     }
 }
@@ -138,6 +249,13 @@ struct LessonSelectionView: View {
                             Label("Folders", systemImage: "folder")
                                 .font(.title3.bold())
                             Spacer()
+                            NavigationLink {
+                                FolderManagerView()
+                                    .environmentObject(folderStore)
+                            } label: {
+                                Label("Manage", systemImage: "slider.horizontal.3")
+                            }
+                            .buttonStyle(.bordered)
                             Button {
                                 newFolderName = ""
                                 selectedLessonIDs = []
@@ -189,7 +307,7 @@ struct LessonSelectionView: View {
                     // Lessons Section (existing)
                     VStack(spacing: 16) {
                         if unfiledLessons.isEmpty {
-                            Text("No unfiled lessons.Everything is already in folders.")
+                            Text("No unfiled lessons. Everything is already in folders.")
                                 .multilineTextAlignment(.center)
                                 .foregroundColor(.secondary)
                                 .padding(.top, 40)
@@ -217,6 +335,7 @@ struct LessonSelectionView: View {
             .navigationDestination(for: Folder.self) { folder in
                 FolderDetailView(folder: folder, lessons: store.lessons)
                     .environmentObject(audioManager)
+                    .environmentObject(folderStore)
             }
             // Programmatic lesson navigation
             .navigationDestination(item: $selectedLesson) { lesson in
@@ -268,6 +387,32 @@ struct LessonSelectionView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Folder Manager (reorder folders)
+struct FolderManagerView: View {
+    @EnvironmentObject private var folderStore: FolderStore
+
+    var body: some View {
+        List {
+            ForEach(folderStore.folders) { folder in
+                HStack {
+                    Image(systemName: "folder.fill")
+                    Text(folder.name)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        folderStore.remove(folder)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+            }
+            .onMove(perform: folderStore.move)
+        }
+        .navigationTitle("Manage Folders")
+        .toolbar { EditButton() }
     }
 }
 
