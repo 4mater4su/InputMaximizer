@@ -25,6 +25,11 @@
     "folderName": "Equilíbrio"
   },
   {
+    "id": "Feldenkrais",
+    "title": "Feldenkrais",
+    "folderName": "Feldenkrais"
+  },
+  {
     "id": "Lappland",
     "title": "Lappland",
     "folderName": "Lappland"
@@ -40,6 +45,16 @@
     "folderName": "Nybegynnersinn"
   },
   {
+    "id": "Núcleo Obsidiano",
+    "title": "Núcleo Obsidiano",
+    "folderName": "Núcleo Obsidiano"
+  },
+  {
+    "id": "Pilates",
+    "title": "Pilates",
+    "folderName": "Pilates"
+  },
+  {
     "id": "Prova dos",
     "title": "Prova dos",
     "folderName": "Prova dos"
@@ -48,6 +63,11 @@
     "id": "Samurai",
     "title": "Samurai",
     "folderName": "Samurai"
+  },
+  {
+    "id": "Sol Meia-Noite",
+    "title": "Sol Meia-Noite",
+    "folderName": "Sol Meia-Noite"
   },
   {
     "id": "Supernova",
