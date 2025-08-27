@@ -9,6 +9,9 @@
 import SwiftUI
 
 struct GeneratorView: View {
+    @EnvironmentObject private var lessonStore: LessonStore
+    @Environment(\.dismiss) private var dismiss   // optional, if you want to auto-close the screen
+    
     // MARK: - State
     @State private var apiKey: String = ""
          // store/retrieve from Keychain in real use
@@ -486,6 +489,11 @@ struct GeneratorView: View {
             list.append(.init(id: lessonID, title: title, folderName: lessonID))
             let out = try JSONEncoder().encode(list)
             try save(out, to: manifestURL)
+            
+            await MainActor.run {
+                lessonStore.load()    // refresh the list without restarting
+                // dismiss()          // <- uncomment if you want to auto-close Generator after success
+            }
 
             status = "Done. Open the lesson list and pull to refresh."
         } catch {

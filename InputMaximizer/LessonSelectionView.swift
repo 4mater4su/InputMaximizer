@@ -347,6 +347,7 @@ struct LessonSelectionView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink("Generator") {
                         GeneratorView()
+                            .environmentObject(store)     // << inject LessonStore
                     }
                 }
             }
@@ -404,6 +405,9 @@ struct LessonSelectionView: View {
                             }
                         }
                         .padding(.vertical, 4)
+                    }
+                    .refreshable {
+                        store.load()
                     }
                     .frame(minHeight: 400) // ⬅️ increase available height for scrolling
                 }
