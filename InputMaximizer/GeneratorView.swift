@@ -14,8 +14,8 @@ struct GeneratorView: View {
     @State private var isBusy = false
     @State private var status = ""
 
-    private var title: String { lessonID }
-    
+    @State private var title: String = ""   // will be filled from the generated PT title
+
     // Random topic source
     private let interests: [String] = [
         // 🌱 Movement / Embodied Practices
@@ -215,8 +215,7 @@ struct GeneratorView: View {
                     .textInputAutocapitalization(.never)
                     .disableAutocorrection(true)
             }
-            Section("Lesson") {
-                TextField("Lesson (ID & Title)", text: $lessonID)
+            Section("Options") {
                 Stepper("Sentences per segment: \(sentencesPerSegment)", value: $sentencesPerSegment, in: 1...3)
             }
 
@@ -238,6 +237,16 @@ struct GeneratorView: View {
 
     struct Seg: Codable { let id:Int; let pt_text:String; let en_text:String; let pt_file:String; let en_file:String }
     struct LessonEntry: Codable, Identifiable, Hashable { let id:String; let title:String; let folderName:String }
+    
+    func slugify(_ input: String) -> String {
+        // remove diacritics, keep alphanumerics, dash, underscore; replace spaces with underscores
+        var s = input.folding(options: .diacriticInsensitive, locale: .current)
+        s = s.replacingOccurrences(of: " ", with: "_")
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        s = String(s.unicodeScalars.filter { allowed.contains($0) })
+        if s.isEmpty { s = "Lesson_" + String(Int(Date().timeIntervalSince1970)) }
+        return s
+    }
 
     func save(_ data: Data, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -246,7 +255,12 @@ struct GeneratorView: View {
 
     func generateTextPT(topic: String) async throws -> String {
         let prompt = """
-        Escreva um texto curto em Português do Brasil, claro e factual, ~150–200 palavras, sobre \(topic). Frases curtas. Inclua 1 detalhe numérico.
+        Escreva um texto curto em Português do Brasil (~150–200 palavras) sobre: \(topic).
+        Regras:
+        1) Primeira linha: apenas o TÍTULO (sem aspas).
+        2) Linha em branco.
+        3) Corpo do texto em frases curtas, claro e factual.
+        4) Inclua exatamente 1 detalhe numérico plausível no corpo.
         """
         let body: [String:Any] = [
             "model": "gpt-4o-mini",
@@ -302,13 +316,35 @@ struct GeneratorView: View {
 
     func generate() async {
         isBusy = true
-            let topic = interests.randomElement() ?? "capoeira rodas ao amanhecer"
-            status = "Generating PT text… Topic: \(topic)"
-            do {
-                // 1) text
-                let pt = try await generateTextPT(topic: topic)
-                status = "Translating to EN… Topic: \(topic)"
-            let en = try await translateToEN(pt)
+        let topic = interests.randomElement() ?? "capoeira rodas ao amanhecer"
+        status = "Generating PT text… Topic: \(topic)"
+        do {
+            // 1) Generate PT (first line = title, then blank, then body)
+            let ptFull = try await generateTextPT(topic: topic)
+
+            // Parse title + body
+            let lines = ptFull.split(separator: "\n", omittingEmptySubsequences: false)
+            let generatedTitle = lines.first.map(String.init)?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                                ?? topic.capitalized
+            let bodyPT = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+
+            // Set title shown in manifest, and folder-safe lessonID
+            self.title = generatedTitle
+            var folder = slugify(generatedTitle)
+
+            // Ensure uniqueness if folder already exists
+            let baseRoot = FileManager.docsLessonsDir
+            var base = baseRoot.appendingPathComponent(folder, isDirectory: true)
+            if (try? base.checkResourceIsReachable()) == true {
+                folder += "_" + String(Int(Date().timeIntervalSince1970))
+                base = baseRoot.appendingPathComponent(folder, isDirectory: true)
+            }
+            self.lessonID = folder
+
+            status = "Translating to EN…\nTítulo: \(generatedTitle)"
+
+            // 2) Translate only the body
+            let en = try await translateToEN(bodyPT)
 
             // 2) segment
             func split(_ txt:String) -> [String] {
@@ -316,14 +352,13 @@ struct GeneratorView: View {
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) + "." }
                     .filter{ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             }
-            let sPT = split(pt)
+            let sPT = split(bodyPT)
             let sEN = split(en)
             let count = min(sPT.count, sEN.count)
             let ptSegs = Array(sPT.prefix(count))
             let enSegs = Array(sEN.prefix(count))
 
             // 3) write files in Documents/Lessons/<lessonID>
-            let base = FileManager.docsLessonsDir.appendingPathComponent(lessonID, isDirectory: true)
             try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
 
             var rows: [Seg] = []
