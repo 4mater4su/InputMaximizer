@@ -10,11 +10,12 @@ import SwiftUI
 struct GeneratorView: View {
     @State private var apiKey: String = ""         // store/retrieve from Keychain in real use
     @State private var lessonID: String = "Lesson001"
-    @State private var title: String = "Lesson 1"
     @State private var sentencesPerSegment = 1
     @State private var isBusy = false
     @State private var status = ""
 
+    private var title: String { lessonID }
+    
     // Random topic source
     private let interests: [String] = [
         // 🌱 Movement / Embodied Practices
@@ -215,10 +216,10 @@ struct GeneratorView: View {
                     .disableAutocorrection(true)
             }
             Section("Lesson") {
-                TextField("Lesson ID (folder)", text: $lessonID)
-                TextField("Title", text: $title)
+                TextField("Lesson (ID & Title)", text: $lessonID)
                 Stepper("Sentences per segment: \(sentencesPerSegment)", value: $sentencesPerSegment, in: 1...3)
             }
+
             Section {
                 Button {
                     Task { await generate() }
