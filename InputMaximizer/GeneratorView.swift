@@ -1,3 +1,4 @@
+
 //
 //  GeneratorView.swift
 //  InputMaximizer
@@ -8,15 +9,27 @@
 import SwiftUI
 
 struct GeneratorView: View {
-    @State private var apiKey: String = ""         // store/retrieve from Keychain in real use
-    @State private var lessonID: String = "Lesson001"
+    // MARK: - State
+    @State private var apiKey: String = ""
+         // store/retrieve from Keychain in real use
     @State private var sentencesPerSegment = 1
     @State private var isBusy = false
     @State private var status = ""
 
-    @State private var title: String = ""   // will be filled from the generated PT title
+    // Auto-filled from model output
+    @State private var lessonID: String = "Lesson001"
+    @State private var title: String = ""          // filled from generated PT title
 
-    // Random topic source
+    // Modes
+    enum GenerationMode: String, CaseIterable, Identifiable {
+        case random = "Random"
+        case prompt = "Prompt"
+        var id: String { rawValue }
+    }
+    @State private var mode: GenerationMode = .random
+    @State private var userPrompt: String = ""
+
+    // MARK: - Random topic source
     private let interests: [String] = [
         // 🌱 Movement / Embodied Practices
         "capoeira rodas ao amanhecer",
@@ -207,7 +220,8 @@ struct GeneratorView: View {
         "rituais elementares recriados em desertos",
         "diários de viagem em cidades que lembram a Ba Sing Se"
     ]
-    
+
+    // MARK: - UI
     var body: some View {
         Form {
             Section("OpenAI") {
@@ -215,6 +229,27 @@ struct GeneratorView: View {
                     .textInputAutocapitalization(.never)
                     .disableAutocorrection(true)
             }
+
+            Section("Mode") {
+                Picker("Generation Mode", selection: $mode) {
+                    ForEach(GenerationMode.allCases) { m in
+                        Text(m.rawValue).tag(m)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            if mode == .prompt {
+                Section("Prompt") {
+                    TextEditor(text: $userPrompt)
+                        .frame(minHeight: 120)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
+                        .padding(.vertical, 2)
+                    Text("Describe instructions, a theme, or paste a source text.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+
             Section("Options") {
                 Stepper("Sentences per segment: \(sentencesPerSegment)", value: $sentencesPerSegment, in: 1...3)
             }
@@ -228,16 +263,18 @@ struct GeneratorView: View {
                         Text(isBusy ? "Generating..." : "Generate Lesson")
                     }
                 }
-                .disabled(apiKey.isEmpty || isBusy)
+                .disabled(apiKey.isEmpty || isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty))
                 if !status.isEmpty { Text(status).font(.footnote).foregroundStyle(.secondary) }
             }
         }
         .navigationTitle("Generator")
     }
 
+    // MARK: - Models
     struct Seg: Codable { let id:Int; let pt_text:String; let en_text:String; let pt_file:String; let en_file:String }
     struct LessonEntry: Codable, Identifiable, Hashable { let id:String; let title:String; let folderName:String }
-    
+
+    // MARK: - Utils
     func slugify(_ input: String) -> String {
         // remove diacritics, keep alphanumerics, dash, underscore; replace spaces with underscores
         var s = input.folding(options: .diacriticInsensitive, locale: .current)
@@ -253,6 +290,7 @@ struct GeneratorView: View {
         try data.write(to: url, options: .atomic)
     }
 
+    // MARK: - LLM prompts
     func generateTextPT(topic: String) async throws -> String {
         let prompt = """
         Escreva um texto curto em Português do Brasil (~150–200 palavras) sobre: \(topic).
@@ -266,6 +304,31 @@ struct GeneratorView: View {
             "model": "gpt-4o-mini",
             "messages": [
                 ["role":"system","content":"Seja claro e concreto."],
+                ["role":"user","content": prompt]
+            ],
+            "temperature": 0.7
+        ]
+        return try await chat(body: body)
+    }
+
+    func generateTextPT(fromPrompt promptText: String) async throws -> String {
+        let prompt = """
+        Você receberá um input do usuário que pode conter instruções, um tema ou até um texto-fonte.
+        Escreva um texto curto em Português do Brasil (~150–200 palavras).
+
+        Regras:
+        1) Primeira linha: apenas o TÍTULO (sem aspas).
+        2) Linha em branco.
+        3) Corpo do texto com frases curtas, claro e factual.
+        4) Inclua exatamente 1 detalhe numérico plausível no corpo.
+
+        Input do usuário:
+        \(promptText)
+        """
+        let body: [String:Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role":"system","content":"Siga o input do usuário, seja claro e concreto."],
                 ["role":"user","content": prompt]
             ],
             "temperature": 0.7
@@ -292,7 +355,7 @@ struct GeneratorView: View {
         let (data, _) = try await URLSession.shared.data(for: req)
         let j = try JSONSerialization.jsonObject(with: data) as! [String:Any]
         let content = (((j["choices"] as? [[String:Any]])?.first?["message"] as? [String:Any])?["content"] as? String) ?? ""
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
     }
 
     func tts(_ text:String, filename:String, folder:URL) async throws -> URL {
@@ -314,25 +377,41 @@ struct GeneratorView: View {
         return out
     }
 
+    // MARK: - Generate
     func generate() async {
         isBusy = true
-        let topic = interests.randomElement() ?? "capoeira rodas ao amanhecer"
-        status = "Generating PT text… Topic: \(topic)"
+        defer { isBusy = false }
+
         do {
-            // 1) Generate PT (first line = title, then blank, then body)
-            let ptFull = try await generateTextPT(topic: topic)
+            // 1) Build PT text (title + body) depending on mode
+            let ptFull: String
+            switch mode {
+            case .random:
+                let topic = interests.randomElement() ?? "capoeira rodas ao amanhecer"
+                status = "Generating PT text… (Random)\nTopic: \(topic)"
+                ptFull = try await generateTextPT(topic: topic)
+            case .prompt:
+                let cleaned = userPrompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                guard !cleaned.isEmpty else {
+                    status = "Please enter a prompt."
+                    return
+                }
+                status = "Generating PT text… (Prompt)"
+                ptFull = try await generateTextPT(fromPrompt: cleaned)
+            }
 
-            // Parse title + body
+            // 2) Parse title + body from the model output
             let lines = ptFull.split(separator: "\n", omittingEmptySubsequences: false)
-            let generatedTitle = lines.first.map(String.init)?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                                ?? topic.capitalized
-            let bodyPT = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            let generatedTitle = lines.first.map(String.init)?
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                ?? "Sem Título"
+            let bodyPT = lines.dropFirst().joined(separator: "\n")
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
-            // Set title shown in manifest, and folder-safe lessonID
+            // 3) Title/ID + unique folder from title
             self.title = generatedTitle
             var folder = slugify(generatedTitle)
 
-            // Ensure uniqueness if folder already exists
             let baseRoot = FileManager.docsLessonsDir
             var base = baseRoot.appendingPathComponent(folder, isDirectory: true)
             if (try? base.checkResourceIsReachable()) == true {
@@ -343,22 +422,39 @@ struct GeneratorView: View {
 
             status = "Translating to EN…\nTítulo: \(generatedTitle)"
 
-            // 2) Translate only the body
+            // 4) Translate only the body
             let en = try await translateToEN(bodyPT)
 
-            // 2) segment
-            func split(_ txt:String) -> [String] {
+            // 5) Segment: chunk into groups of N sentences
+            func sentences(_ txt: String) -> [String] {
                 txt.split(whereSeparator: { ".!?".contains($0) })
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) + "." }
-                    .filter{ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .map { s in
+                        if s.hasSuffix(".") || s.hasSuffix("!") || s.hasSuffix("?") { return s }
+                        return s + "."
+                    }
             }
-            let sPT = split(bodyPT)
-            let sEN = split(en)
-            let count = min(sPT.count, sEN.count)
-            let ptSegs = Array(sPT.prefix(count))
-            let enSegs = Array(sEN.prefix(count))
+            func chunk<T>(_ array: [T], size: Int) -> [[T]] {
+                guard size > 0 else { return [] }
+                return stride(from: 0, to: array.count, by: size).map { i in
+                    Array(array[i..<min(i + size, array.count)])
+                }
+            }
 
-            // 3) write files in Documents/Lessons/<lessonID>
+            let sentPT = sentences(bodyPT)
+            let sentEN = sentences(en)
+
+            let segsPT: [String] = chunk(sentPT, size: sentencesPerSegment).map { $0.joined(separator: " ") }
+            let segsEN: [String] = chunk(sentEN, size: sentencesPerSegment).map { $0.joined(separator: " ") }
+
+            let count = min(segsPT.count, segsEN.count)
+            let ptSegs = Array(segsPT.prefix(count))
+            let enSegs = Array(segsEN.prefix(count))
+
+            status = "Preparing audio… \(count) segments × \(sentencesPerSegment) sentences"
+
+            // 6) Create folder and TTS
             try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
 
             var rows: [Seg] = []
@@ -374,18 +470,18 @@ struct GeneratorView: View {
                 rows.append(.init(id: i+1, pt_text: ptSegs[i], en_text: enSegs[i], pt_file: ptFile, en_file: enFile))
             }
 
-            // 4) segments_<lesson>.json
+            // 7) segments_<lesson>.json
             let segJSON = base.appendingPathComponent("segments_\(lessonID).json")
             let segData = try JSONEncoder().encode(rows)
             try save(segData, to: segJSON)
 
-            // 5) update lessons.json in Documents
+            // 8) update lessons.json in Documents
             struct Manifest: Codable { var id:String; var title:String; var folderName:String }
             let manifestURL = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
             var list: [Manifest] = []
             if let d = try? Data(contentsOf: manifestURL) {
                 list = (try? JSONDecoder().decode([Manifest].self, from: d)) ?? []
-                list.removeAll{ $0.id == lessonID }
+                list.removeAll { $0.id == lessonID }
             }
             list.append(.init(id: lessonID, title: title, folderName: lessonID))
             let out = try JSONEncoder().encode(list)
@@ -395,6 +491,6 @@ struct GeneratorView: View {
         } catch {
             status = "Error: \(error.localizedDescription)"
         }
-        isBusy = false
     }
+
 }
