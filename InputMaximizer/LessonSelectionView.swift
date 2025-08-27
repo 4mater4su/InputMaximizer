@@ -343,6 +343,13 @@ struct LessonSelectionView: View {
                 .padding()
             }
             .navigationTitle("Select a Lesson")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    NavigationLink("Generator") {
+                        GeneratorView()
+                    }
+                }
+            }
             .navigationDestination(for: Folder.self) { folder in
                 FolderDetailView(folder: folder, lessons: store.lessons)
                     .environmentObject(audioManager)

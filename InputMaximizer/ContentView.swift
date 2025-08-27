@@ -23,24 +23,31 @@ final class LessonStore: ObservableObject {
     init() { load() }
 
     func load() {
-        // Try subdirectory first (nice to have), then anywhere
-        if let url = Bundle.main.url(forResource: "lessons", withExtension: "json", subdirectory: "Lessons")
-            ?? (Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? [])
-                .first(where: { $0.lastPathComponent == "lessons.json" }) {
+        FileManager.ensureLessonsDir()
+        let docsJSON = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
+        let candidateURLs: [URL?] = [
+            FileManager.default.fileExists(atPath: docsJSON.path) ? docsJSON : nil,
+            Bundle.main.url(forResource: "lessons", withExtension: "json", subdirectory: "Lessons"),
+            (Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? [])
+                .first(where: { $0.lastPathComponent == "lessons.json" })
+        ]
 
-            do {
-                let data = try Data(contentsOf: url)
-                lessons = try JSONDecoder().decode([Lesson].self, from: data)
-            } catch {
-                print("Failed to decode lessons.json: \(error)")
-                lessons = []
-            }
-        } else {
-            print("lessons.json not found in app bundle.")
+        guard let url = candidateURLs.compactMap({ $0 }).first else {
+            print("lessons.json not found.")
+            lessons = []
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: url)
+            lessons = try JSONDecoder().decode([Lesson].self, from: data)
+        } catch {
+            print("Failed to decode lessons.json: \(error)")
             lessons = []
         }
     }
 }
+
 
 // MARK: - Audio Manager
 class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
@@ -176,18 +183,25 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + segmentDelay, execute: work)
     }
     
-    // Helper: find a resource anywhere in the bundle by exact filename
+    // Helper: find a resource anywhere in the documents and bundle by exact filename
     private func findResource(named filename: String) -> URL? {
+        // 1) Documents/Lessons/<any subfolder>/filename
+        let docs = FileManager.docsLessonsDir
+        if let enumerator = FileManager.default.enumerator(at: docs, includingPropertiesForKeys: nil) {
+            for case let url as URL in enumerator where url.lastPathComponent == filename {
+                return url
+            }
+        }
+        // 2) Bundle by name
         let parts = (filename as NSString).deletingPathExtension
         let ext   = (filename as NSString).pathExtension
-        if !ext.isEmpty, let url = Bundle.main.url(forResource: parts, withExtension: ext) {
-            return url
-        }
-        // Fallback: enumerate all files with the same extension and match lastPathComponent
+        if !ext.isEmpty, let url = Bundle.main.url(forResource: parts, withExtension: ext) { return url }
+        // 3) Bundle fallback by scanning
         let extToUse = ext.isEmpty ? nil : ext
         let urls = Bundle.main.urls(forResourcesWithExtension: extToUse, subdirectory: nil) ?? []
         return urls.first { $0.lastPathComponent == filename }
     }
+
 
     // Load segments by filename only
     func loadLesson(folderName: String, lessonTitle: String) {
