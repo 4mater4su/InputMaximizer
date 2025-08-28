@@ -23,6 +23,19 @@ struct GeneratorView: View {
     @State private var lessonID: String = "Lesson001"
     @State private var title: String = ""          // filled from generated PT title
 
+    @State private var genLanguage: String = "Português do Brasil"
+    @State private var transLanguage: String = "English"
+    @State private var wordCount: Int = 180
+    
+    private let supportedLanguages: [String] = [
+        "Afrikaans","Arabic","Armenian","Azerbaijani","Belarusian","Bosnian","Bulgarian","Catalan","Chinese","Croatian",
+        "Czech","Danish","Dutch","English","Estonian","Finnish","French","Galician","German","Greek","Hebrew","Hindi",
+        "Hungarian","Icelandic","Indonesian","Italian","Japanese","Kannada","Kazakh","Korean","Latvian","Lithuanian",
+        "Macedonian","Malay","Marathi","Maori","Nepali","Norwegian","Persian","Polish","Portuguese","Romanian","Russian",
+        "Serbian","Slovak","Slovenian","Spanish","Swahili","Swedish","Tagalog","Tamil","Thai","Turkish","Ukrainian",
+        "Urdu","Vietnamese","Welsh"
+    ]
+    
     // Modes
     enum GenerationMode: String, CaseIterable, Identifiable {
         case random = "Random"
@@ -255,6 +268,18 @@ struct GeneratorView: View {
 
             Section("Options") {
                 Stepper("Sentences per segment: \(sentencesPerSegment)", value: $sentencesPerSegment, in: 1...3)
+
+                Stepper("Approx. words: \(wordCount)", value: $wordCount, in: 50...1000, step: 50)
+
+                Picker("Generate in", selection: $genLanguage) {
+                    ForEach(supportedLanguages, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.menu)
+
+                Picker("Translate to", selection: $transLanguage) {
+                    ForEach(supportedLanguages, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.menu)
             }
 
             Section {
@@ -294,19 +319,20 @@ struct GeneratorView: View {
     }
 
     // MARK: - LLM prompts
-    func generateTextPT(topic: String) async throws -> String {
+    func generateText(topic: String, targetLang: String, wordCount: Int) async throws -> String {
         let prompt = """
-        Escreva um texto curto em Português do Brasil (~150–200 palavras) sobre: \(topic).
-        Regras:
-        1) Primeira linha: apenas o TÍTULO (sem aspas).
-        2) Linha em branco.
-        3) Corpo do texto em frases curtas, claro e factual.
-        4) Inclua exatamente 1 detalhe numérico plausível no corpo.
+        Write a short, clear, factual text (~\(wordCount) words) in \(targetLang) about: \(topic).
+
+        Rules:
+        1) First line: TITLE only (no quotes).
+        2) Blank line.
+        3) Body in short sentences.
+        4) Include exactly one plausible numeric detail in the body.
         """
         let body: [String:Any] = [
             "model": "gpt-4o-mini",
             "messages": [
-                ["role":"system","content":"Seja claro e concreto."],
+                ["role":"system","content":"Be clear, concrete, and factual."],
                 ["role":"user","content": prompt]
             ],
             "temperature": 0.7
@@ -314,24 +340,23 @@ struct GeneratorView: View {
         return try await chat(body: body)
     }
 
-    func generateTextPT(fromPrompt promptText: String) async throws -> String {
+    func generateText(fromPrompt promptText: String, targetLang: String, wordCount: Int) async throws -> String {
         let prompt = """
-        Você receberá um input do usuário que pode conter instruções, um tema ou até um texto-fonte.
-        Escreva um texto curto em Português do Brasil (~150–200 palavras).
+        The user will provide instructions, a theme, or even a source text. Write a short, clear, factual text (~\(wordCount) words) in \(targetLang).
 
-        Regras:
-        1) Primeira linha: apenas o TÍTULO (sem aspas).
-        2) Linha em branco.
-        3) Corpo do texto com frases curtas, claro e factual.
-        4) Inclua exatamente 1 detalhe numérico plausível no corpo.
+        Rules:
+        1) First line: TITLE only (no quotes).
+        2) Blank line.
+        3) Body in short sentences.
+        4) Include exactly one plausible numeric detail in the body.
 
-        Input do usuário:
+        User input:
         \(promptText)
         """
         let body: [String:Any] = [
             "model": "gpt-4o-mini",
             "messages": [
-                ["role":"system","content":"Siga o input do usuário, seja claro e concreto."],
+                ["role":"system","content":"Follow the user's input. Be clear, concrete, and factual."],
                 ["role":"user","content": prompt]
             ],
             "temperature": 0.7
@@ -339,10 +364,14 @@ struct GeneratorView: View {
         return try await chat(body: body)
     }
 
-    func translateToEN(_ pt:String) async throws -> String {
+
+    func translate(_ text: String, to targetLang: String) async throws -> String {
         let body: [String:Any] = [
             "model":"gpt-5-nano",
-            "messages":[["role":"user","content":"Translate to natural English:\n\n\(pt)"]],
+            "messages":[
+                ["role":"system","content":"Translate naturally and idiomatically."],
+                ["role":"user","content":"Translate into \(targetLang):\n\n\(text)"]
+            ],
             "temperature": 1.0
         ]
         return try await chat(body: body)
@@ -380,38 +409,42 @@ struct GeneratorView: View {
         return out
     }
 
+    func languageSlug(_ name: String) -> String {
+        let s = slugify(name).lowercased()
+        // keep it short but unique-ish
+        return String(s.prefix(6))   // e.g., "portug", "englis", "deutsc"
+    }
+    
     // MARK: - Generate
     func generate() async {
         isBusy = true
         defer { isBusy = false }
 
         do {
-            // 1) Build PT text (title + body) depending on mode
-            let ptFull: String
+            // 1) Build text (title + body) depending on mode
+            let fullText: String
             switch mode {
             case .random:
                 let topic = interests.randomElement() ?? "capoeira rodas ao amanhecer"
-                status = "Generating PT text… (Random)\nTopic: \(topic)"
-                ptFull = try await generateTextPT(topic: topic)
+                status = "Generating… (Random)\nTopic: \(topic)\nLang: \(genLanguage) • ~\(wordCount) words"
+                fullText = try await generateText(topic: topic, targetLang: genLanguage, wordCount: wordCount)
             case .prompt:
-                let cleaned = userPrompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                guard !cleaned.isEmpty else {
-                    status = "Please enter a prompt."
-                    return
-                }
-                status = "Generating PT text… (Prompt)"
-                ptFull = try await generateTextPT(fromPrompt: cleaned)
+                let cleaned = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cleaned.isEmpty else { status = "Please enter a prompt."; return }
+                status = "Generating… (Prompt)\nLang: \(genLanguage) • ~\(wordCount) words"
+                fullText = try await generateText(fromPrompt: cleaned, targetLang: genLanguage, wordCount: wordCount)
             }
 
-            // 2) Parse title + body from the model output
-            let lines = ptFull.split(separator: "\n", omittingEmptySubsequences: false)
-            let generatedTitle = lines.first.map(String.init)?
-                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                ?? "Sem Título"
-            let bodyPT = lines.dropFirst().joined(separator: "\n")
-                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
-            // 3) Title/ID + unique folder from title
+            // 2) Parse title + body from the model output
+            // Parse title + body from the model output
+            let lines = fullText.split(separator: "\n", omittingEmptySubsequences: false)
+            let generatedTitle = lines.first.map(String.init)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? "Sem Título"
+            let bodyPrimary = lines.dropFirst().joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
             self.title = generatedTitle
             var folder = slugify(generatedTitle)
 
@@ -423,10 +456,16 @@ struct GeneratorView: View {
             }
             self.lessonID = folder
 
-            status = "Translating to EN…\nTítulo: \(generatedTitle)"
+            status = "Translating to \(transLanguage)…\nTítulo: \(generatedTitle)"
 
-            // 4) Translate only the body
-            let en = try await translateToEN(bodyPT)
+            // Avoid translating into the same language
+            let secondaryText: String
+            if genLanguage.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                == transLanguage.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
+                secondaryText = bodyPrimary
+            } else {
+                secondaryText = try await translate(bodyPrimary, to: transLanguage)
+            }
 
             // 5) Segment: chunk into groups of N sentences
             func sentences(_ txt: String) -> [String] {
@@ -445,15 +484,15 @@ struct GeneratorView: View {
                 }
             }
 
-            let sentPT = sentences(bodyPT)
-            let sentEN = sentences(en)
+            let sentPrimary = sentences(bodyPrimary)
+            let sentSecondary = sentences(secondaryText)
 
-            let segsPT: [String] = chunk(sentPT, size: sentencesPerSegment).map { $0.joined(separator: " ") }
-            let segsEN: [String] = chunk(sentEN, size: sentencesPerSegment).map { $0.joined(separator: " ") }
+            let segsPrimary: [String] = chunk(sentPrimary, size: sentencesPerSegment).map { $0.joined(separator: " ") }
+            let segsSecondary: [String] = chunk(sentSecondary, size: sentencesPerSegment).map { $0.joined(separator: " ") }
 
-            let count = min(segsPT.count, segsEN.count)
-            let ptSegs = Array(segsPT.prefix(count))
-            let enSegs = Array(segsEN.prefix(count))
+            let count = min(segsPrimary.count, segsSecondary.count)
+            let ptSegs = Array(segsPrimary.prefix(count))
+            let enSegs = Array(segsSecondary.prefix(count))
 
             status = "Preparing audio… \(count) segments × \(sentencesPerSegment) sentences"
 
@@ -461,13 +500,17 @@ struct GeneratorView: View {
             try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
 
             var rows: [Seg] = []
+            
+            let src = languageSlug(genLanguage)
+            let dst = languageSlug(transLanguage)
+
             for i in 0..<count {
-                status = "TTS \(i+1)/\(count) PT…"
-                let ptFile = "pt_\(lessonID)_\(i+1).mp3"
+                status = "TTS \(i+1)/\(count) \(genLanguage)…"
+                let ptFile = "\(src)_\(lessonID)_\(i+1).mp3"
                 _ = try await tts(ptSegs[i], filename: ptFile, folder: base)
 
-                status = "TTS \(i+1)/\(count) EN…"
-                let enFile = "en_\(lessonID)_\(i+1).mp3"
+                status = "TTS \(i+1)/\(count) \(transLanguage)…"
+                let enFile = "\(dst)_\(lessonID)_\(i+1).mp3"
                 _ = try await tts(enSegs[i], filename: enFile, folder: base)
 
                 rows.append(.init(id: i+1, pt_text: ptSegs[i], en_text: enSegs[i], pt_file: ptFile, en_file: enFile))
