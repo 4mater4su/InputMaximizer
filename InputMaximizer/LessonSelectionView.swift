@@ -88,8 +88,21 @@ final class FolderStore: ObservableObject {
     }
 }
 
+extension FolderStore {
+    /// Remove a lesson id from every folder (persisted via @Published didSet).
+    func removeLessonFromAllFolders(_ lessonID: String) {
+        for i in folders.indices {
+            folders[i].lessonIDs.removeAll { $0 == lessonID }
+        }
+    }
+}
+
 // MARK: - Folder Detail (NEW)
 struct FolderDetailView: View {
+    @EnvironmentObject private var store: LessonStore
+    @State private var lessonToDelete: Lesson?
+    @State private var showDeleteConfirm = false
+    
     @EnvironmentObject private var audioManager: AudioManager
     @EnvironmentObject private var folderStore: FolderStore
     let folder: Folder
@@ -127,8 +140,29 @@ struct FolderDetailView: View {
                     } label: {
                         HStack {
                             Image(systemName: "book")
-                            Text(lesson.title)
-                                .font(.headline)
+                            Text(lesson.title).font(.headline)
+                        }
+                    }
+                    .swipeActions(edge: .trailing) {
+                        // Remove from this folder only
+                        Button {
+                            if let idx = folderStore.index(of: currentFolder.id) {
+                                var ids = folderStore.folders[idx].lessonIDs
+                                ids.removeAll { $0 == lesson.id }
+                                folderStore.folders[idx].lessonIDs = ids
+                            }
+                        } label: {
+                            Label("Remove", systemImage: "minus.circle")
+                        }
+
+                        // Delete from device (all folders)
+                        if store.isDeletable(lesson) {
+                            Button(role: .destructive) {
+                                lessonToDelete = lesson
+                                showDeleteConfirm = true
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         }
                     }
                 }
@@ -165,6 +199,21 @@ struct FolderDetailView: View {
         }
         .sheet(isPresented: $showMembersSheet) { membersSheet }
         .sheet(isPresented: $showRenameSheet) { renameSheet }
+        .alert("Delete lesson?", isPresented: $showDeleteConfirm, presenting: lessonToDelete) { lesson in
+            Button("Delete", role: .destructive) {
+                audioManager.stop()
+                do {
+                    try store.deleteLesson(id: lesson.id)
+                    folderStore.removeLessonFromAllFolders(lesson.id)
+                    store.load()
+                } catch {
+                    print("Delete failed: \(error)")
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { lesson in
+            Text("“\(lesson.title)” will be removed from your device.")
+        }
     }
 
     // MARK: - Sheets
@@ -237,9 +286,14 @@ struct FolderDetailView: View {
 
 // MARK: - LessonSelectionView (UPDATED)
 struct LessonSelectionView: View {
+    @State private var lessonToDelete: Lesson?
+    @State private var showDeleteConfirm = false
+    
     @EnvironmentObject private var audioManager: AudioManager
-    @StateObject private var store = LessonStore()
-    @StateObject private var folderStore = FolderStore()
+
+    @EnvironmentObject private var store: LessonStore
+    @EnvironmentObject private var folderStore: FolderStore
+
 
     @State private var selectedLesson: Lesson?
 
@@ -336,6 +390,17 @@ struct LessonSelectionView: View {
                                         .cornerRadius(12)
                                 }
                                 .buttonStyle(.plain)
+                                .contextMenu {
+                                    // Only offer delete if it exists in Documents/Lessons (device-generated)
+                                    if store.isDeletable(lesson) {
+                                        Button(role: .destructive) {
+                                            lessonToDelete = lesson
+                                            showDeleteConfirm = true
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -362,6 +427,21 @@ struct LessonSelectionView: View {
                     .environmentObject(audioManager)
             }
             .sheet(isPresented: $showingCreateFolder) { createFolderSheet }
+            .alert("Delete lesson?", isPresented: $showDeleteConfirm, presenting: lessonToDelete) { lesson in
+                Button("Delete", role: .destructive) {
+                    audioManager.stop()
+                    do {
+                        try store.deleteLesson(id: lesson.id)
+                        folderStore.removeLessonFromAllFolders(lesson.id)
+                        store.load() // refresh immediately
+                    } catch {
+                        print("Delete failed: \(error)")
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { lesson in
+                Text("“\(lesson.title)” will be removed from your device.")
+            }
         }
     }
 

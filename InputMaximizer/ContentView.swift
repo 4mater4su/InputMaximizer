@@ -48,6 +48,41 @@ final class LessonStore: ObservableObject {
     }
 }
 
+// MARK: - Deletion / Persistence helpers
+extension LessonStore {
+    private var docsLessonsJSONURL: URL {
+        FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
+    }
+
+    /// Persist the current in-memory list to Documents/Lessons/lessons.json
+    private func saveListToDisk() throws {
+        try FileManager.default.createDirectory(at: FileManager.docsLessonsDir, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(lessons)
+        try data.write(to: docsLessonsJSONURL, options: .atomic)
+    }
+
+    /// Can we delete this lesson from device? (Only if its folder exists in Documents.)
+    func isDeletable(_ lesson: Lesson) -> Bool {
+        let folderURL = FileManager.docsLessonsDir.appendingPathComponent(lesson.folderName, isDirectory: true)
+        return FileManager.default.fileExists(atPath: folderURL.path)
+    }
+
+    /// Delete lesson folder + remove from lessons.json (Documents only).
+    func deleteLesson(id: String) throws {
+        guard let idx = lessons.firstIndex(where: { $0.id == id }) else { return }
+        let lesson = lessons[idx]
+
+        // Remove files under Documents/Lessons/<folderName> if present
+        let folderURL = FileManager.docsLessonsDir.appendingPathComponent(lesson.folderName, isDirectory: true)
+        if FileManager.default.fileExists(atPath: folderURL.path) {
+            try FileManager.default.removeItem(at: folderURL)
+        }
+
+        // Remove from in-memory list and persist
+        lessons.remove(at: idx)
+        try saveListToDisk()
+    }
+}
 
 // MARK: - Audio Manager
 class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {

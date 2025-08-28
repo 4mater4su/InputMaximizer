@@ -23,7 +23,7 @@ struct GeneratorView: View {
     @State private var lessonID: String = "Lesson001"
     @State private var title: String = ""          // filled from generated PT title
 
-    @State private var genLanguage: String = "Português do Brasil"
+    @State private var genLanguage: String = "Portuguese"
     @State private var transLanguage: String = "English"
     @State private var wordCount: Int = 180
     
@@ -317,6 +317,15 @@ struct GeneratorView: View {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
     }
+    
+    /// If the title is ALL CAPS, convert it to Title Case (locale-aware).
+    func normalizeTitleCaseIfAllCaps(_ s: String) -> String {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return t }
+        let letters = t.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        let isAllCaps = !letters.isEmpty && letters.allSatisfy { CharacterSet.uppercaseLetters.contains($0) }
+        return isAllCaps ? t.lowercased(with: .current).capitalized(with: .current) : t
+    }
 
     // MARK: - LLM prompts
     func generateText(topic: String, targetLang: String, wordCount: Int) async throws -> String {
@@ -439,9 +448,10 @@ struct GeneratorView: View {
             // 2) Parse title + body from the model output
             // Parse title + body from the model output
             let lines = fullText.split(separator: "\n", omittingEmptySubsequences: false)
-            let generatedTitle = lines.first.map(String.init)?
+            let rawTitle = lines.first.map(String.init)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 ?? "Sem Título"
+            let generatedTitle = normalizeTitleCaseIfAllCaps(rawTitle)
             let bodyPrimary = lines.dropFirst().joined(separator: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
