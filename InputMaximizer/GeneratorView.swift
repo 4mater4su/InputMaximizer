@@ -318,7 +318,16 @@ struct GeneratorView: View {
     }
 
     // MARK: - Models
-    struct Seg: Codable { let id:Int; let pt_text:String; let en_text:String; let pt_file:String; let en_file:String }
+    // MARK: - Models
+    struct Seg: Codable {
+        let id: Int
+        let pt_text: String
+        let en_text: String
+        let pt_file: String
+        let en_file: String
+        let paragraph: Int?
+    }
+    
     struct LessonEntry: Codable, Identifiable, Hashable { let id:String; let title:String; let folderName:String }
 
     // MARK: - Utils
@@ -374,8 +383,8 @@ struct GeneratorView: View {
         You are a prompt refiner. Transform the user's instruction into a higher-quality writing prompt
         that will produce text that is interesting, thought-provoking, challenging, and beautiful.
 
-        Keep the user's original intent and any named entities or required references intact
-        (e.g., Rickson Gracie, Iemanjá). Preserve any explicit form (essay/letter/poem), topic,
+        Keep the user's original intent and any named entities or required references intact.
+        Preserve any explicit form (essay/letter/poem), topic,
         constraints (tone, language = \(targetLang), length ≈ \(wordCount) words), and outputs needed.
 
         Elevate the request by:
@@ -555,6 +564,12 @@ struct GeneratorView: View {
                         return s + "."
                     }
             }
+            
+            func sentencesPerParagraph(_ txt: String) -> [Int] {
+                let ps = paragraphs(txt)
+                return ps.map { sentences($0).count }
+            }
+            
             func chunk<T>(_ array: [T], size: Int) -> [[T]] {
                 guard size > 0 else { return [] }
                 return stride(from: 0, to: array.count, by: size).map { i in
@@ -562,25 +577,51 @@ struct GeneratorView: View {
                 }
             }
 
-            let segsPrimary: [String]
-            let segsSecondary: [String]
+            // Right before switch:
+            var segsPrimary: [String] = []
+            var segsSecondary: [String] = []
+            var segmentParagraphIndex: [Int] = []   // <-- Declare once
 
             switch segmentation {
             case .sentences:
                 let sentPrimary = sentences(bodyPrimary)
                 let sentSecondary = sentences(secondaryText)
+
                 let pChunks = chunk(sentPrimary, size: sentencesPerSegment).map { $0.joined(separator: " ") }
                 let sChunks = chunk(sentSecondary, size: sentencesPerSegment).map { $0.joined(separator: " ") }
                 let count = min(pChunks.count, sChunks.count)
+
                 segsPrimary = Array(pChunks.prefix(count))
                 segsSecondary = Array(sChunks.prefix(count))
+
+                // Compute paragraph index for each segment
+                let perPara = sentencesPerParagraph(bodyPrimary) // [3,2,4] etc.
+                var sentToPara: [Int:Int] = [:]
+                var running = 0
+                for (pIdx, c) in perPara.enumerated() {
+                    for s in running ..< running + c {
+                        sentToPara[s] = pIdx
+                    }
+                    running += c
+                }
+                segmentParagraphIndex = (0..<count).map { seg in
+                    let firstSentenceIndex = seg * sentencesPerSegment
+                    return sentToPara[firstSentenceIndex] ?? 0
+                }
+
                 status = "Preparing audio… \(segsPrimary.count) segments × \(sentencesPerSegment) sentences"
+
             case .paragraphs:
                 let pParas = paragraphs(bodyPrimary)
                 let sParas = paragraphs(secondaryText)
                 let count = min(pParas.count, sParas.count)
+
                 segsPrimary = Array(pParas.prefix(count))
                 segsSecondary = Array(sParas.prefix(count))
+
+                // In paragraph mode each seg *is* a paragraph
+                segmentParagraphIndex = Array(0..<count)
+
                 status = "Preparing audio… \(segsPrimary.count) paragraph segments"
             }
 
@@ -605,7 +646,14 @@ struct GeneratorView: View {
                 let enFile = "\(dst)_\(lessonID)_\(i+1).mp3"
                 _ = try await tts(enSegs[i], filename: enFile, folder: base)
 
-                rows.append(.init(id: i+1, pt_text: ptSegs[i], en_text: enSegs[i], pt_file: ptFile, en_file: enFile))
+                rows.append(.init(
+                    id: i+1,
+                    pt_text: segsPrimary[i],
+                    en_text: segsSecondary[i],
+                    pt_file: ptFile,
+                    en_file: enFile,
+                    paragraph: segmentParagraphIndex[i]
+                ))
             }
 
             // 7) segments_<lesson>.json

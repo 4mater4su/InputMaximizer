@@ -9,6 +9,9 @@ struct Segment: Codable, Identifiable {
     let en_text: String
     let pt_file: String
     let en_file: String
+    
+    /// 0-based paragraph index; absent for old files.
+    let paragraph: Int?
 }
 
 // MARK: - Lesson Model & Loader
@@ -568,10 +571,16 @@ extension AudioManager {
     }
 }
 
+// Group model for paragraph rendering
+private struct ParaGroup: Identifiable {
+    let id: Int          // paragraph index
+    let segments: [Segment]
+}
 
 // MARK: - SwiftUI View
 struct ContentView: View {
     @EnvironmentObject private var audioManager : AudioManager
+    
     
     let lessons: [Lesson]
     @State private var currentLessonIndex: Int
@@ -582,6 +591,24 @@ struct ContentView: View {
     // Local, non-playing transcript for whatever is *selected* in UI
     @State private var displaySegments: [Segment] = []
 
+    private var groupedByParagraph: [ParaGroup] {
+        // default paragraph = 0 if absent
+        let groups = Dictionary(grouping: displaySegments, by: { $0.paragraph ?? 0 })
+        // Convert to Identifiable structs and sort by first segment ID
+        return groups
+            .map { (key, value) in
+                ParaGroup(id: key, segments: value.sorted { $0.id < $1.id })
+            }
+            .sorted { ($0.segments.first?.id ?? 0) < ($1.segments.first?.id ?? 0) }
+    }
+    
+    private var playingSegmentID: Int? {
+        guard isViewingActiveLesson,
+              audioManager.currentIndex >= 0,
+              audioManager.currentIndex < audioManager.segments.count else { return nil }
+        return audioManager.segments[audioManager.currentIndex].id
+    }
+    
     private var isViewingActiveLesson: Bool {
         audioManager.currentLessonFolderName == selectedLesson.folderName
     }
@@ -611,49 +638,77 @@ struct ContentView: View {
             // Transcript with auto-scroll and tap-to-start
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        ForEach(displaySegments) { segment in
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(segment.pt_text)
-                                    .font(.headline)
-                                    .foregroundColor(
-                                        (isViewingActiveLesson && (segment.id - 1 == audioManager.currentIndex))
-                                        ? .blue : .primary
-                                    )
+                    VStack(alignment: .leading, spacing: 16) {
+                        ForEach(groupedByParagraph, id: \.id) { group in
+                            // Alternate a very subtle tint between paragraphs
+                            let isAlt = group.id % 2 == 1
+                            
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(group.segments) { segment in
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text(segment.pt_text)
+                                            .font(.headline)
+                                            .foregroundColor(
+                                                (playingSegmentID == segment.id)
+                                                ? .blue : .primary
+                                            )
 
-                                if showTranslation {
-                                    Text(segment.en_text)
-                                        .font(.subheadline)
-                                        .foregroundColor(.gray)
-                                }
-                            }
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(
-                                        (isViewingActiveLesson && (segment.id - 1 == audioManager.currentIndex))
-                                        ? Color.blue.opacity(0.1) : Color.clear
+                                        if showTranslation {
+                                            Text(segment.en_text)
+                                                .font(.subheadline)
+                                                .foregroundColor(.gray)
+                                        }
+                                    }
+                                    .padding(8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .fill(
+                                                (playingSegmentID == segment.id)
+                                                ? Color.accentColor.opacity(0.18)
+                                                : .clear
+                                            )
                                     )
-                            )
-                            .onTapGesture {
-                                // ✅ Only when the user *starts playing* do we switch lessons.
-                                if !isViewingActiveLesson {
-                                    audioManager.loadLesson(folderName: selectedLesson.folderName,
-                                                            lessonTitle: selectedLesson.title)
+                                    .onTapGesture {
+                                        if !isViewingActiveLesson {
+                                            audioManager.loadLesson(folderName: selectedLesson.folderName,
+                                                                    lessonTitle: selectedLesson.title)
+                                        }
+                                        if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.id }) {
+                                            audioManager.playPortuguese(from: idx)
+                                        }
+                                    }
+                                    .id(segment.id)
                                 }
-                                audioManager.playPortuguese(from: segment.id - 1)
                             }
-                            .id(segment.id)
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill((isAlt ? Color.paraAlt : Color.paraBase).opacity(0.30)) // tweak 0.18–0.30 to taste
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(Color.paraStroke.opacity(0.18), lineWidth: 1)
+                            )
+                            //.overlay(alignment: .leading) {
+                              //  Rectangle()
+                                //    .fill(Color.accentColor.opacity(0.7))
+                                  //  .frame(width: 3)
+                                    //.padding(.vertical, 8)
+                            //}
+                            .shadow(color: Color.black.opacity(0.08), radius: 1, x: 0, y: 1)
                         }
                     }
                     .padding()
                 }
-                .onChange(of: audioManager.currentIndex) {
-                    guard isViewingActiveLesson else { return }
-                    withAnimation {
-                        proxy.scrollTo(audioManager.currentIndex + 1, anchor: .center)
+                .onChange(of: audioManager.currentIndex, perform: { (_: Int) in
+                    guard let targetID = playingSegmentID else { return }
+                    // ensure layout is up-to-date before scrolling
+                    DispatchQueue.main.async {
+                        withAnimation {
+                            proxy.scrollTo(targetID, anchor: .top)
+                        }
                     }
-                }
+                })
             }
             
             Divider()
@@ -711,10 +766,10 @@ struct ContentView: View {
                 }
             }
         }
-        .onChange(of: storedDelay) {
-            // Live-update the delay used for the next auto-advance
+        .onChange(of: storedDelay, perform: { (_: Double) in
             audioManager.segmentDelay = storedDelay
-        }
+        })
+
         .navigationTitle("Lesson")
             .toolbar {
                 // Existing visibility toggle ...
@@ -752,6 +807,21 @@ struct ContentView: View {
                     .accessibilityHint("Changes which language auto-advance uses. One-off translation button still works.")
                 }
             }
+        }
+}
+private extension Color {
+    static var paraBase: Color {
+        Color(UIColor { trait in
+            trait.userInterfaceStyle == .dark ? UIColor.secondarySystemBackground : UIColor.systemGray6
+        })
+    }
+    static var paraAlt: Color {
+        Color(UIColor { _ in UIColor.systemGray5 })
+    }
+    static var paraStroke: Color {
+        Color(UIColor.separator)
     }
 }
+
+
 
