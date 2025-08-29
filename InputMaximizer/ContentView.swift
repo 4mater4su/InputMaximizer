@@ -508,6 +508,8 @@ struct ContentView: View {
     @State private var currentLessonIndex: Int
     let selectedLesson: Lesson
 
+    @AppStorage("showTranslation") private var showTranslation: Bool = true
+    
     init(selectedLesson: Lesson, lessons: [Lesson]) {
         self.selectedLesson = selectedLesson
         self.lessons = lessons
@@ -539,9 +541,13 @@ struct ContentView: View {
                                 Text(segment.pt_text)
                                     .font(.headline)
                                     .foregroundColor(segment.id-1 == audioManager.currentIndex ? .blue : .primary)
-                                Text(segment.en_text)
-                                    .font(.subheadline)
-                                    .foregroundColor(.gray)
+                                
+                                // Only show translation when enabled
+                                if showTranslation {
+                                    Text(segment.en_text)
+                                        .font(.subheadline)
+                                        .foregroundColor(.gray)
+                                }
                             }
                             .padding(8)
                             .background(
@@ -628,7 +634,18 @@ struct ContentView: View {
             // Live-update the delay used for the next auto-advance
             audioManager.segmentDelay = storedDelay
         }
-
+        .navigationTitle("Lesson")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showTranslation.toggle()
+                    } label: {
+                        Image(systemName: showTranslation ? "eye" : "eye.slash")
+                    }
+                    .accessibilityLabel(showTranslation ? "Hide translation" : "Show translation")
+                    .accessibilityHint("Toggles visibility of the translated text only; playback is unaffected.")
+                }
+            }
     }
 }
 
