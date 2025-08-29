@@ -367,12 +367,11 @@ struct GeneratorView: View {
         4) Include exactly one plausible numeric detail in the body.
         """
         let body: [String:Any] = [
-            "model": "gpt-4o-mini",
+            "model": "gpt-5-nano",
             "messages": [
                 ["role":"system","content":"Be clear, concrete, and factual."],
                 ["role":"user","content": prompt]
             ],
-            "temperature": 0.7
         ]
         return try await chat(body: body)
     }
@@ -399,12 +398,11 @@ struct GeneratorView: View {
         \(raw)
         """
         let body: [String:Any] = [
-            "model": "gpt-4o-mini",
+            "model": "gpt-5-nano",
             "messages": [
                 ["role":"system","content":"Refine prompts faithfully; elevate without drifting from user intent."],
                 ["role":"user","content": meta]
             ],
-            "temperature": 0.3
         ]
         return try await chat(body: body)
     }
@@ -420,12 +418,11 @@ struct GeneratorView: View {
         3) Body text
         """
         let body: [String:Any] = [
-            "model": "gpt-4o-mini",
+            "model": "gpt-5-nano",
             "messages": [
                 ["role":"system","content": writerSystem],
                 ["role":"user","content": elevated]
             ],
-            "temperature": 0.7
         ]
         return try await chat(body: body)
     }
@@ -437,7 +434,6 @@ struct GeneratorView: View {
                 ["role":"system","content":"Translate naturally and idiomatically."],
                 ["role":"user","content":"Translate into \(targetLang):\n\n\(text)"]
             ],
-            "temperature": 1.0
         ]
         return try await chat(body: body)
     }
