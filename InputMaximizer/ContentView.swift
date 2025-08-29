@@ -534,6 +534,41 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
 }
 
+extension AudioManager {
+    /// Read segments for a lesson without changing playback state.
+    func previewSegments(for folderName: String) -> [Segment] {
+        let filename = "segments_\(folderName).json"
+
+        // Reuse the same search strategy as findResource(named:)
+        func locate(_ filename: String) -> URL? {
+            // 1) Documents/Lessons/**/filename
+            let docs = FileManager.docsLessonsDir
+            if let enumerator = FileManager.default.enumerator(at: docs, includingPropertiesForKeys: nil) {
+                for case let url as URL in enumerator where url.lastPathComponent == filename {
+                    return url
+                }
+            }
+            // 2) Bundle direct
+            let parts = (filename as NSString).deletingPathExtension
+            let ext   = (filename as NSString).pathExtension
+            if !ext.isEmpty, let url = Bundle.main.url(forResource: parts, withExtension: ext) { return url }
+
+            // 3) Bundle scan fallback
+            let extToUse = ext.isEmpty ? nil : ext
+            let urls = Bundle.main.urls(forResourcesWithExtension: extToUse, subdirectory: nil) ?? []
+            return urls.first { $0.lastPathComponent == filename }
+        }
+
+        guard let url = locate(filename),
+              let data = try? Data(contentsOf: url),
+              let list = try? JSONDecoder().decode([Segment].self, from: data) else {
+            return []
+        }
+        return list
+    }
+}
+
+
 // MARK: - SwiftUI View
 struct ContentView: View {
     @EnvironmentObject private var audioManager : AudioManager
@@ -543,6 +578,13 @@ struct ContentView: View {
     let selectedLesson: Lesson
 
     @AppStorage("showTranslation") private var showTranslation: Bool = true
+    
+    // Local, non-playing transcript for whatever is *selected* in UI
+    @State private var displaySegments: [Segment] = []
+
+    private var isViewingActiveLesson: Bool {
+        audioManager.currentLessonFolderName == selectedLesson.folderName
+    }
     
     init(selectedLesson: Lesson, lessons: [Lesson]) {
         self.selectedLesson = selectedLesson
@@ -570,15 +612,17 @@ struct ContentView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        ForEach(audioManager.segments) { segment in
+                        ForEach(displaySegments) { segment in
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(segment.pt_text)
                                     .font(.headline)
-                                    .foregroundColor(segment.id-1 == audioManager.currentIndex ? .blue : .primary)
-                                
-                                // Only show translation when enabled
+                                    .foregroundColor(
+                                        (isViewingActiveLesson && (segment.id - 1 == audioManager.currentIndex))
+                                        ? .blue : .primary
+                                    )
+
                                 if showTranslation {
-                                    Text(segment.en_text)   // still the “second language” text
+                                    Text(segment.en_text)
                                         .font(.subheadline)
                                         .foregroundColor(.gray)
                                 }
@@ -586,9 +630,17 @@ struct ContentView: View {
                             .padding(8)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(segment.id-1 == audioManager.currentIndex ? Color.blue.opacity(0.1) : Color.clear)
+                                    .fill(
+                                        (isViewingActiveLesson && (segment.id - 1 == audioManager.currentIndex))
+                                        ? Color.blue.opacity(0.1) : Color.clear
+                                    )
                             )
                             .onTapGesture {
+                                // ✅ Only when the user *starts playing* do we switch lessons.
+                                if !isViewingActiveLesson {
+                                    audioManager.loadLesson(folderName: selectedLesson.folderName,
+                                                            lessonTitle: selectedLesson.title)
+                                }
                                 audioManager.playPortuguese(from: segment.id - 1)
                             }
                             .id(segment.id)
@@ -597,6 +649,7 @@ struct ContentView: View {
                     .padding()
                 }
                 .onChange(of: audioManager.currentIndex) {
+                    guard isViewingActiveLesson else { return }
                     withAnimation {
                         proxy.scrollTo(audioManager.currentIndex + 1, anchor: .center)
                     }
@@ -646,16 +699,10 @@ struct ContentView: View {
 
         }
         .onAppear {
-            // ⛔️ Don’t reload (which would stop) if we’re returning to the same lesson
-            let isSame = audioManager.currentLessonFolderName == selectedLesson.folderName
-            if !isSame || audioManager.segments.isEmpty {
-                audioManager.loadLesson(
-                    folderName: selectedLesson.folderName,
-                    lessonTitle: selectedLesson.title
-                )
-            }
+            // Preview the selected lesson without interrupting the player
+            displaySegments = audioManager.previewSegments(for: selectedLesson.folderName)
 
-            // Keep your existing setup
+            // Keep existing config for delay/next-lesson
             audioManager.segmentDelay = storedDelay
             audioManager.requestNextLesson = { [weak audioManager] in
                 DispatchQueue.main.async {
