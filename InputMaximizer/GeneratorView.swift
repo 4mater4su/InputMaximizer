@@ -45,6 +45,14 @@ struct GeneratorView: View {
     @State private var mode: GenerationMode = .random
     @State private var userPrompt: String = ""
 
+    // MARK: - Segmentation
+    enum Segmentation: String, CaseIterable, Identifiable {
+        case sentences = "Sentences"
+        case paragraphs = "Paragraphs"
+        var id: String { rawValue }
+    }
+    @State private var segmentation: Segmentation = .sentences
+    
     // MARK: - Random topic source
     private let interests: [String] = [
         // 🌱 Movement / Embodied Practices
@@ -267,7 +275,18 @@ struct GeneratorView: View {
             }
 
             Section("Options") {
-                Stepper("Sentences per segment: \(sentencesPerSegment)", value: $sentencesPerSegment, in: 1...3)
+                Picker("Segment by", selection: $segmentation) {
+                    ForEach(Segmentation.allCases) { s in
+                        Text(s.rawValue).tag(s)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                // Only meaningful for sentence-based segmentation
+                if segmentation == .sentences {
+                    Stepper("Sentences per segment: \(sentencesPerSegment)",
+                            value: $sentencesPerSegment, in: 1...3)
+                }
 
                 Stepper("Approx. words: \(wordCount)", value: $wordCount, in: 50...1000, step: 50)
 
@@ -349,30 +368,58 @@ struct GeneratorView: View {
         return try await chat(body: body)
     }
 
-    func generateText(fromPrompt promptText: String, targetLang: String, wordCount: Int) async throws -> String {
-        let prompt = """
-        The user will provide instructions, a theme, or even a source text. Write a short, clear, factual text (~\(wordCount) words) in \(targetLang).
+    // MARK: - Prompt Refiner (meta-prompt → elevated prompt)
+    func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
+        let meta = """
+        You are a prompt refiner. Transform the user's instruction into a higher-quality writing prompt
+        that will produce text that is interesting, thought-provoking, challenging, and beautiful.
 
-        Rules:
-        1) First line: TITLE only (no quotes).
-        2) Blank line.
-        3) Body in short sentences.
-        4) Include exactly one plausible numeric detail in the body.
+        Keep the user's original intent and any named entities or required references intact
+        (e.g., Rickson Gracie, Iemanjá). Preserve any explicit form (essay/letter/poem), topic,
+        constraints (tone, language = \(targetLang), length ≈ \(wordCount) words), and outputs needed.
 
-        User input:
-        \(promptText)
+        Elevate the request by:
+        - Deepening philosophical/intellectual inquiry and nuance.
+        - Encouraging lyrical/poetic imagery where suitable (without obscurity).
+        - Inviting symbolism, cultural/mythic references only when relevant.
+        - Making constraints explicit and actionable for a writer model.
+
+        Return ONLY the refined prompt text, nothing else.
+
+        User instruction:
+        \(raw)
         """
         let body: [String:Any] = [
             "model": "gpt-4o-mini",
             "messages": [
-                ["role":"system","content":"Follow the user's input. Be clear, concrete, and factual."],
-                ["role":"user","content": prompt]
+                ["role":"system","content":"Refine prompts faithfully; elevate without drifting from user intent."],
+                ["role":"user","content": meta]
+            ],
+            "temperature": 0.3
+        ]
+        return try await chat(body: body)
+    }
+    
+    // Uses an already-elevated prompt to produce the final text (title + body)
+    func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int) async throws -> String {
+        let writerSystem = """
+        You are a world-class writer. Follow the user's prompt meticulously.
+        Write in \(targetLang). Aim for ~\(wordCount) words total.
+        Output format:
+        1) First line: TITLE only (no quotes)
+        2) Blank line
+        3) Body text
+        """
+        let body: [String:Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role":"system","content": writerSystem],
+                ["role":"user","content": elevated]
             ],
             "temperature": 0.7
         ]
         return try await chat(body: body)
     }
-
 
     func translate(_ text: String, to targetLang: String) async throws -> String {
         let body: [String:Any] = [
@@ -437,16 +484,22 @@ struct GeneratorView: View {
                 let topic = interests.randomElement() ?? "capoeira rodas ao amanhecer"
                 status = "Generating… (Random)\nTopic: \(topic)\nLang: \(genLanguage) • ~\(wordCount) words"
                 fullText = try await generateText(topic: topic, targetLang: genLanguage, wordCount: wordCount)
+
             case .prompt:
                 let cleaned = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !cleaned.isEmpty else { status = "Please enter a prompt."; return }
-                status = "Generating… (Prompt)\nLang: \(genLanguage) • ~\(wordCount) words"
-                fullText = try await generateText(fromPrompt: cleaned, targetLang: genLanguage, wordCount: wordCount)
-            }
+                status = "Elevating prompt…"
+                let elevated = try await refinePrompt(cleaned, targetLang: genLanguage, wordCount: wordCount)
+                #if DEBUG
+                print("=== Elevated Prompt ===\n\(elevated)\n========================")
+                #endif
 
+                // For creative freedom:
+                status = "Generating… (Prompt)\nLang: \(genLanguage) • ~\(wordCount) words"
+                fullText = try await generateFromElevatedPrompt(elevated, targetLang: genLanguage, wordCount: wordCount)
+            } // <-- ✅ CLOSES switch
 
             // 2) Parse title + body from the model output
-            // Parse title + body from the model output
             let lines = fullText.split(separator: "\n", omittingEmptySubsequences: false)
             let rawTitle = lines.first.map(String.init)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -477,10 +530,25 @@ struct GeneratorView: View {
                 secondaryText = try await translate(bodyPrimary, to: transLanguage)
             }
 
-            // 5) Segment: chunk into groups of N sentences
+            func paragraphs(_ txt: String) -> [String] {
+                var s = txt.replacingOccurrences(of: "\r\n", with: "\n")
+                           .replacingOccurrences(of: "\r", with: "\n")
+                while s.contains("\n\n\n") { s = s.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
+
+                return s
+                    .components(separatedBy: "\n\n")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .map { p in
+                        let trimmed = p
+                        if trimmed.last.map({ ".!?".contains($0) }) == true { return trimmed }
+                        return trimmed + "."
+                    }
+            }
+
             func sentences(_ txt: String) -> [String] {
                 txt.split(whereSeparator: { ".!?".contains($0) })
-                    .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty }
                     .map { s in
                         if s.hasSuffix(".") || s.hasSuffix("!") || s.hasSuffix("?") { return s }
@@ -494,23 +562,37 @@ struct GeneratorView: View {
                 }
             }
 
-            let sentPrimary = sentences(bodyPrimary)
-            let sentSecondary = sentences(secondaryText)
+            let segsPrimary: [String]
+            let segsSecondary: [String]
 
-            let segsPrimary: [String] = chunk(sentPrimary, size: sentencesPerSegment).map { $0.joined(separator: " ") }
-            let segsSecondary: [String] = chunk(sentSecondary, size: sentencesPerSegment).map { $0.joined(separator: " ") }
+            switch segmentation {
+            case .sentences:
+                let sentPrimary = sentences(bodyPrimary)
+                let sentSecondary = sentences(secondaryText)
+                let pChunks = chunk(sentPrimary, size: sentencesPerSegment).map { $0.joined(separator: " ") }
+                let sChunks = chunk(sentSecondary, size: sentencesPerSegment).map { $0.joined(separator: " ") }
+                let count = min(pChunks.count, sChunks.count)
+                segsPrimary = Array(pChunks.prefix(count))
+                segsSecondary = Array(sChunks.prefix(count))
+                status = "Preparing audio… \(segsPrimary.count) segments × \(sentencesPerSegment) sentences"
+            case .paragraphs:
+                let pParas = paragraphs(bodyPrimary)
+                let sParas = paragraphs(secondaryText)
+                let count = min(pParas.count, sParas.count)
+                segsPrimary = Array(pParas.prefix(count))
+                segsSecondary = Array(sParas.prefix(count))
+                status = "Preparing audio… \(segsPrimary.count) paragraph segments"
+            }
 
             let count = min(segsPrimary.count, segsSecondary.count)
             let ptSegs = Array(segsPrimary.prefix(count))
             let enSegs = Array(segsSecondary.prefix(count))
 
-            status = "Preparing audio… \(count) segments × \(sentencesPerSegment) sentences"
-
             // 6) Create folder and TTS
             try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
 
             var rows: [Seg] = []
-            
+
             let src = languageSlug(genLanguage)
             let dst = languageSlug(transLanguage)
 
@@ -542,10 +624,10 @@ struct GeneratorView: View {
             list.append(.init(id: lessonID, title: title, folderName: lessonID))
             let out = try JSONEncoder().encode(list)
             try save(out, to: manifestURL)
-            
+
             await MainActor.run {
-                lessonStore.load()    // refresh the list without restarting
-                // dismiss()          // <- uncomment if you want to auto-close Generator after success
+                lessonStore.load()
+                // dismiss()
             }
 
             status = "Done. Open the lesson list and pull to refresh."
@@ -553,5 +635,6 @@ struct GeneratorView: View {
             status = "Error: \(error.localizedDescription)"
         }
     }
+
 
 }
