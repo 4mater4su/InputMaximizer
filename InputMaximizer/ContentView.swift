@@ -92,6 +92,9 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var isPlayingPT: Bool = false
     @Published var isPaused: Bool = false
     
+    enum PlaybackMode { case target, translation }
+    @Published var playbackMode: PlaybackMode = .target
+    
     private var audioPlayer: AVAudioPlayer?
     private var resumePTAfterENG = false
     
@@ -126,7 +129,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             // Present a valid "now playing" while idle
             var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
             let title = segments.isEmpty ? "Lesson" : segments[currentIndex].pt_text
-            let artist = currentLessonTitle.isEmpty ? "Portuguese ↔ English Learning" : currentLessonTitle
+            let artist = currentLessonTitle.isEmpty ? "Language Practice" : currentLessonTitle
             info[MPMediaItemPropertyTitle] = title
             info[MPMediaItemPropertyArtist] = artist
             info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
@@ -190,14 +193,13 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private func scheduleAdvanceAfterDelay() {
         pendingAdvance?.cancel()
 
-        // If we're at the last segment, end lesson and reset to start
         guard currentIndex < segments.count - 1 else {
             isPlayingPT = false
             isPaused = false
             isInDelay = false
-            didFinishLesson = true          // <-- mark lesson finished
-            allowNextDoubleUntil = nil           // ⬅️ reset window
-            currentIndex = 0                // <-- back to start
+            didFinishLesson = true
+            allowNextDoubleUntil = nil
+            currentIndex = 0
             updateNowPlayingInfo()
             startRemoteKeepalive()
             return
@@ -205,14 +207,21 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
         isPlayingPT = false
         isInDelay = true
-        allowNextDoubleUntil = nil           // ⬅️ reset window
+        allowNextDoubleUntil = nil
         startRemoteKeepalive()
+
         let work = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
             self.isInDelay = false
             self.stopRemoteKeepalive()
             self.currentIndex += 1
-            self.playPortuguese(from: self.currentIndex)
+
+            switch self.playbackMode {
+            case .target:
+                self.playPortuguese(from: self.currentIndex)
+            case .translation:
+                self.playTranslation(resumeAfterTarget: false)
+            }
         }
         pendingAdvance = work
         DispatchQueue.main.asyncAfter(deadline: .now() + segmentDelay, execute: work)
@@ -300,6 +309,18 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         updateNowPlayingInfo()
     }
 
+    func playTranslation(resumeAfterTarget: Bool = true) {
+        guard !segments.isEmpty else { return }
+        cancelPendingAdvance()
+        didFinishLesson = false
+        isPlayingPT = false
+        isPaused = false
+        // Only auto-return to target if requested AND we're in target-continuous mode
+        resumePTAfterENG = resumeAfterTarget && playbackMode == .target
+        playFile(named: segments[currentIndex].en_file)   // still the “second language” file
+        updateNowPlayingInfo(isPT: false)
+    }
+    
     func playEnglish() {
         guard !segments.isEmpty else { return }
         cancelPendingAdvance()                 // don't auto-advance while reviewing EN
@@ -353,11 +374,16 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         isPlaying = false
+
         if resumePTAfterENG {
             resumePTAfterENG = false
-            playPortuguese(from: currentIndex)   // resume same segment
-        } else if isPlayingPT {
-            scheduleAdvanceAfterDelay()          // <-- no index change here
+            playPortuguese(from: currentIndex)
+            return
+        }
+
+        // Keep chaining only if the just-played side matches the chosen mode
+        if (isPlayingPT && playbackMode == .target) || (!isPlayingPT && playbackMode == .translation) {
+            scheduleAdvanceAfterDelay()
         }
     }
     
@@ -544,7 +570,7 @@ struct ContentView: View {
                                 
                                 // Only show translation when enabled
                                 if showTranslation {
-                                    Text(segment.en_text)
+                                    Text(segment.en_text)   // still the “second language” text
                                         .font(.subheadline)
                                         .foregroundColor(.gray)
                                 }
@@ -597,16 +623,16 @@ struct ContentView: View {
                 .accessibilityLabel(audioManager.isPlayingPT ? "Pause Portuguese" : "Play Portuguese")
                 .accessibilityHint("Toggles Portuguese playback")
 
-                // Play English once (then resume PT)
+                // Play Translation once (then resume Target if in target mode)
                 Button {
-                    audioManager.playEnglish()
+                    audioManager.playTranslation() // replaces playEnglish()
                 } label: {
                     Image(systemName: "globe")
                         .imageScale(.large)
                 }
                 .buttonStyle(MinimalIconButtonStyle())
-                .accessibilityLabel("Play English once")
-                .accessibilityHint("Plays current segment in English, then resumes Portuguese")
+                .accessibilityLabel("Play translation once")
+                .accessibilityHint("Plays the translated line once, then resumes target language when appropriate.")
             }
             .padding(.bottom, 20)
 
@@ -636,6 +662,7 @@ struct ContentView: View {
         }
         .navigationTitle("Lesson")
             .toolbar {
+                // Existing visibility toggle ...
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showTranslation.toggle()
@@ -643,7 +670,31 @@ struct ContentView: View {
                         Image(systemName: showTranslation ? "eye" : "eye.slash")
                     }
                     .accessibilityLabel(showTranslation ? "Hide translation" : "Show translation")
-                    .accessibilityHint("Toggles visibility of the translated text only; playback is unaffected.")
+                }
+
+                // NEW: Continuous playback lane toggle (Target ↔ Translation)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        let next: AudioManager.PlaybackMode =
+                            (audioManager.playbackMode == .target) ? .translation : .target
+                        audioManager.playbackMode = next
+
+                        // Optional: immediately re-play current segment in chosen lane
+                        if next == .target {
+                            audioManager.playPortuguese(from: audioManager.currentIndex)
+                        } else {
+                            audioManager.playTranslation(resumeAfterTarget: false)
+                        }
+                    } label: {
+                        // character.book.closed ≈ “target text”; globe ≈ “translation”
+                        Image(systemName: audioManager.playbackMode == .target ? "character.book.closed" : "globe")
+                    }
+                    .accessibilityLabel(
+                        audioManager.playbackMode == .target
+                        ? "Switch to continuous translation playback"
+                        : "Switch to continuous target playback"
+                    )
+                    .accessibilityHint("Changes which language auto-advance uses. One-off translation button still works.")
                 }
             }
     }
