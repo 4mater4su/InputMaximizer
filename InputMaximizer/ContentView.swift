@@ -91,6 +91,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var isPlaying: Bool = false
     @Published var isPlayingPT: Bool = false
     @Published var isPaused: Bool = false
+    @Published var currentLessonFolderName: String?
     
     enum PlaybackMode { case target, translation }
     @Published var playbackMode: PlaybackMode = .target
@@ -249,18 +250,25 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     // Load segments by filename only
     func loadLesson(folderName: String, lessonTitle: String) {
-        stop()
+        // ✅ Don't interrupt if we're already on this lesson and have segments
+        if currentLessonFolderName == folderName, !segments.isEmpty {
+            currentLessonTitle = lessonTitle
+            updateNowPlayingInfo()
+            return
+        }
+
+        stop()  // only stop when actually switching lessons
         currentIndex = 0
         segments = []
         currentLessonTitle = lessonTitle
+        currentLessonFolderName = folderName
 
-        let filename = "segments_\(folderName).json"    // e.g. segments_Lesson1.json
+        let filename = "segments_\(folderName).json"
         guard let url = findResource(named: filename) else {
             print("Segments manifest not found: \(filename)")
             updateNowPlayingInfo()
             return
         }
-
         do {
             let data = try Data(contentsOf: url)
             segments = try JSONDecoder().decode([Segment].self, from: data)
@@ -638,19 +646,19 @@ struct ContentView: View {
 
         }
         .onAppear {
-            // Load the initially selected lesson
-            audioManager.loadLesson(
-                folderName: selectedLesson.folderName,
-                lessonTitle: selectedLesson.title
-            )
+            // ⛔️ Don’t reload (which would stop) if we’re returning to the same lesson
+            let isSame = audioManager.currentLessonFolderName == selectedLesson.folderName
+            if !isSame || audioManager.segments.isEmpty {
+                audioManager.loadLesson(
+                    folderName: selectedLesson.folderName,
+                    lessonTitle: selectedLesson.title
+                )
+            }
 
-            // Apply persisted delay to the audio manager
+            // Keep your existing setup
             audioManager.segmentDelay = storedDelay
-
-            // Allow AirPods double-press (Next Track) at end-of-lesson to jump to next lesson
             audioManager.requestNextLesson = { [weak audioManager] in
                 DispatchQueue.main.async {
-                    // assumes you added `goToNextLessonAndPlay()` in ContentView
                     goToNextLessonAndPlay()
                     audioManager?.didFinishLesson = false
                 }

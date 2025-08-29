@@ -136,7 +136,6 @@ struct FolderDetailView: View {
                 ForEach(lessonsInFolder) { lesson in
                     Button {
                         selectedLesson = lesson
-                        audioManager.stop()
                     } label: {
                         HStack {
                             Image(systemName: "book")
@@ -288,6 +287,7 @@ struct FolderDetailView: View {
 struct LessonSelectionView: View {
     @State private var lessonToDelete: Lesson?
     @State private var showDeleteConfirm = false
+    @State private var resumeLesson: Lesson?
     
     @EnvironmentObject private var audioManager: AudioManager
 
@@ -304,6 +304,11 @@ struct LessonSelectionView: View {
     private var unfiledLessons: [Lesson] {
         store.lessons.filter { !folderedLessonIDs.contains($0.id) }
     }
+    
+    private var activeLesson: Lesson? {
+        guard let fn = audioManager.currentLessonFolderName else { return nil }
+        return store.lessons.first { $0.folderName == fn }
+    }
 
     // Create Folder Sheet State
     @State private var showingCreateFolder = false
@@ -315,6 +320,34 @@ struct LessonSelectionView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
 
+                    // NOW PLAYING BAR (if anything is loaded)
+                    if let playing = activeLesson, (audioManager.isPlaying || audioManager.isPaused || !audioManager.segments.isEmpty) {
+                        Button {
+                            // Jump back WITHOUT stopping or reloading
+                            resumeLesson = playing
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: audioManager.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                    .font(.system(size: 24, weight: .semibold))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Now Playing")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(playing.title)
+                                        .font(.headline)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(12)
+                            .background(Color.blue.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                    }
+                    
                     // Folders Section (NEW)
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -379,8 +412,14 @@ struct LessonSelectionView: View {
                         } else {
                             ForEach(unfiledLessons) { lesson in
                                 Button {
-                                    audioManager.stop()
-                                    selectedLesson = lesson
+                                    if lesson.folderName == audioManager.currentLessonFolderName {
+                                        // Same lesson: just navigate back to it; do NOT stop or reload
+                                        selectedLesson = lesson
+                                    } else {
+                                        // Different lesson: let ContentView load the new one (it calls loadLesson)
+                                        // No need to stop() here; loadLesson() already stops internally.
+                                        selectedLesson = lesson
+                                    }
                                 } label: {
                                     Text(lesson.title)
                                         .font(.headline)
@@ -423,6 +462,10 @@ struct LessonSelectionView: View {
             }
             // Programmatic lesson navigation
             .navigationDestination(item: $selectedLesson) { lesson in
+                ContentView(selectedLesson: lesson, lessons: unfiledLessons)
+                    .environmentObject(audioManager)
+            }
+            .navigationDestination(item: $resumeLesson) { lesson in
                 ContentView(selectedLesson: lesson, lessons: unfiledLessons)
                     .environmentObject(audioManager)
             }
