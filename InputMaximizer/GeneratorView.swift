@@ -423,25 +423,29 @@ struct GeneratorView: View {
 
     // MARK: - Prompt Refiner (meta-prompt → elevated prompt)
     func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
+        
         let meta = """
-        You are a prompt refiner. Transform the user's instruction into a higher-quality writing prompt
-        that will produce text that is interesting, thought-provoking, challenging, and beautiful.
+        You are a prompt refiner. Transform the user's instruction, input text, or theme into a clear, actionable writing brief that will produce a high-quality text.
 
-        Keep the user's original intent and any named entities or required references intact.
-        Preserve any explicit form (essay/letter/poem), topic,
-        constraints (tone, language = \(targetLang), length ≈ \(wordCount) words), and outputs needed.
+        Keep the user's original intent, named entities, facts, references, and requested form (e.g., essay, article, story, poem) intact.
+        Do NOT add new information; only clarify, structure, and make constraints explicit.
 
-        Elevate the request by:
-        - Deepening philosophical/intellectual inquiry and nuance.
-        - Encouraging lyrical/poetic imagery where suitable (without obscurity).
-        - Inviting symbolism, cultural/mythic references only when relevant.
-        - Making constraints explicit and actionable for a writer model.
+        Constraints to enforce:
+        - Language: \(targetLang)
+        - Target length: ≈ \(wordCount) words (flexible ±15%)
+
+        Your refined prompt must:
+        - State the primary purpose (inform / explain / explore / persuade / narrate / summarize / report).
+        - Specify audience and voice/register if provided; otherwise insert placeholders like [audience] and [voice].
+        - Define a simple paragraph structure with sentences which are not too long.
+        - List must-cover points and requirements derived from the user’s material.
 
         Return ONLY the refined prompt text, nothing else.
 
-        User instruction:
+        User instruction or material:
         \(raw)
         """
+        
         let body: [String:Any] = [
             "model": "gpt-5-nano",
             "messages": [
@@ -452,13 +456,14 @@ struct GeneratorView: View {
         return try await chat(body: body)
     }
     
+    
     // Uses an already-elevated prompt to produce the final text (title + body)
     func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int) async throws -> String {
         let writerSystem = """
         You are a world-class writer. Follow the user's prompt meticulously.
         Write in \(targetLang). Aim for ~\(wordCount) words total.
         Output format:
-        1) First line: TITLE only (no quotes)
+        1) First line: short TITLE only (no quotes)
         2) Blank line
         3) Body text
         """
