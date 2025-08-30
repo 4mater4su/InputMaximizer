@@ -12,6 +12,29 @@ struct GeneratorView: View {
     @EnvironmentObject private var lessonStore: LessonStore
     @Environment(\.dismiss) private var dismiss   // optional, if you want to auto-close the screen
     
+    // MARK: - Length preset
+    enum LengthPreset: Int, CaseIterable, Identifiable {
+        case short, medium, long, veryLong
+        var id: Int { rawValue }
+        var label: String {
+            switch self {
+            case .short: return "Short"
+            case .medium: return "Medium"
+            case .long: return "Long"
+            case .veryLong: return "Very Long"
+            }
+        }
+        var words: Int {
+            switch self {
+            case .short: return 100
+            case .medium: return 300
+            case .long: return 600
+            case .veryLong: return 1000
+            }
+        }
+    }
+    @State private var lengthPreset: LengthPreset = .medium
+    
     // MARK: - State
     @State private var apiKey: String = ""
          // store/retrieve from Keychain in real use
@@ -25,7 +48,6 @@ struct GeneratorView: View {
 
     @State private var genLanguage: String = "Portuguese"
     @State private var transLanguage: String = "English"
-    @State private var wordCount: Int = 180
     
     private let supportedLanguages: [String] = [
         "Afrikaans","Arabic","Armenian","Azerbaijani","Belarusian","Bosnian","Bulgarian","Catalan","Chinese","Croatian",
@@ -288,8 +310,31 @@ struct GeneratorView: View {
                             value: $sentencesPerSegment, in: 1...3)
                 }
 
-                Stepper("Approx. words: \(wordCount)", value: $wordCount, in: 50...1000, step: 50)
-
+                // REPLACE the old Stepper("Approx. words: ...") block with this:
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Length")
+                        Spacer()
+                        Text("\(lengthPreset.label) · ~\(lengthPreset.words) words")
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { Double(lengthPreset.rawValue) },
+                            set: { lengthPreset = LengthPreset(rawValue: Int($0.rounded())) ?? .medium }
+                        ),
+                        in: 0...Double(LengthPreset.allCases.count - 1),
+                        step: 1
+                    )
+                    HStack {
+                        Text("Short")
+                        Spacer()
+                        Text("Very Long")
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+                
                 Picker("Generate in", selection: $genLanguage) {
                     ForEach(supportedLanguages, id: \.self) { Text($0).tag($0) }
                 }
@@ -487,21 +532,21 @@ struct GeneratorView: View {
             switch mode {
             case .random:
                 let topic = interests.randomElement() ?? "capoeira rodas ao amanhecer"
-                status = "Generating… (Random)\nTopic: \(topic)\nLang: \(genLanguage) • ~\(wordCount) words"
-                fullText = try await generateText(topic: topic, targetLang: genLanguage, wordCount: wordCount)
-
+                status = "Generating… (Random)\nTopic: \(topic)\nLang: \(genLanguage) • ~\(lengthPreset.words) words"
+                fullText = try await generateText(topic: topic, targetLang: genLanguage, wordCount: lengthPreset.words)
+                 
             case .prompt:
                 let cleaned = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !cleaned.isEmpty else { status = "Please enter a prompt."; return }
                 status = "Elevating prompt…"
-                let elevated = try await refinePrompt(cleaned, targetLang: genLanguage, wordCount: wordCount)
+                let elevated = try await refinePrompt(cleaned, targetLang: genLanguage, wordCount: lengthPreset.words)
                 #if DEBUG
                 print("=== Elevated Prompt ===\n\(elevated)\n========================")
                 #endif
 
                 // For creative freedom:
-                status = "Generating… (Prompt)\nLang: \(genLanguage) • ~\(wordCount) words"
-                fullText = try await generateFromElevatedPrompt(elevated, targetLang: genLanguage, wordCount: wordCount)
+                status = "Generating… (Prompt)\nLang: \(genLanguage) • ~\(lengthPreset.words) words"
+                fullText = try await generateFromElevatedPrompt(elevated, targetLang: genLanguage, wordCount: lengthPreset.words)
             } // <-- ✅ CLOSES switch
 
             // 2) Parse title + body from the model output
