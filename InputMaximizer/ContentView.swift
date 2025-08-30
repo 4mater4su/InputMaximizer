@@ -652,13 +652,13 @@ struct ContentView: View {
             Divider()
             
             // Transcript with auto-scroll and tap-to-start
-            // Transcript with auto-scroll and tap-to-start
             ScrollViewReader { proxy in
                 TranscriptList(
                     groups: groupedByParagraph,
                     folderName: currentLesson.folderName,
                     showTranslation: showTranslation,
-                    playingSegmentID: playingSegmentID
+                    playingSegmentID: playingSegmentID,
+                    headerTitle: currentLesson.title
                 ) { segment in
                     if !isViewingActiveLesson {
                         audioManager.loadLesson(folderName: currentLesson.folderName,
@@ -749,7 +749,8 @@ struct ContentView: View {
             }
         }
 
-        .navigationTitle("Lesson")
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)      // avoid large-title space
             .toolbar {
                 // Existing visibility toggle ...
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -858,11 +859,20 @@ private struct TranscriptList: View {
     let folderName: String
     let showTranslation: Bool
     let playingSegmentID: Int?
+    let headerTitle: String?
     let onTap: (Segment) -> Void
-    
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
+                // Title that scrolls out of view as you scroll down
+                if let headerTitle {
+                    Text(headerTitle)
+                        .font(.largeTitle.bold())
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                }
+                
                 ForEach(groups, id: \.id) { group in
                     ParagraphBox(
                         group: group,
