@@ -117,7 +117,7 @@ class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var pendingAdvance: DispatchWorkItem?
 
     private var keepalivePlayer: AVAudioPlayer?
-
+    
     private func startRemoteKeepalive() {
         if let p = audioPlayer, p.isPlaying { return }
         guard keepalivePlayer == nil,
@@ -581,10 +581,30 @@ private struct ParaGroup: Identifiable {
 struct ContentView: View {
     @EnvironmentObject private var audioManager : AudioManager
     
-    
     let lessons: [Lesson]
     @State private var currentLessonIndex: Int
     let selectedLesson: Lesson
+    
+    // MARK: - Helpers tied to the UI/scrolling
+    private var currentLesson: Lesson { lessons[currentLessonIndex] }
+
+    private func scrollID(for segmentID: Int, in folder: String) -> String {
+        "\(folder)#\(segmentID)"
+    }
+
+    private var playingScrollID: String? {
+        guard isViewingActiveLesson,
+              audioManager.currentIndex >= 0,
+              audioManager.currentIndex < audioManager.segments.count,
+              let folder = audioManager.currentLessonFolderName
+        else { return nil }
+        let segID = audioManager.segments[audioManager.currentIndex].id
+        return scrollID(for: segID, in: folder)
+    }
+
+    private var isViewingActiveLesson: Bool {
+        audioManager.currentLessonFolderName == currentLesson.folderName
+    }
 
     @AppStorage("showTranslation") private var showTranslation: Bool = true
     
@@ -607,10 +627,6 @@ struct ContentView: View {
               audioManager.currentIndex >= 0,
               audioManager.currentIndex < audioManager.segments.count else { return nil }
         return audioManager.segments[audioManager.currentIndex].id
-    }
-    
-    private var isViewingActiveLesson: Bool {
-        audioManager.currentLessonFolderName == selectedLesson.folderName
     }
     
     init(selectedLesson: Lesson, lessons: [Lesson]) {
@@ -636,79 +652,36 @@ struct ContentView: View {
             Divider()
             
             // Transcript with auto-scroll and tap-to-start
+            // Transcript with auto-scroll and tap-to-start
             ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        ForEach(groupedByParagraph, id: \.id) { group in
-                            // Alternate a very subtle tint between paragraphs
-                            let isAlt = group.id % 2 == 1
-                            
-                            VStack(alignment: .leading, spacing: 12) {
-                                ForEach(group.segments) { segment in
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(segment.pt_text)
-                                            .font(.headline)
-                                            .foregroundColor(
-                                                (playingSegmentID == segment.id)
-                                                ? .blue : .primary
-                                            )
-
-                                        if showTranslation {
-                                            Text(segment.en_text)
-                                                .font(.subheadline)
-                                                .foregroundColor(.gray)
-                                        }
-                                    }
-                                    .padding(8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .fill(
-                                                (playingSegmentID == segment.id)
-                                                ? Color.accentColor.opacity(0.18)
-                                                : .clear
-                                            )
-                                    )
-                                    .onTapGesture {
-                                        if !isViewingActiveLesson {
-                                            audioManager.loadLesson(folderName: selectedLesson.folderName,
-                                                                    lessonTitle: selectedLesson.title)
-                                        }
-                                        if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.id }) {
-                                            audioManager.playPortuguese(from: idx)
-                                        }
-                                    }
-                                    .id(segment.id)
-                                }
-                            }
-                            .padding(12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill((isAlt ? Color.paraAlt : Color.paraBase).opacity(0.30)) // tweak 0.18–0.30 to taste
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .strokeBorder(Color.paraStroke.opacity(0.18), lineWidth: 1)
-                            )
-                            //.overlay(alignment: .leading) {
-                              //  Rectangle()
-                                //    .fill(Color.accentColor.opacity(0.7))
-                                  //  .frame(width: 3)
-                                    //.padding(.vertical, 8)
-                            //}
-                            .shadow(color: Color.black.opacity(0.08), radius: 1, x: 0, y: 1)
-                        }
+                TranscriptList(
+                    groups: groupedByParagraph,
+                    folderName: currentLesson.folderName,
+                    showTranslation: showTranslation,
+                    playingSegmentID: playingSegmentID
+                ) { segment in
+                    if !isViewingActiveLesson {
+                        audioManager.loadLesson(folderName: currentLesson.folderName,
+                                                lessonTitle: currentLesson.title)
                     }
-                    .padding()
+                    if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.id }) {
+                        audioManager.playPortuguese(from: idx)
+                    }
                 }
-                .onChange(of: audioManager.currentIndex, perform: { (_: Int) in
-                    guard let targetID = playingSegmentID else { return }
-                    // ensure layout is up-to-date before scrolling
+                .onChange(of: audioManager.currentIndex) { _ in
+                    guard let id = playingScrollID else { return }
                     DispatchQueue.main.async {
-                        withAnimation {
-                            proxy.scrollTo(targetID, anchor: .top)
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            proxy.scrollTo(id, anchor: .center)
                         }
                     }
-                })
+                }
+                .onChange(of: showTranslation) { _ in
+                    guard let id = playingScrollID else { return }
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
             }
             
             Divider()
@@ -753,11 +726,9 @@ struct ContentView: View {
             .padding(.bottom, 20)
 
         }
+        // On appear & when lesson changes, keep transcript in sync
         .onAppear {
-            // Preview the selected lesson without interrupting the player
-            displaySegments = audioManager.previewSegments(for: selectedLesson.folderName)
-
-            // Keep existing config for delay/next-lesson
+            displaySegments = audioManager.previewSegments(for: currentLesson.folderName)
             audioManager.segmentDelay = storedDelay
             audioManager.requestNextLesson = { [weak audioManager] in
                 DispatchQueue.main.async {
@@ -766,9 +737,17 @@ struct ContentView: View {
                 }
             }
         }
-        .onChange(of: storedDelay, perform: { (_: Double) in
-            audioManager.segmentDelay = storedDelay
-        })
+        .onChange(of: currentLessonIndex) { _ in
+            displaySegments = audioManager.previewSegments(for: currentLesson.folderName)
+        }
+        .onChange(of: audioManager.currentLessonFolderName ?? "") { _ in
+            // If AudioManager changes lessons externally, mirror it here
+            if let folder = audioManager.currentLessonFolderName,
+               let idx = lessons.firstIndex(where: { $0.folderName == folder }) {
+                currentLessonIndex = idx
+                displaySegments = audioManager.previewSegments(for: folder)
+            }
+        }
 
         .navigationTitle("Lesson")
             .toolbar {
@@ -809,6 +788,98 @@ struct ContentView: View {
             }
         }
 }
+
+// One line (PT + optional EN)
+private struct SegmentRow: View {
+    let segment: Segment
+    let isPlaying: Bool
+    let showTranslation: Bool
+    let rowID: String
+    let onTap: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(segment.pt_text)
+                .font(.headline)
+                .foregroundColor(isPlaying ? .blue : .primary)
+            if showTranslation {
+                Text(segment.en_text)
+                    .font(.subheadline)
+                    .foregroundColor(.gray)
+            }
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isPlaying ? Color.accentColor.opacity(0.18) : .clear)
+        )
+        .id(rowID)
+        .onTapGesture(perform: onTap)
+    }
+}
+
+// A paragraph “box” grouping many SegmentRow
+private struct ParagraphBox: View {
+    let group: ParaGroup
+    let folderName: String
+    let showTranslation: Bool
+    let playingSegmentID: Int?
+    let onTap: (Segment) -> Void
+    
+    var body: some View {
+        let isAlt = group.id % 2 == 1
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(group.segments) { seg in
+                SegmentRow(
+                    segment: seg,
+                    isPlaying: playingSegmentID == seg.id,
+                    showTranslation: showTranslation,
+                    rowID: "\(folderName)#\(seg.id)",
+                    onTap: { onTap(seg) }
+                )
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill((isAlt ? Color.paraAlt : Color.paraBase).opacity(0.30))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.paraStroke.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 1, x: 0, y: 1)
+    }
+}
+
+// The whole scrollable transcript list
+private struct TranscriptList: View {
+    let groups: [ParaGroup]
+    let folderName: String
+    let showTranslation: Bool
+    let playingSegmentID: Int?
+    let onTap: (Segment) -> Void
+    
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                ForEach(groups, id: \.id) { group in
+                    ParagraphBox(
+                        group: group,
+                        folderName: folderName,
+                        showTranslation: showTranslation,
+                        playingSegmentID: playingSegmentID,
+                        onTap: onTap
+                    )
+                }
+            }
+            .id(folderName)          // reset layout identity on lesson change
+            .padding()
+        }
+    }
+}
+
+
 private extension Color {
     static var paraBase: Color {
         Color(UIColor { trait in
