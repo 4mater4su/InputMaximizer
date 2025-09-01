@@ -14,6 +14,12 @@ struct input_maximizerApp: App {
     @StateObject private var folderStore = FolderStore()
     @StateObject private var generator = GeneratorService()
 
+    // Saved appearance choice (defaults to System)
+    @AppStorage("appearancePreference") private var appearanceRaw: String = AppearancePreference.system.rawValue
+    private var appearance: AppearancePreference {
+        AppearancePreference(rawValue: appearanceRaw) ?? .system
+    }
+    
     var body: some Scene {
         WindowGroup {
             LessonSelectionView()
@@ -21,6 +27,8 @@ struct input_maximizerApp: App {
                 .environmentObject(lessonStore)
                 .environmentObject(folderStore)
                 .environmentObject(generator)
+                // Apply chosen color scheme globally
+                .preferredColorScheme(appearance.colorScheme)
         }
     }
 }

@@ -382,6 +382,9 @@ struct LessonSelectionView: View {
         }
     }
     
+    // LessonSelectionView.swift
+    @State private var showAppearanceSheet = false    
+    
     // Hide lessons that already belong to any folder
     private var folderedLessonIDs: Set<String> {
         Set(folderStore.folders.flatMap { $0.lessonIDs })
@@ -441,7 +444,7 @@ struct LessonSelectionView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .padding(12)
-                            .background(Color.blue.opacity(0.1))
+                            .background(Color.surfaceSoft)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
                     }
@@ -515,7 +518,7 @@ struct LessonSelectionView: View {
                                         .font(.headline)
                                         .frame(maxWidth: .infinity)
                                         .padding()
-                                        .background(Color.blue.opacity(0.1))
+                                        .background(Color.surfaceSoft)
                                         .cornerRadius(12)
                                 }
                                 .buttonStyle(.plain)
@@ -537,15 +540,24 @@ struct LessonSelectionView: View {
             }
             .navigationTitle("Select a Lesson")
             .toolbar {
+                // existing trailing item (Generate button)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink {
                         GeneratorView()
-                            .environmentObject(store) // already provided in your code
+                            .environmentObject(store)
                     } label: {
                         ShinyCapsule(title: "Generate", systemImage: "wand.and.stars")
-                            .hoverEffect(.highlight)          // iPad/iOS
-                            .sensoryFeedback(.impact, trigger: UUID()) // subtle haptic on tap (iOS 18)
                     }
+                }
+
+                // 👇 add your paintbrush button here
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showAppearanceSheet = true
+                    } label: {
+                        Image(systemName: "paintbrush")
+                    }
+                    .accessibilityLabel("Appearance")
                 }
             }
             .navigationDestination(for: Folder.self) { folder in
@@ -564,6 +576,9 @@ struct LessonSelectionView: View {
                     .environmentObject(audioManager)
             }
             .sheet(isPresented: $showingCreateFolder) { createFolderSheet }
+            .sheet(isPresented: $showAppearanceSheet) {
+                AppearanceSettingsView()
+            }
             .alert("Delete lesson?", isPresented: $showDeleteConfirm, presenting: lessonToDelete) { lesson in
                 Button("Delete", role: .destructive) {
                     audioManager.stop()
@@ -686,5 +701,15 @@ private extension Color {
         ? UIColor.systemYellow.withAlphaComponent(0.18)
         : UIColor.systemYellow.withAlphaComponent(0.22)
     })
+
+    // ✅ Add surfaceSoft here, as a static var on Color
+    static var surfaceSoft: Color {
+        Color(UIColor { trait in
+            trait.userInterfaceStyle == .dark
+            ? UIColor.secondarySystemBackground.withAlphaComponent(0.8)
+            : UIColor.systemBlue.withAlphaComponent(0.10)
+        })
+    }
 }
+
 
