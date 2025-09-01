@@ -13,20 +13,24 @@ import Combine
 @MainActor
 final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
+    // MARK: - Types
+
+    enum PlaybackMode { case target, translation } // continuous lane
+    private enum Lane { case pt, en }
+
     // MARK: - Published State
+
     @Published var segments: [Segment] = []
     @Published var currentIndex: Int = 0
-    @Published var isPlaying: Bool = false
-    @Published var isPlayingPT: Bool = false
+
+    @Published var isPlaying: Bool = false       // something is playing (either lane)
+    @Published var isPlayingPT: Bool = false     // current lane == Portuguese
     @Published var isPaused: Bool = false
     @Published var isInDelay: Bool = false
     @Published var playbackMode: PlaybackMode = .target
     @Published var didFinishLesson: Bool = false
     @Published var currentLessonFolderName: String?
     @Published var currentLessonTitle: String = ""
-
-    // MARK: - Public Config
-    enum PlaybackMode { case target, translation }
 
     /// Pause between segments (persisted).
     @Published var segmentDelay: TimeInterval = {
@@ -39,39 +43,39 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
-    // MARK: - Private
+    // MARK: - Private State
+
     private var audioPlayer: AVAudioPlayer?
-    private var keepalivePlayer: AVAudioPlayer?
     private var pendingAdvance: DispatchWorkItem?
     private var resumePTAfterENG = false
 
+    // End-of-lesson double-tap
     private var allowNextDoubleUntil: Date?
     private let doubleTapWindow: TimeInterval = 0.6
 
-    // Track current lesson location
-    private var currentLessonBaseURL: URL?
+    // Keepalive (silent loop to remain addressable by remote center)
+    private let keepalive = SilentKeepalive()
 
     // MARK: - Hand-off closure from UI
+
     var requestNextLesson: (() -> Void)?
 
-    // MARK: - Init / Deinit
+    // MARK: - Lifecycle
+
     override init() {
         super.init()
         setupAudioSession()
+        RemoteCommandsBinder.removeTargets() // ensure clean slate
         setupRemoteControls()
     }
 
     deinit {
-        // IMPORTANT: deinit is nonisolated — don't call @MainActor instance methods here.
-        // Do minimal, thread-safe cleanup only.
+        // deinit is nonisolated — do minimal, thread-safe cleanup only.
         audioPlayer?.stop()
-        keepalivePlayer?.stop()
-        Self.removeRemoteControlTargets() // static nonisolated helper (see below)
-        do {
-            try AVAudioSession.sharedInstance().setActive(false)
-        } catch {
-            print("Failed to deactivate audio session: \(error)")
-        }
+        keepalive.stop()
+        RemoteCommandsBinder.removeTargets()
+        do { try AVAudioSession.sharedInstance().setActive(false) }
+        catch { print("Failed to deactivate audio session: \(error)") }
     }
 
     // MARK: - Public API
@@ -117,40 +121,20 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         updateNowPlayingInfo()
     }
 
+    // MARK: - Unified Play Entry Points
+
     func playPortuguese(from index: Int) {
-        guard !segments.isEmpty else { return }
-        cancelPendingAdvance()
-        didFinishLesson = false
-        currentIndex = index
-        isPlayingPT = true
-        isPaused = false
-        resumePTAfterENG = false
-        playFile(named: segments[currentIndex].pt_file)
-        updateNowPlayingInfo()
+        play(.pt, from: index, resumeAfter: false)
     }
 
     /// Plays translation once; optionally resumes target mode depending on context.
     func playTranslation(resumeAfterTarget: Bool = true) {
-        guard !segments.isEmpty else { return }
-        cancelPendingAdvance()
-        didFinishLesson = false
-        isPlayingPT = false
-        isPaused = false
-        resumePTAfterENG = resumeAfterTarget && playbackMode == .target
-        playFile(named: segments[currentIndex].en_file)
-        updateNowPlayingInfo(isPT: false)
+        play(.en, from: currentIndex, resumeAfter: resumeAfterTarget && playbackMode == .target)
     }
 
     /// Convenience for "review English then return".
     func playEnglish() {
-        guard !segments.isEmpty else { return }
-        cancelPendingAdvance()
-        didFinishLesson = false
-        isPlayingPT = false
-        isPaused = false
-        resumePTAfterENG = true
-        playFile(named: segments[currentIndex].en_file)
-        updateNowPlayingInfo(isPT: false)
+        play(.en, from: currentIndex, resumeAfter: true)
     }
 
     func togglePlayPause() {
@@ -173,12 +157,12 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
         // Nothing playing
         if didFinishLesson {
-            playPortuguese(from: 0) // replay current lesson
+            play(.pt, from: 0, resumeAfter: false) // replay current lesson
             didFinishLesson = false
         } else if isInDelay {
             playEnglish()
         } else {
-            playPortuguese(from: currentIndex)
+            play(.pt, from: currentIndex, resumeAfter: false)
         }
     }
 
@@ -191,7 +175,7 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         resumePTAfterENG = false
         cancelPendingAdvance()
         didFinishLesson = false
-        stopRemoteKeepalive()
+        keepalive.stop()
     }
 
     // MARK: - AVAudioPlayerDelegate
@@ -201,20 +185,47 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
         if resumePTAfterENG {
             resumePTAfterENG = false
-            playPortuguese(from: currentIndex)
+            play(.pt, from: currentIndex, resumeAfter: false)
             return
         }
 
-        // Keep chaining only if language lane matches playbackMode
-        if (isPlayingPT && playbackMode == .target) || (!isPlayingPT && playbackMode == .translation) {
+        // Keep chaining only if the just-played lane matches the chosen continuous mode.
+        let justPlayedPT = isPlayingPT
+        if (justPlayedPT && playbackMode == .target) || (!justPlayedPT && playbackMode == .translation) {
             scheduleAdvanceAfterDelay()
         }
     }
 
-    // MARK: - Private: Audio
+    // MARK: - Private: Unified Play
+
+    private func play(_ lane: Lane, from index: Int, resumeAfter: Bool) {
+        guard !segments.isEmpty, index >= 0, index < segments.count else { return }
+
+        cancelPendingAdvance()
+        didFinishLesson = false
+        currentIndex = index
+
+        switch lane {
+        case .pt:
+            isPlayingPT = true
+            isPaused = false
+            resumePTAfterENG = false
+            playFile(named: segments[currentIndex].pt_file)
+            updateNowPlayingInfo(isPTOverride: true)
+
+        case .en:
+            isPlayingPT = false
+            isPaused = false
+            resumePTAfterENG = resumeAfter
+            playFile(named: segments[currentIndex].en_file)
+            updateNowPlayingInfo(isPTOverride: false)
+        }
+    }
+
+    // MARK: - Private: Audio & Timing
 
     private func playFile(named file: String) {
-        stopRemoteKeepalive()
+        keepalive.stop()
         audioPlayer?.stop()
         audioPlayer = nil
 
@@ -246,8 +257,8 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private func scheduleAdvanceAfterDelay() {
         pendingAdvance?.cancel()
 
+        // End of lesson?
         guard currentIndex < segments.count - 1 else {
-            // Lesson is done
             isPlayingPT = false
             isPaused = false
             isInDelay = false
@@ -255,26 +266,35 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             allowNextDoubleUntil = nil
             currentIndex = 0
             updateNowPlayingInfo()
-            startRemoteKeepalive()
+            // keepalive so remote center remains addressable
+            keepalive.start(nowPlayingTitle: segments.isEmpty ? "Lesson" : segments[0].pt_text,
+                            artist: currentLessonTitle.isEmpty ? NowPlayingBuilder.defaultArtist : currentLessonTitle,
+                            queueCount: segments.count,
+                            queueIndex: currentIndex)
             return
         }
 
+        // Delay phase
         isPlayingPT = false
         isInDelay = true
         allowNextDoubleUntil = nil
-        startRemoteKeepalive()
+
+        keepalive.start(nowPlayingTitle: segments[currentIndex].pt_text,
+                        artist: currentLessonTitle.isEmpty ? NowPlayingBuilder.defaultArtist : currentLessonTitle,
+                        queueCount: segments.count,
+                        queueIndex: currentIndex)
 
         let work = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
             self.isInDelay = false
-            self.stopRemoteKeepalive()
+            self.keepalive.stop()
             self.currentIndex += 1
 
             switch self.playbackMode {
             case .target:
-                self.playPortuguese(from: self.currentIndex)
+                self.play(.pt, from: self.currentIndex, resumeAfter: false)
             case .translation:
-                self.playTranslation(resumeAfterTarget: false)
+                self.play(.en, from: self.currentIndex, resumeAfter: false)
             }
         }
         pendingAdvance = work
@@ -287,11 +307,99 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isInDelay = false
     }
 
-    // MARK: - Keepalive + Now Playing
+    // MARK: - Now Playing
 
-    private func startRemoteKeepalive() {
-        if let p = audioPlayer, p.isPlaying { return }
-        guard keepalivePlayer == nil,
+    private func updateNowPlayingInfo(isPTOverride: Bool? = nil) {
+        guard !segments.isEmpty else { return }
+        let seg = segments[currentIndex]
+        let showPT = isPTOverride ?? isPlayingPT
+
+        let info = NowPlayingBuilder.infoDict(
+            title: showPT ? seg.pt_text : seg.en_text,
+            artist: currentLessonTitle.isEmpty ? "Portuguese ↔ English Learning" : currentLessonTitle,
+            elapsed: audioPlayer?.currentTime,
+            duration: audioPlayer?.duration,
+            isPlaying: audioPlayer?.isPlaying ?? false
+        )
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    // MARK: - Remote Commands
+
+    private func setupRemoteControls() {
+        RemoteCommandsBinder.removeTargets()
+
+        RemoteCommandsBinder.bind(
+            onPlayOrToggle: { [weak self] in
+                guard let self else { return .commandFailed }
+                let now = Date()
+
+                // End-of-lesson gestures
+                if didFinishLesson || allowNextDoubleUntil != nil {
+                    if let until = allowNextDoubleUntil, now < until {
+                        allowNextDoubleUntil = nil
+                        requestNextLesson?()
+                        didFinishLesson = false
+                        return .success
+                    } else {
+                        allowNextDoubleUntil = now.addingTimeInterval(doubleTapWindow)
+                        play(.pt, from: 0, resumeAfter: false)
+                        didFinishLesson = false
+                        return .success
+                    }
+                }
+
+                if isInDelay {
+                    playEnglish()
+                    return .success
+                }
+
+                togglePlayPause()
+                return .success
+            },
+            onPause: { [weak self] in
+                self?.togglePlayPause()
+                return .success
+            },
+            onNext: { [weak self] in
+                guard let self else { return .commandFailed }
+                allowNextDoubleUntil = nil
+
+                if didFinishLesson {
+                    requestNextLesson?()
+                    return .success
+                }
+
+                if isPlayingPT || isInDelay {
+                    playEnglish()
+                    return .success
+                } else if currentIndex < segments.count - 1 {
+                    play(.pt, from: currentIndex + 1, resumeAfter: false)
+                    return .success
+                }
+
+                return .noSuchContent
+            },
+            onPrev: { [weak self] in
+                guard let self else { return .commandFailed }
+                if currentIndex > 0 {
+                    play(.pt, from: currentIndex - 1, resumeAfter: false)
+                    return .success
+                }
+                return .noSuchContent
+            }
+        )
+    }
+}
+
+// MARK: - Keepalive (silent audio) + Now Playing builder
+
+/// Tiny helper that plays a silent looping CAF to keep the app addressable by Remote Center.
+private final class SilentKeepalive {
+    private var player: AVAudioPlayer?
+
+    func start(nowPlayingTitle: String, artist: String, queueCount: Int, queueIndex: Int) {
+        guard player?.isPlaying != true,
               let url = ResourceLocator.shared.find(filename: "silence.caf") else { return }
         do {
             let p = try AVAudioPlayer(contentsOf: url)
@@ -299,17 +407,15 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             p.volume = 0.0
             p.prepareToPlay()
             p.play()
-            keepalivePlayer = p
+            player = p
 
-            // Present a valid "now playing" while idle
+            // present a valid "now playing" while idle
             var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-            let title = segments.isEmpty ? "Lesson" : segments[currentIndex].pt_text
-            let artist = currentLessonTitle.isEmpty ? Self.defaultArtist : currentLessonTitle
-            info[MPMediaItemPropertyTitle] = title
+            info[MPMediaItemPropertyTitle] = nowPlayingTitle
             info[MPMediaItemPropertyArtist] = artist
             info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
-            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = segments.count
-            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = currentIndex
+            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = queueCount
+            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = queueIndex
             info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = p.currentTime
             info[MPMediaItemPropertyPlaybackDuration] = p.duration
             info[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
@@ -319,48 +425,42 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
-    private func stopRemoteKeepalive() {
-        keepalivePlayer?.stop()
-        keepalivePlayer = nil
+    func stop() {
+        player?.stop()
+        player = nil
 
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-        if let real = audioPlayer {
-            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = real.currentTime
-            info[MPMediaItemPropertyPlaybackDuration] = real.duration
-            info[MPNowPlayingInfoPropertyPlaybackRate] = real.isPlaying ? 1.0 : 0.0
-        } else {
-            info[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
-        }
+        info[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
+}
 
-    private static let defaultArtist = "Language Practice"
+/// Centralizes Now Playing dictionary construction.
+private enum NowPlayingBuilder {
+    static let defaultArtist = "Language Practice"
 
-    private func updateNowPlayingInfo(isPT: Bool? = nil) {
-        guard !segments.isEmpty else { return }
-        let segment = segments[currentIndex]
-        let playingPT = isPT ?? isPlayingPT
-
+    static func infoDict(
+        title: String,
+        artist: String,
+        elapsed: TimeInterval?,
+        duration: TimeInterval?,
+        isPlaying: Bool
+    ) -> [String: Any] {
         var info: [String: Any] = [
-            MPMediaItemPropertyTitle: playingPT ? segment.pt_text : segment.en_text,
-            MPMediaItemPropertyArtist: currentLessonTitle.isEmpty ? "Portuguese ↔ English Learning" : currentLessonTitle
+            MPMediaItemPropertyTitle: title,
+            MPMediaItemPropertyArtist: artist
         ]
-
-        if let player = audioPlayer {
-            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = player.currentTime
-            info[MPMediaItemPropertyPlaybackDuration] = player.duration
-            info[MPNowPlayingInfoPropertyPlaybackRate] = player.isPlaying ? 1.0 : 0.0
-        } else {
-            info[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
-        }
-
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        if let elapsed { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed }
+        if let duration { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        return info
     }
+}
 
-    // MARK: - Remote Commands
+// MARK: - Remote Commands binder (nonisolated removal, single bind site)
 
-    /// NOTE: static + nonisolated so it can be called from deinit safely.
-    nonisolated private static func removeRemoteControlTargets() {
+private enum RemoteCommandsBinder {
+    nonisolated static func removeTargets() {
         let cc = MPRemoteCommandCenter.shared()
         cc.playCommand.removeTarget(nil)
         cc.pauseCommand.removeTarget(nil)
@@ -369,84 +469,19 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         cc.togglePlayPauseCommand.removeTarget(nil)
     }
 
-    private func setupRemoteControls() {
-        // Use the static nonisolated helper to clear any existing handlers
-        Self.removeRemoteControlTargets()
-
+    @MainActor
+    static func bind(
+        onPlayOrToggle: @escaping () -> MPRemoteCommandHandlerStatus,
+        onPause: @escaping () -> MPRemoteCommandHandlerStatus,
+        onNext: @escaping () -> MPRemoteCommandHandlerStatus,
+        onPrev: @escaping () -> MPRemoteCommandHandlerStatus
+    ) {
         let cc = MPRemoteCommandCenter.shared()
-
-        func handlePlayOrToggle() -> MPRemoteCommandHandlerStatus {
-            let now = Date()
-
-            // End-of-lesson gestures
-            if didFinishLesson || allowNextDoubleUntil != nil {
-                if let until = allowNextDoubleUntil, now < until {
-                    allowNextDoubleUntil = nil
-                    requestNextLesson?()
-                    didFinishLesson = false
-                    return .success
-                } else {
-                    allowNextDoubleUntil = now.addingTimeInterval(doubleTapWindow)
-                    playPortuguese(from: 0)
-                    didFinishLesson = false
-                    return .success
-                }
-            }
-
-            if isInDelay {
-                playEnglish()
-                return .success
-            }
-
-            togglePlayPause()
-            return .success
-        }
-
-        cc.playCommand.addTarget { [weak self] _ in
-            guard let self = self else { return .commandFailed }
-            return handlePlayOrToggle()
-        }
-
-        cc.togglePlayPauseCommand.addTarget { [weak self] _ in
-            guard let self = self else { return .commandFailed }
-            return handlePlayOrToggle()
-        }
-
-        cc.pauseCommand.addTarget { [weak self] _ in
-            self?.togglePlayPause()
-            return .success
-        }
-
-        // Next track → Play English if PT is playing (or during delay); else next PT segment
-        cc.nextTrackCommand.addTarget { [weak self] _ in
-            guard let self = self else { return .commandFailed }
-            self.allowNextDoubleUntil = nil
-
-            if self.didFinishLesson {
-                self.requestNextLesson?()
-                return .success
-            }
-
-            if self.isPlayingPT || self.isInDelay {
-                self.playEnglish()
-                return .success
-            } else if self.currentIndex < self.segments.count - 1 {
-                self.playPortuguese(from: self.currentIndex + 1)
-                return .success
-            }
-
-            return .noSuchContent
-        }
-
-        // Previous track → previous PT segment
-        cc.previousTrackCommand.addTarget { [weak self] _ in
-            guard let self = self else { return .commandFailed }
-            if self.currentIndex > 0 {
-                self.playPortuguese(from: self.currentIndex - 1)
-                return .success
-            }
-            return .noSuchContent
-        }
+        cc.playCommand.addTarget { _ in onPlayOrToggle() }
+        cc.togglePlayPauseCommand.addTarget { _ in onPlayOrToggle() }
+        cc.pauseCommand.addTarget { _ in onPause() }
+        cc.nextTrackCommand.addTarget { _ in onNext() }
+        cc.previousTrackCommand.addTarget { _ in onPrev() }
     }
 }
 
@@ -478,3 +513,4 @@ struct ResourceLocator {
         return urls.first { $0.lastPathComponent == filename }
     }
 }
+

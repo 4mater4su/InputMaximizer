@@ -317,4 +317,3 @@ private extension Color {
     static var paraAlt: Color { Color(UIColor { _ in UIColor.systemGray5 }) }
     static var paraStroke: Color { Color(UIColor.separator) }
 }
-
