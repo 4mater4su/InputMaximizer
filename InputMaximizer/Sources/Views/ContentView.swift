@@ -84,6 +84,9 @@ struct ContentView: View {
             audioManager.playPortuguese(from: 0)
         case .translation:
             audioManager.playTranslation(resumeAfterTarget: false)
+        case .both:
+            // Start the dual sequence from the beginning
+            audioManager.playInContinuousLane(from: 0)
         }
     }
 
@@ -208,25 +211,38 @@ struct ContentView: View {
 
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    let next: AudioManager.PlaybackMode =
-                        (audioManager.playbackMode == .target) ? .translation : .target
-                    audioManager.playbackMode = next
+                    let next: AudioManager.PlaybackMode = {
+                        switch audioManager.playbackMode {
+                        case .target: return .translation
+                        case .translation: return .both
+                        case .both: return .target
+                        }
+                    }()
 
-                    // Immediately re-play current segment in chosen lane
-                    if next == .target {
-                        audioManager.playPortuguese(from: audioManager.currentIndex)
-                    } else {
-                        audioManager.playTranslation(resumeAfterTarget: false)
-                    }
+                    audioManager.setPlaybackMode(next)
+
+                    // Re-play current segment according to the chosen mode (no auto-hop)
+                    audioManager.playInContinuousLane(from: audioManager.currentIndex)
                 } label: {
-                    Image(systemName: audioManager.playbackMode == .target ? "character.book.closed" : "globe")
+                    Group {
+                        switch audioManager.playbackMode {
+                        case .target:
+                            Image(systemName: "character.book.closed")          // Target-only
+                        case .translation:
+                            Image(systemName: "globe")                           // Translation-only
+                        case .both:
+                            Image(systemName: "arrow.left.and.right.circle")     // Dual (both languages)
+                        }
+                    }
                 }
-                .accessibilityLabel(
-                    audioManager.playbackMode == .target
-                    ? "Switch to continuous translation playback"
-                    : "Switch to continuous target playback"
-                )
-                .accessibilityHint("Changes which language auto-advance uses. One-off button still plays the opposite lane.")
+                .accessibilityLabel({
+                    switch audioManager.playbackMode {
+                    case .target: return "Switch to translation playback"
+                    case .translation: return "Switch to dual playback"
+                    case .both: return "Switch to target playback"
+                    }
+                }())
+                .accessibilityHint("Cycles between target, translation, and dual playback modes.")
             }
         }
     }

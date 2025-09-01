@@ -14,8 +14,7 @@ import Combine
 final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     // MARK: - Types
-
-    enum PlaybackMode { case target, translation } // continuous lane
+    enum PlaybackMode { case target, translation, both } // continuous lane
     private enum Lane { case pt, en }
 
     // MARK: - Published State
@@ -27,7 +26,22 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var isPlayingPT: Bool = false     // current lane == Portuguese
     @Published var isPaused: Bool = false
     @Published var isInDelay: Bool = false
+    
     @Published var playbackMode: PlaybackMode = .target
+    private var lastSingleMode: PlaybackMode = .target      // ✅ remembers which comes first in Dual
+    private var firstLaneForPair: Lane {
+        (lastSingleMode == .target) ? .pt : .en
+    }
+    private func opposite(_ lane: Lane) -> Lane { lane == .pt ? .en : .pt }
+
+    // Call this instead of setting playbackMode directly:
+    func setPlaybackMode(_ newMode: PlaybackMode) {
+        playbackMode = newMode
+        if newMode == .target || newMode == .translation {
+            lastSingleMode = newMode
+        }
+    }
+
     @Published var didFinishLesson: Bool = false
     @Published var currentLessonFolderName: String?
     @Published var currentLessonTitle: String = ""
@@ -142,6 +156,8 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             play(.pt, from: index, resumeAfter: false)
         case .translation:
             play(.en, from: index, resumeAfter: false)
+        case .both:
+            play(firstLaneForPair, from: index, resumeAfter: false)   // ✅ first lane depends on lastSingleMode
         }
     }
 
@@ -157,6 +173,12 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             didFinishLesson = false
             resumeENAfterPT = true
             play(.pt, from: currentIndex, resumeAfter: false)
+        case .both:
+               // In dual mode, opposite-once doesn't make sense (both are already played).
+               // Option A: no-op
+               // Option B: replay both languages for the current segment
+               // Here's a simple no-op:
+               break
         }
     }
 
@@ -212,20 +234,28 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         isPlaying = false
 
-        // Handle one-off resumes (symmetric)
-        if resumePTAfterENG {
-            resumePTAfterENG = false
-            play(.pt, from: currentIndex, resumeAfter: false)
-            return
-        }
-        if resumeENAfterPT {
-            resumeENAfterPT = false
-            play(.en, from: currentIndex, resumeAfter: false)
-            return
+        // keep existing one-off logic
+        if resumePTAfterENG { resumePTAfterENG = false; play(.pt, from: currentIndex, resumeAfter: false); return }
+        if resumeENAfterPT { resumeENAfterPT = false; play(.en, from: currentIndex, resumeAfter: false); return }
+
+        let justPlayedPT = isPlayingPT
+
+        // ✅ Dual-mode chaining: PT→EN or EN→PT, then advance
+        if playbackMode == .both {
+            let first = firstLaneForPair
+            let justPlayed: Lane = justPlayedPT ? .pt : .en
+            if justPlayed == first {
+                // play the other lane, same segment
+                play(opposite(first), from: currentIndex, resumeAfter: false)
+                return
+            } else {
+                // both lanes done → advance
+                scheduleAdvanceAfterDelay()
+                return
+            }
         }
 
-        // Keep chaining only if the just-played lane matches the chosen continuous mode.
-        let justPlayedPT = isPlayingPT
+        // original single-lane behavior
         if (justPlayedPT && playbackMode == .target) || (!justPlayedPT && playbackMode == .translation) {
             scheduleAdvanceAfterDelay()
         }
@@ -327,10 +357,9 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             self.currentIndex += 1
 
             switch self.playbackMode {
-            case .target:
-                self.play(.pt, from: self.currentIndex, resumeAfter: false)
-            case .translation:
-                self.play(.en, from: self.currentIndex, resumeAfter: false)
+            case .target:       self.play(.pt, from: self.currentIndex, resumeAfter: false)
+            case .translation:  self.play(.en, from: self.currentIndex, resumeAfter: false)
+            case .both:         self.play(self.firstLaneForPair, from: self.currentIndex, resumeAfter: false) // ✅
             }
         }
         pendingAdvance = work
