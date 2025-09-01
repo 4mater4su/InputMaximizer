@@ -12,3 +12,6 @@ struct Lesson: Identifiable, Hashable, Codable {
     let title: String
     let folderName: String
 }
+
+// convenience for ForEach with custom id use
+extension Lesson { var _id: String { id } }

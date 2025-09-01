@@ -6,8 +6,78 @@
 //
 
 import SwiftUI
+import Foundation
 
-// MARK: - User Folders (NEW)
+// MARK: - LessonStore
+
+@MainActor
+final class LessonStore: ObservableObject {
+    @Published var lessons: [Lesson] = []
+    init() { load() }
+
+    func load() {
+        FileManager.ensureLessonsDir()
+        let docsJSON = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
+
+        let candidateURLs: [URL?] = [
+            FileManager.default.fileExists(atPath: docsJSON.path) ? docsJSON : nil,
+            Bundle.main.url(forResource: "lessons", withExtension: "json", subdirectory: "Lessons"),
+            (Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? [])
+                .first(where: { $0.lastPathComponent == "lessons.json" })
+        ]
+
+        guard let url = candidateURLs.compactMap({ $0 }).first else {
+            print("lessons.json not found.")
+            lessons = []
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: url)
+            lessons = try JSONDecoder().decode([Lesson].self, from: data)
+        } catch {
+            print("Failed to decode lessons.json: \(error)")
+            lessons = []
+        }
+    }
+}
+
+// MARK: - Deletion / Persistence helpers
+extension LessonStore {
+    private var docsLessonsJSONURL: URL { FileManager.docsLessonsDir.appendingPathComponent("lessons.json") }
+
+    /// Persist the current in-memory list to Documents/Lessons/lessons.json
+    private func saveListToDisk() throws {
+        try FileManager.default.createDirectory(at: FileManager.docsLessonsDir, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(lessons)
+        try data.write(to: docsLessonsJSONURL, options: .atomic)
+    }
+
+    /// Can we delete this lesson from device? (Only if its folder exists in Documents.)
+    func isDeletable(_ lesson: Lesson) -> Bool {
+        let folderURL = FileManager.docsLessonsDir.appendingPathComponent(lesson.folderName, isDirectory: true)
+        return FileManager.default.fileExists(atPath: folderURL.path)
+    }
+
+    /// Delete lesson folder + remove from lessons.json (Documents only).
+    func deleteLesson(id: String) throws {
+        guard let idx = lessons.firstIndex(where: { $0.id == id }) else { return }
+        let lesson = lessons[idx]
+
+        // Remove files under Documents/Lessons/<folderName> if present
+        let folderURL = FileManager.docsLessonsDir.appendingPathComponent(lesson.folderName, isDirectory: true)
+        if FileManager.default.fileExists(atPath: folderURL.path) {
+            try FileManager.default.removeItem(at: folderURL)
+        }
+
+        // Remove from in-memory list and persist
+        lessons.remove(at: idx)
+        try saveListToDisk()
+    }
+}
+
+// MARK: - User Folders
+
 struct Folder: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
@@ -20,6 +90,7 @@ struct Folder: Identifiable, Codable, Hashable {
     }
 }
 
+@MainActor
 final class FolderStore: ObservableObject {
     @Published var folders: [Folder] = [] { didSet { save() } }
 
@@ -49,6 +120,7 @@ final class FolderStore: ObservableObject {
     }
 
     // MARK: - CRUD
+
     func addFolder(named name: String, lessonIDs: [String]) {
         let unique = uniqueName(from: name)
         folders.append(Folder(name: unique, lessonIDs: lessonIDs))
@@ -61,7 +133,7 @@ final class FolderStore: ObservableObject {
     func move(from source: IndexSet, to destination: Int) { folders.move(fromOffsets: source, toOffset: destination) }
 
     func rename(id: UUID, to newName: String) {
-        guard var idx = index(of: id) else { return }
+        guard let idx = index(of: id) else { return } // ✅ fixed (was 'var idx')
         var f = folders[idx]
         let proposed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !proposed.isEmpty else { return }
@@ -75,6 +147,7 @@ final class FolderStore: ObservableObject {
     }
 
     // MARK: - Helpers
+
     private func uniqueName(from baseName: String, excluding id: UUID? = nil) -> String {
         let base = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty else { return baseName }
@@ -97,26 +170,28 @@ extension FolderStore {
     }
 }
 
-// MARK: - Folder Detail (NEW)
+// MARK: - Folder Detail
+
+@MainActor
 struct FolderDetailView: View {
     @EnvironmentObject private var store: LessonStore
-    @State private var lessonToDelete: Lesson?
-    @State private var showDeleteConfirm = false
-    
     @EnvironmentObject private var audioManager: AudioManager
     @EnvironmentObject private var folderStore: FolderStore
+
+    @State private var lessonToDelete: Lesson?
+    @State private var showDeleteConfirm = false
+
     let folder: Folder
     let lessons: [Lesson]
 
-    // Inside FolderDetailView
     private var folderedLessonIDs: Set<String> {
         Set(folderStore.folders.flatMap { $0.lessonIDs })
     }
-    
-    // Always use the latest folder state from the store
-    private var currentFolder: Folder { folderStore.folders.first(where: { $0.id == folder.id }) ?? folder }
 
-    // Preserve the folder's order for its lessons
+    private var currentFolder: Folder {
+        folderStore.folders.first(where: { $0.id == folder.id }) ?? folder
+    }
+
     private var lessonsInFolder: [Lesson] {
         let ids = currentFolder.lessonIDs
         return ids.compactMap { id in lessons.first(where: { $0.id == id }) }
@@ -131,19 +206,20 @@ struct FolderDetailView: View {
     var body: some View {
         List {
             if lessonsInFolder.isEmpty {
-                ContentUnavailableView("Empty Folder", systemImage: "folder", description: Text("Add lessons to this folder using the + Add/Remove button."))
+                ContentUnavailableView(
+                    "Empty Folder",
+                    systemImage: "folder",
+                    description: Text("Add lessons to this folder using the + Add/Remove button.")
+                )
             } else {
                 ForEach(lessonsInFolder) { lesson in
-                    Button {
-                        selectedLesson = lesson
-                    } label: {
+                    Button { selectedLesson = lesson } label: {
                         HStack {
                             Image(systemName: "book")
                             Text(lesson.title).font(.headline)
                         }
                     }
                     .swipeActions(edge: .trailing) {
-                        // Remove from this folder only
                         Button {
                             if let idx = folderStore.index(of: currentFolder.id) {
                                 var ids = folderStore.folders[idx].lessonIDs
@@ -154,7 +230,6 @@ struct FolderDetailView: View {
                             Label("Remove", systemImage: "minus.circle")
                         }
 
-                        // Delete from device (all folders)
                         if store.isDeletable(lesson) {
                             Button(role: .destructive) {
                                 lessonToDelete = lesson
@@ -176,7 +251,7 @@ struct FolderDetailView: View {
         .navigationTitle(currentFolder.name)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                EditButton() // enables drag-to-reorder lessons
+                EditButton()
                 Button {
                     selectedLessonIDs = Set(currentFolder.lessonIDs)
                     showMembersSheet = true
@@ -191,7 +266,6 @@ struct FolderDetailView: View {
                 }
             }
         }
-        // LessonSelectionView
         .navigationDestination(item: $selectedLesson) { lesson in
             ContentView(selectedLesson: lesson, lessons: lessonsInFolder)
                 .environmentObject(audioManager)
@@ -216,6 +290,7 @@ struct FolderDetailView: View {
     }
 
     // MARK: - Sheets
+
     private var membersSheet: some View {
         NavigationStack {
             List(lessons, id: \._id) { lesson in
@@ -230,7 +305,7 @@ struct FolderDetailView: View {
                         .font(.body)
                         .foregroundStyle(isAlreadyInAFolder ? .orange : .primary)
 
-                    Spacer(minLength: 0) // keep everything left-aligned
+                    Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -244,12 +319,9 @@ struct FolderDetailView: View {
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
             .listStyle(.insetGrouped)
-
             .navigationTitle("Add/Remove Lessons")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showMembersSheet = false }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showMembersSheet = false } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         folderStore.setLessonIDs(id: currentFolder.id, to: Array(selectedLessonIDs))
@@ -268,9 +340,7 @@ struct FolderDetailView: View {
             }
             .navigationTitle("Rename Folder")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showRenameSheet = false }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showRenameSheet = false } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         folderStore.rename(id: currentFolder.id, to: renameText)
@@ -283,18 +353,17 @@ struct FolderDetailView: View {
     }
 }
 
-// MARK: - LessonSelectionView (UPDATED)
-struct LessonSelectionView: View {
-    @State private var lessonToDelete: Lesson?
-    @State private var showDeleteConfirm = false
-    @State private var resumeLesson: Lesson?
-    
-    @EnvironmentObject private var audioManager: AudioManager
+// MARK: - LessonSelectionView
 
+@MainActor
+struct LessonSelectionView: View {
+    @EnvironmentObject private var audioManager: AudioManager
     @EnvironmentObject private var store: LessonStore
     @EnvironmentObject private var folderStore: FolderStore
 
-
+    @State private var lessonToDelete: Lesson?
+    @State private var showDeleteConfirm = false
+    @State private var resumeLesson: Lesson?
     @State private var selectedLesson: Lesson?
 
     // Hide lessons that already belong to any folder
@@ -304,7 +373,7 @@ struct LessonSelectionView: View {
     private var unfiledLessons: [Lesson] {
         store.lessons.filter { !folderedLessonIDs.contains($0.id) }
     }
-    
+
     private var activeLesson: Lesson? {
         guard let fn = audioManager.currentLessonFolderName else { return nil }
         return store.lessons.first { $0.folderName == fn }
@@ -320,10 +389,9 @@ struct LessonSelectionView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
 
-                    // NOW PLAYING BAR (if anything is loaded)
-                    if let playing = activeLesson, (audioManager.isPlaying || audioManager.isPaused || !audioManager.segments.isEmpty) {
+                    if let playing = activeLesson,
+                       (audioManager.isPlaying || audioManager.isPaused || !audioManager.segments.isEmpty) {
                         Button {
-                            // Jump back WITHOUT stopping or reloading
                             resumeLesson = playing
                         } label: {
                             HStack(spacing: 12) {
@@ -347,8 +415,8 @@ struct LessonSelectionView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
                     }
-                    
-                    // Folders Section (NEW)
+
+                    // Folders
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Label("Folders", systemImage: "folder")
@@ -369,7 +437,6 @@ struct LessonSelectionView: View {
                             Text("No folders yet. Tap **New Folder** to group lessons.")
                                 .foregroundColor(.secondary)
                         } else {
-                            // Grid of folders
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                                 ForEach(folderStore.folders) { folder in
                                     NavigationLink(value: folder) {
@@ -402,7 +469,7 @@ struct LessonSelectionView: View {
 
                     Divider()
 
-                    // Lessons Section (existing)
+                    // Lessons
                     VStack(spacing: 16) {
                         if unfiledLessons.isEmpty {
                             Text("No unfiled lessons. Everything is already in folders.")
@@ -412,14 +479,7 @@ struct LessonSelectionView: View {
                         } else {
                             ForEach(unfiledLessons) { lesson in
                                 Button {
-                                    if lesson.folderName == audioManager.currentLessonFolderName {
-                                        // Same lesson: just navigate back to it; do NOT stop or reload
-                                        selectedLesson = lesson
-                                    } else {
-                                        // Different lesson: let ContentView load the new one (it calls loadLesson)
-                                        // No need to stop() here; loadLesson() already stops internally.
-                                        selectedLesson = lesson
-                                    }
+                                    selectedLesson = lesson
                                 } label: {
                                     Text(lesson.title)
                                         .font(.headline)
@@ -430,7 +490,6 @@ struct LessonSelectionView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
-                                    // Only offer delete if it exists in Documents/Lessons (device-generated)
                                     if store.isDeletable(lesson) {
                                         Button(role: .destructive) {
                                             lessonToDelete = lesson
@@ -451,7 +510,7 @@ struct LessonSelectionView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink("Generator") {
                         GeneratorView()
-                            .environmentObject(store)     // << inject LessonStore
+                            .environmentObject(store)
                     }
                 }
             }
@@ -460,7 +519,6 @@ struct LessonSelectionView: View {
                     .environmentObject(audioManager)
                     .environmentObject(folderStore)
             }
-            // Programmatic lesson navigation
             .navigationDestination(item: $selectedLesson) { lesson in
                 ContentView(selectedLesson: lesson, lessons: unfiledLessons)
                     .environmentObject(audioManager)
@@ -476,7 +534,7 @@ struct LessonSelectionView: View {
                     do {
                         try store.deleteLesson(id: lesson.id)
                         folderStore.removeLessonFromAllFolders(lesson.id)
-                        store.load() // refresh immediately
+                        store.load()
                     } catch {
                         print("Delete failed: \(error)")
                     }
@@ -488,7 +546,8 @@ struct LessonSelectionView: View {
         }
     }
 
-    // MARK: - Create Folder Sheet (NEW)
+    // MARK: - Create Folder Sheet
+
     private var createFolderSheet: some View {
         NavigationStack {
             Form {
@@ -497,7 +556,6 @@ struct LessonSelectionView: View {
                         .textInputAutocapitalization(.words)
                 }
                 Section("Include Lessons") {
-                    // Multi-select list of lessons
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 12) {
                             ForEach(store.lessons, id: \._id) { lesson in
@@ -529,18 +587,13 @@ struct LessonSelectionView: View {
                         }
                         .padding(.vertical, 4)
                     }
-                    .refreshable {
-                        store.load()
-                    }
-                    .frame(minHeight: 400) // ⬅️ increase available height for scrolling
+                    .refreshable { store.load() }
+                    .frame(minHeight: 400)
                 }
-
             }
             .navigationTitle("New Folder")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showingCreateFolder = false }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showingCreateFolder = false } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
                         folderStore.addFolder(named: newFolderName, lessonIDs: Array(selectedLessonIDs))
@@ -553,37 +606,12 @@ struct LessonSelectionView: View {
     }
 }
 
-// MARK: - Folder Manager (reorder folders)
-struct FolderManagerView: View {
-    @EnvironmentObject private var folderStore: FolderStore
-
-    var body: some View {
-        List {
-            ForEach(folderStore.folders) { folder in
-                HStack {
-                    Image(systemName: "folder.fill")
-                    Text(folder.name)
-                }
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button(role: .destructive) {
-                        folderStore.remove(folder)
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                }
-            }
-            .onMove(perform: folderStore.move)
-        }
-        .navigationTitle("Manage Folders")
-        .toolbar { EditButton() }
-    }
-}
-
 // MARK: - Helpers
-private extension Lesson { var _id: String { id } }
 
 private extension Color {
     static let uiFolder = Color(UIColor { trait in
-        trait.userInterfaceStyle == .dark ? UIColor.systemYellow.withAlphaComponent(0.18) : UIColor.systemYellow.withAlphaComponent(0.22)
+        trait.userInterfaceStyle == .dark
+        ? UIColor.systemYellow.withAlphaComponent(0.18)
+        : UIColor.systemYellow.withAlphaComponent(0.22)
     })
 }

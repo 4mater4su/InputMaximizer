@@ -1,558 +1,6 @@
-// ContentVIew.swift
+// ContentView.swift
 
 import SwiftUI
-import AVFoundation
-import MediaPlayer
-
-final class LessonStore: ObservableObject {
-    @Published var lessons: [Lesson] = []
-    init() { load() }
-
-    func load() {
-        FileManager.ensureLessonsDir()
-        let docsJSON = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
-        let candidateURLs: [URL?] = [
-            FileManager.default.fileExists(atPath: docsJSON.path) ? docsJSON : nil,
-            Bundle.main.url(forResource: "lessons", withExtension: "json", subdirectory: "Lessons"),
-            (Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? [])
-                .first(where: { $0.lastPathComponent == "lessons.json" })
-        ]
-
-        guard let url = candidateURLs.compactMap({ $0 }).first else {
-            print("lessons.json not found.")
-            lessons = []
-            return
-        }
-
-        do {
-            let data = try Data(contentsOf: url)
-            lessons = try JSONDecoder().decode([Lesson].self, from: data)
-        } catch {
-            print("Failed to decode lessons.json: \(error)")
-            lessons = []
-        }
-    }
-}
-
-// MARK: - Deletion / Persistence helpers
-extension LessonStore {
-    private var docsLessonsJSONURL: URL {
-        FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
-    }
-
-    /// Persist the current in-memory list to Documents/Lessons/lessons.json
-    private func saveListToDisk() throws {
-        try FileManager.default.createDirectory(at: FileManager.docsLessonsDir, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(lessons)
-        try data.write(to: docsLessonsJSONURL, options: .atomic)
-    }
-
-    /// Can we delete this lesson from device? (Only if its folder exists in Documents.)
-    func isDeletable(_ lesson: Lesson) -> Bool {
-        let folderURL = FileManager.docsLessonsDir.appendingPathComponent(lesson.folderName, isDirectory: true)
-        return FileManager.default.fileExists(atPath: folderURL.path)
-    }
-
-    /// Delete lesson folder + remove from lessons.json (Documents only).
-    func deleteLesson(id: String) throws {
-        guard let idx = lessons.firstIndex(where: { $0.id == id }) else { return }
-        let lesson = lessons[idx]
-
-        // Remove files under Documents/Lessons/<folderName> if present
-        let folderURL = FileManager.docsLessonsDir.appendingPathComponent(lesson.folderName, isDirectory: true)
-        if FileManager.default.fileExists(atPath: folderURL.path) {
-            try FileManager.default.removeItem(at: folderURL)
-        }
-
-        // Remove from in-memory list and persist
-        lessons.remove(at: idx)
-        try saveListToDisk()
-    }
-}
-
-// MARK: - Audio Manager
-class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
-    @Published var segments: [Segment] = []
-    @Published var currentIndex: Int = 0
-    @Published var isPlaying: Bool = false
-    @Published var isPlayingPT: Bool = false
-    @Published var isPaused: Bool = false
-    @Published var currentLessonFolderName: String?
-    
-    enum PlaybackMode { case target, translation }
-    @Published var playbackMode: PlaybackMode = .target
-    
-    private var audioPlayer: AVAudioPlayer?
-    private var resumePTAfterENG = false
-    
-    // Detect a fast second press when lesson just ended (or right after we replayed)
-    private var allowNextDoubleUntil: Date?
-    private let doubleTapWindow: TimeInterval = 0.6
-
-    @Published var segmentDelay: TimeInterval = UserDefaults.standard.double(forKey: "segmentDelay") == 0 ? 1.2 : UserDefaults.standard.double(forKey: "segmentDelay") {
-        didSet {
-            if segmentDelay < 0 { segmentDelay = 0 }
-            UserDefaults.standard.set(segmentDelay, forKey: "segmentDelay")
-        }
-    }
-    @Published var isInDelay: Bool = false
-
-    private var pendingAdvance: DispatchWorkItem?
-
-    private var keepalivePlayer: AVAudioPlayer?
-    
-    private func startRemoteKeepalive() {
-        if let p = audioPlayer, p.isPlaying { return }
-        guard keepalivePlayer == nil,
-              let url = findResource(named: "silence.caf") else { return }
-        do {
-            let p = try AVAudioPlayer(contentsOf: url)
-            p.numberOfLoops = -1
-            p.volume = 0.0
-            p.prepareToPlay()
-            p.play()
-            keepalivePlayer = p
-
-            // Present a valid "now playing" while idle
-            var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-            let title = segments.isEmpty ? "Lesson" : segments[currentIndex].pt_text
-            let artist = currentLessonTitle.isEmpty ? "Language Practice" : currentLessonTitle
-            info[MPMediaItemPropertyTitle] = title
-            info[MPMediaItemPropertyArtist] = artist
-            info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
-            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = segments.count
-            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = currentIndex
-            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = p.currentTime
-            info[MPMediaItemPropertyPlaybackDuration] = p.duration
-            info[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-        } catch {
-            print("Failed to start keepalive: \(error)")
-        }
-    }
-
-    private func stopRemoteKeepalive() {
-        keepalivePlayer?.stop()
-        keepalivePlayer = nil
-
-        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-        if let real = audioPlayer {
-            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = real.currentTime
-            info[MPMediaItemPropertyPlaybackDuration] = real.duration
-            info[MPNowPlayingInfoPropertyPlaybackRate] = real.isPlaying ? 1.0 : 0.0
-        } else {
-            info[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
-        }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-    }
-    
-    @Published var didFinishLesson: Bool = false              // finished + reset to start
-    var requestNextLesson: (() -> Void)?                      // UI provides this closure
-    
-    // Track current lesson location
-    private var currentLessonBaseURL: URL?
-    @Published var currentLessonTitle: String = ""
-
-    override init() {
-        super.init()
-        // Set up audio session for background playback
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.allowBluetooth, .allowBluetoothA2DP])
-            try session.setActive(true)
-        } catch {
-            print("Failed to set audio session: \(error)")
-        }
-        setupRemoteControls()
-    }
-    
-    deinit {
-        // ensure cleanup if this ever gets deallocated
-        stop()
-        removeRemoteControlTargets()
-        do {
-            try AVAudioSession.sharedInstance().setActive(false)
-        } catch {
-            print("Failed to deactivate audio session: \(error)")
-        }
-    }
-    
-    private func scheduleAdvanceAfterDelay() {
-        pendingAdvance?.cancel()
-
-        guard currentIndex < segments.count - 1 else {
-            isPlayingPT = false
-            isPaused = false
-            isInDelay = false
-            didFinishLesson = true
-            allowNextDoubleUntil = nil
-            currentIndex = 0
-            updateNowPlayingInfo()
-            startRemoteKeepalive()
-            return
-        }
-
-        isPlayingPT = false
-        isInDelay = true
-        allowNextDoubleUntil = nil
-        startRemoteKeepalive()
-
-        let work = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
-            self.isInDelay = false
-            self.stopRemoteKeepalive()
-            self.currentIndex += 1
-
-            switch self.playbackMode {
-            case .target:
-                self.playPortuguese(from: self.currentIndex)
-            case .translation:
-                self.playTranslation(resumeAfterTarget: false)
-            }
-        }
-        pendingAdvance = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + segmentDelay, execute: work)
-    }
-    
-    // Helper: find a resource anywhere in the documents and bundle by exact filename
-    private func findResource(named filename: String) -> URL? {
-        // 1) Documents/Lessons/<any subfolder>/filename
-        let docs = FileManager.docsLessonsDir
-        if let enumerator = FileManager.default.enumerator(at: docs, includingPropertiesForKeys: nil) {
-            for case let url as URL in enumerator where url.lastPathComponent == filename {
-                return url
-            }
-        }
-        // 2) Bundle by name
-        let parts = (filename as NSString).deletingPathExtension
-        let ext   = (filename as NSString).pathExtension
-        if !ext.isEmpty, let url = Bundle.main.url(forResource: parts, withExtension: ext) { return url }
-        // 3) Bundle fallback by scanning
-        let extToUse = ext.isEmpty ? nil : ext
-        let urls = Bundle.main.urls(forResourcesWithExtension: extToUse, subdirectory: nil) ?? []
-        return urls.first { $0.lastPathComponent == filename }
-    }
-
-
-    // Load segments by filename only
-    func loadLesson(folderName: String, lessonTitle: String) {
-        // ✅ Don't interrupt if we're already on this lesson and have segments
-        if currentLessonFolderName == folderName, !segments.isEmpty {
-            currentLessonTitle = lessonTitle
-            updateNowPlayingInfo()
-            return
-        }
-
-        stop()  // only stop when actually switching lessons
-        currentIndex = 0
-        segments = []
-        currentLessonTitle = lessonTitle
-        currentLessonFolderName = folderName
-
-        let filename = "segments_\(folderName).json"
-        guard let url = findResource(named: filename) else {
-            print("Segments manifest not found: \(filename)")
-            updateNowPlayingInfo()
-            return
-        }
-        do {
-            let data = try Data(contentsOf: url)
-            segments = try JSONDecoder().decode([Segment].self, from: data)
-        } catch {
-            print("Error decoding \(filename): \(error)")
-        }
-
-        updateNowPlayingInfo()
-    }
-
-    // Play audio by filename only
-    private func playFile(named file: String) {
-        stopRemoteKeepalive()
-        audioPlayer?.stop()                      // ⬅️ stop any previous playback
-        audioPlayer = nil
-        
-        guard let url = findResource(named: file) else {
-            print("Audio file not found: \(file)")
-            return
-        }
-        do {
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.delegate = self
-            audioPlayer?.play()
-            isPlaying = true
-        } catch {
-            print("Error playing audio: \(error)")
-        }
-    }
-    
-    private func cancelPendingAdvance() {
-        pendingAdvance?.cancel()
-        pendingAdvance = nil
-        isInDelay = false
-    }
-
-    func playPortuguese(from index: Int) {
-        guard !segments.isEmpty else { return }
-        cancelPendingAdvance()
-        didFinishLesson = false
-        currentIndex = index
-        isPlayingPT = true
-        isPaused = false
-        resumePTAfterENG = false
-        playFile(named: segments[currentIndex].pt_file)
-        updateNowPlayingInfo()
-    }
-
-    func playTranslation(resumeAfterTarget: Bool = true) {
-        guard !segments.isEmpty else { return }
-        cancelPendingAdvance()
-        didFinishLesson = false
-        isPlayingPT = false
-        isPaused = false
-        // Only auto-return to target if requested AND we're in target-continuous mode
-        resumePTAfterENG = resumeAfterTarget && playbackMode == .target
-        playFile(named: segments[currentIndex].en_file)   // still the “second language” file
-        updateNowPlayingInfo(isPT: false)
-    }
-    
-    func playEnglish() {
-        guard !segments.isEmpty else { return }
-        cancelPendingAdvance()                 // don't auto-advance while reviewing EN
-        didFinishLesson = false
-        isPlayingPT = false
-        isPaused = false
-        resumePTAfterENG = true                // after EN, come back to same PT segment
-        playFile(named: segments[currentIndex].en_file)
-        updateNowPlayingInfo(isPT: false)
-    }
-
-    func togglePlayPause() {
-        if let player = audioPlayer, player.isPlaying {
-            player.pause()
-            isPaused = true
-            //isPlayingPT = false
-            isPlaying = false
-            cancelPendingAdvance()
-            updateNowPlayingInfo()
-            didFinishLesson = false
-        } else if let player = audioPlayer, isPaused {
-            player.play()
-            isPaused = false
-            isPlaying = true
-            updateNowPlayingInfo()
-            didFinishLesson = false
-        } else {
-            // Nothing playing
-            if didFinishLesson {
-                //requestNextLesson?()
-                playPortuguese(from: 0)        // replay current lesson
-                didFinishLesson = false
-            } else if isInDelay {
-                playEnglish()
-            } else {
-                playPortuguese(from: currentIndex)
-            }
-        }
-    }
-
-    func stop() {
-        audioPlayer?.stop()
-        audioPlayer = nil
-        isPlayingPT = false
-        isPaused = false
-        isPlaying = false
-        resumePTAfterENG = false
-        cancelPendingAdvance()
-        didFinishLesson = false
-    }
-    
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        isPlaying = false
-
-        if resumePTAfterENG {
-            resumePTAfterENG = false
-            playPortuguese(from: currentIndex)
-            return
-        }
-
-        // Keep chaining only if the just-played side matches the chosen mode
-        if (isPlayingPT && playbackMode == .target) || (!isPlayingPT && playbackMode == .translation) {
-            scheduleAdvanceAfterDelay()
-        }
-    }
-    
-    private func removeRemoteControlTargets() {
-        let cc = MPRemoteCommandCenter.shared()
-        cc.playCommand.removeTarget(nil)
-        cc.pauseCommand.removeTarget(nil)
-        cc.nextTrackCommand.removeTarget(nil)
-        cc.previousTrackCommand.removeTarget(nil)
-        cc.togglePlayPauseCommand.removeTarget(nil)
-    }
-    
-    // MARK: - Remote Control Center
-    private func setupRemoteControls() {
-        // prevent duplicate handlers if setup is called more than once
-        removeRemoteControlTargets()
-        
-        let commandCenter = MPRemoteCommandCenter.shared()
-        
-        commandCenter.playCommand.addTarget { [weak self] _ in
-            guard let self = self else { return .commandFailed }
-            let now = Date()
-
-            // --- End-of-lesson gestures ---
-            if self.didFinishLesson || self.allowNextDoubleUntil != nil {
-                if let until = self.allowNextDoubleUntil, now < until {
-                    // Second fast press -> treat as NEXT LESSON
-                    self.allowNextDoubleUntil = nil
-                    self.requestNextLesson?()
-                    self.didFinishLesson = false
-                    return .success
-                } else {
-                    // First press -> REPLAY current lesson, but open a short window for a "second press"
-                    self.allowNextDoubleUntil = now.addingTimeInterval(self.doubleTapWindow)
-                    self.playPortuguese(from: 0)
-                    self.didFinishLesson = false      // from here on we rely on the window, not didFinishLesson
-                    return .success
-                }
-            }
-
-            // --- Delay window (play EN once) ---
-            if self.isInDelay {
-                self.playEnglish()
-                return .success
-            }
-
-            // --- Normal toggle ---
-            self.togglePlayPause()
-            return .success
-        }
-
-        commandCenter.pauseCommand.addTarget { [weak self] _ in
-            self?.togglePlayPause()
-            return .success
-        }
-        
-        let cc = MPRemoteCommandCenter.shared()
-        cc.togglePlayPauseCommand.addTarget { [weak self] _ in
-            guard let self = self else { return .commandFailed }
-            let now = Date()
-
-            if self.didFinishLesson || self.allowNextDoubleUntil != nil {
-                if let until = self.allowNextDoubleUntil, now < until {
-                    self.allowNextDoubleUntil = nil
-                    self.requestNextLesson?()
-                    self.didFinishLesson = false
-                    return .success
-                } else {
-                    self.allowNextDoubleUntil = now.addingTimeInterval(self.doubleTapWindow)
-                    self.playPortuguese(from: 0)
-                    self.didFinishLesson = false
-                    return .success
-                }
-            }
-
-            if self.isInDelay {
-                self.playEnglish()
-                return .success
-            }
-
-            self.togglePlayPause()
-            return .success
-        }
-        
-        // Next track → Play English if PT is playing; otherwise next PT segment
-        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
-            guard let self = self else { return .commandFailed }
-            self.allowNextDoubleUntil = nil
-
-            // If a lesson just finished (we're reset to start), double-press = next lesson
-            if self.didFinishLesson {
-                self.requestNextLesson?()
-                return .success
-            }
-
-            // Treat "in delay" the same as "PT is playing": play the EN translation
-            if self.isPlayingPT || self.isInDelay {
-                self.playEnglish()               // cancels pending auto-advance internally
-                return .success
-            } else if self.currentIndex < self.segments.count - 1 {
-                self.playPortuguese(from: self.currentIndex + 1)
-                return .success
-            }
-
-            return .noSuchContent
-        }
-
-        // Previous track → go to previous PT segment
-        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
-            guard let self = self else { return .commandFailed }
-            if self.currentIndex > 0 {
-                self.playPortuguese(from: self.currentIndex - 1)
-                return .success
-            }
-            return .noSuchContent
-        }
-    }
-
-    // Lock screen metadata
-    private func updateNowPlayingInfo(isPT: Bool? = nil) {
-        guard !segments.isEmpty else { return }
-        let segment = segments[currentIndex]
-        let playingPT = isPT ?? isPlayingPT
-
-        var info: [String: Any] = [
-            MPMediaItemPropertyTitle: playingPT ? segment.pt_text : segment.en_text,
-            MPMediaItemPropertyArtist: currentLessonTitle.isEmpty ? "Portuguese ↔ English Learning" : currentLessonTitle,
-        ]
-
-        if let player = audioPlayer {
-            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = player.currentTime
-            info[MPMediaItemPropertyPlaybackDuration] = player.duration
-            info[MPNowPlayingInfoPropertyPlaybackRate] = player.isPlaying ? 1.0 : 0.0
-        } else {
-            info[MPNowPlayingInfoPropertyPlaybackRate] = 0.0   // ⬅️ keep your app addressable
-        }
-
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-    }
-
-}
-
-extension AudioManager {
-    /// Read segments for a lesson without changing playback state.
-    func previewSegments(for folderName: String) -> [Segment] {
-        let filename = "segments_\(folderName).json"
-
-        // Reuse the same search strategy as findResource(named:)
-        func locate(_ filename: String) -> URL? {
-            // 1) Documents/Lessons/**/filename
-            let docs = FileManager.docsLessonsDir
-            if let enumerator = FileManager.default.enumerator(at: docs, includingPropertiesForKeys: nil) {
-                for case let url as URL in enumerator where url.lastPathComponent == filename {
-                    return url
-                }
-            }
-            // 2) Bundle direct
-            let parts = (filename as NSString).deletingPathExtension
-            let ext   = (filename as NSString).pathExtension
-            if !ext.isEmpty, let url = Bundle.main.url(forResource: parts, withExtension: ext) { return url }
-
-            // 3) Bundle scan fallback
-            let extToUse = ext.isEmpty ? nil : ext
-            let urls = Bundle.main.urls(forResourcesWithExtension: extToUse, subdirectory: nil) ?? []
-            return urls.first { $0.lastPathComponent == filename }
-        }
-
-        guard let url = locate(filename),
-              let data = try? Data(contentsOf: url),
-              let list = try? JSONDecoder().decode([Segment].self, from: data) else {
-            return []
-        }
-        return list
-    }
-}
 
 // Group model for paragraph rendering
 private struct ParaGroup: Identifiable {
@@ -560,16 +8,49 @@ private struct ParaGroup: Identifiable {
     let segments: [Segment]
 }
 
-// MARK: - SwiftUI View
+@MainActor
 struct ContentView: View {
-    @EnvironmentObject private var audioManager : AudioManager
-    
+    @EnvironmentObject private var audioManager: AudioManager
+
     let lessons: [Lesson]
     @State private var currentLessonIndex: Int
     let selectedLesson: Lesson
-    
-    // MARK: - Helpers tied to the UI/scrolling
+
+    @AppStorage("showTranslation") private var showTranslation: Bool = true
+    @AppStorage("segmentDelay") private var storedDelay: Double = 1.2
+
+    // Local, non-playing transcript for whatever is *selected* in UI
+    @State private var displaySegments: [Segment] = []
+
+    // MARK: - Init
+    init(selectedLesson: Lesson, lessons: [Lesson]) {
+        self.selectedLesson = selectedLesson
+        self.lessons = lessons
+        _currentLessonIndex = State(initialValue: lessons.firstIndex(of: selectedLesson) ?? 0)
+    }
+
+    // MARK: - Derived
     private var currentLesson: Lesson { lessons[currentLessonIndex] }
+
+    private var isViewingActiveLesson: Bool {
+        audioManager.currentLessonFolderName == currentLesson.folderName
+    }
+
+    private var groupedByParagraph: [ParaGroup] {
+        let groups = Dictionary(grouping: displaySegments, by: { $0.paragraph })
+        return groups
+            .map { key, value in
+                ParaGroup(id: key, segments: value.sorted { $0.id < $1.id })
+            }
+            .sorted { ($0.segments.first?.id ?? 0) < ($1.segments.first?.id ?? 0) }
+    }
+
+    private var playingSegmentID: Int? {
+        guard isViewingActiveLesson,
+              audioManager.currentIndex >= 0,
+              audioManager.currentIndex < audioManager.segments.count else { return nil }
+        return audioManager.segments[audioManager.currentIndex].id
+    }
 
     private func scrollID(for segmentID: Int, in folder: String) -> String {
         "\(folder)#\(segmentID)"
@@ -585,55 +66,20 @@ struct ContentView: View {
         return scrollID(for: segID, in: folder)
     }
 
-    private var isViewingActiveLesson: Bool {
-        audioManager.currentLessonFolderName == currentLesson.folderName
-    }
-
-    @AppStorage("showTranslation") private var showTranslation: Bool = true
-    
-    // Local, non-playing transcript for whatever is *selected* in UI
-    @State private var displaySegments: [Segment] = []
-
-    private var groupedByParagraph: [ParaGroup] {
-        // default paragraph = 0 if absent
-        let groups = Dictionary(grouping: displaySegments, by: { $0.paragraph ?? 0 })
-        // Convert to Identifiable structs and sort by first segment ID
-        return groups
-            .map { (key, value) in
-                ParaGroup(id: key, segments: value.sorted { $0.id < $1.id })
-            }
-            .sorted { ($0.segments.first?.id ?? 0) < ($1.segments.first?.id ?? 0) }
-    }
-    
-    private var playingSegmentID: Int? {
-        guard isViewingActiveLesson,
-              audioManager.currentIndex >= 0,
-              audioManager.currentIndex < audioManager.segments.count else { return nil }
-        return audioManager.segments[audioManager.currentIndex].id
-    }
-    
-    init(selectedLesson: Lesson, lessons: [Lesson]) {
-        self.selectedLesson = selectedLesson
-        self.lessons = lessons
-        _currentLessonIndex = State(initialValue: lessons.firstIndex(of: selectedLesson) ?? 0)
-    }
-    
-    @AppStorage("segmentDelay") private var storedDelay: Double = 1.2
-    
+    // MARK: - Actions
     private func goToNextLessonAndPlay() {
         guard !lessons.isEmpty else { return }
-        // Wrap-around to first lesson when at the end (change to `min(..., lessons.count-1)` if you don't want wrap)
         currentLessonIndex = (currentLessonIndex + 1) % lessons.count
         let next = lessons[currentLessonIndex]
         audioManager.loadLesson(folderName: next.folderName, lessonTitle: next.title)
         audioManager.playPortuguese(from: 0)
     }
-    
+
+    // MARK: - View
     var body: some View {
         VStack(spacing: 10) {
-            
             Divider()
-            
+
             // Transcript with auto-scroll and tap-to-start
             ScrollViewReader { proxy in
                 TranscriptList(
@@ -644,8 +90,10 @@ struct ContentView: View {
                     headerTitle: currentLesson.title
                 ) { segment in
                     if !isViewingActiveLesson {
-                        audioManager.loadLesson(folderName: currentLesson.folderName,
-                                                lessonTitle: currentLesson.title)
+                        audioManager.loadLesson(
+                            folderName: currentLesson.folderName,
+                            lessonTitle: currentLesson.title
+                        )
                     }
                     if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.id }) {
                         audioManager.playPortuguese(from: idx)
@@ -654,37 +102,29 @@ struct ContentView: View {
                 .onChange(of: audioManager.currentIndex) { _ in
                     guard let id = playingScrollID else { return }
                     DispatchQueue.main.async {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            proxy.scrollTo(id, anchor: .center)
-                        }
+                        withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
                     }
                 }
                 .onChange(of: showTranslation) { _ in
                     guard let id = playingScrollID else { return }
-                    DispatchQueue.main.async {
-                        proxy.scrollTo(id, anchor: .center)
-                    }
+                    DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
                 }
             }
-            
+
             Divider()
-            
+
             VStack(alignment: .leading, spacing: 10) {
                 Text("Pause Between Segments: \(storedDelay, specifier: "%.1f")s")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
 
-                // Slider
                 Slider(value: $storedDelay, in: 0...20, step: 0.5)
                     .accessibilityLabel("Pause Between Segments")
                     .accessibilityValue("\(storedDelay, specifier: "%.1f") seconds")
-                
             }
             .padding(.horizontal)
 
-            
             HStack(spacing: 60) {
-                // Play/Pause PT
                 Button {
                     audioManager.togglePlayPause()
                 } label: {
@@ -693,11 +133,10 @@ struct ContentView: View {
                 }
                 .buttonStyle(MinimalIconButtonStyle())
                 .accessibilityLabel(audioManager.isPlayingPT ? "Pause Portuguese" : "Play Portuguese")
-                .accessibilityHint("Toggles Portuguese playback")
+                .accessibilityHint("Toggles Portuguese playback.")
 
-                // Play Translation once (then resume Target if in target mode)
                 Button {
-                    audioManager.playTranslation() // replaces playEnglish()
+                    audioManager.playTranslation()
                 } label: {
                     Image(systemName: "globe")
                         .imageScale(.large)
@@ -707,9 +146,7 @@ struct ContentView: View {
                 .accessibilityHint("Plays the translated line once, then resumes target language when appropriate.")
             }
             .padding(.bottom, 20)
-
         }
-        // On appear & when lesson changes, keep transcript in sync
         .onAppear {
             displaySegments = audioManager.previewSegments(for: currentLesson.folderName)
             audioManager.segmentDelay = storedDelay
@@ -724,63 +161,63 @@ struct ContentView: View {
             displaySegments = audioManager.previewSegments(for: currentLesson.folderName)
         }
         .onChange(of: audioManager.currentLessonFolderName ?? "") { _ in
-            // If AudioManager changes lessons externally, mirror it here
             if let folder = audioManager.currentLessonFolderName,
                let idx = lessons.firstIndex(where: { $0.folderName == folder }) {
                 currentLessonIndex = idx
                 displaySegments = audioManager.previewSegments(for: folder)
             }
         }
-
+        // keep AudioManager's delay in sync with the slider value
+        .onChange(of: storedDelay) { newValue in
+            audioManager.segmentDelay = newValue
+        }
         .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)      // avoid large-title space
-            .toolbar {
-                // Existing visibility toggle ...
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showTranslation.toggle()
-                    } label: {
-                        Image(systemName: showTranslation ? "eye" : "eye.slash")
-                    }
-                    .accessibilityLabel(showTranslation ? "Hide translation" : "Show translation")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showTranslation.toggle()
+                } label: {
+                    Image(systemName: showTranslation ? "eye" : "eye.slash")
                 }
+                .accessibilityLabel(showTranslation ? "Hide translation" : "Show translation")
+            }
 
-                // NEW: Continuous playback lane toggle (Target ↔ Translation)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        let next: AudioManager.PlaybackMode =
-                            (audioManager.playbackMode == .target) ? .translation : .target
-                        audioManager.playbackMode = next
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    let next: AudioManager.PlaybackMode =
+                        (audioManager.playbackMode == .target) ? .translation : .target
+                    audioManager.playbackMode = next
 
-                        // Optional: immediately re-play current segment in chosen lane
-                        if next == .target {
-                            audioManager.playPortuguese(from: audioManager.currentIndex)
-                        } else {
-                            audioManager.playTranslation(resumeAfterTarget: false)
-                        }
-                    } label: {
-                        // character.book.closed ≈ “target text”; globe ≈ “translation”
-                        Image(systemName: audioManager.playbackMode == .target ? "character.book.closed" : "globe")
+                    // Immediately re-play current segment in chosen lane
+                    if next == .target {
+                        audioManager.playPortuguese(from: audioManager.currentIndex)
+                    } else {
+                        audioManager.playTranslation(resumeAfterTarget: false)
                     }
-                    .accessibilityLabel(
-                        audioManager.playbackMode == .target
-                        ? "Switch to continuous translation playback"
-                        : "Switch to continuous target playback"
-                    )
-                    .accessibilityHint("Changes which language auto-advance uses. One-off translation button still works.")
+                } label: {
+                    Image(systemName: audioManager.playbackMode == .target ? "character.book.closed" : "globe")
                 }
+                .accessibilityLabel(
+                    audioManager.playbackMode == .target
+                    ? "Switch to continuous translation playback"
+                    : "Switch to continuous target playback"
+                )
+                .accessibilityHint("Changes which language auto-advance uses. One-off translation button still works.")
             }
         }
+    }
 }
 
-// One line (PT + optional EN)
+// MARK: - Transcript List & Rows
+
 private struct SegmentRow: View {
     let segment: Segment
     let isPlaying: Bool
     let showTranslation: Bool
     let rowID: String
     let onTap: () -> Void
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(segment.pt_text)
@@ -802,14 +239,13 @@ private struct SegmentRow: View {
     }
 }
 
-// A paragraph “box” grouping many SegmentRow
 private struct ParagraphBox: View {
     let group: ParaGroup
     let folderName: String
     let showTranslation: Bool
     let playingSegmentID: Int?
     let onTap: (Segment) -> Void
-    
+
     var body: some View {
         let isAlt = group.id % 2 == 1
         VStack(alignment: .leading, spacing: 12) {
@@ -836,7 +272,6 @@ private struct ParagraphBox: View {
     }
 }
 
-// The whole scrollable transcript list
 private struct TranscriptList: View {
     let groups: [ParaGroup]
     let folderName: String
@@ -848,14 +283,13 @@ private struct TranscriptList: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
-                // Title that scrolls out of view as you scroll down
                 if let headerTitle {
                     Text(headerTitle)
                         .font(.largeTitle.bold())
                         .padding(.horizontal)
                         .padding(.top, 8)
                 }
-                
+
                 ForEach(groups, id: \.id) { group in
                     ParagraphBox(
                         group: group,
@@ -872,6 +306,7 @@ private struct TranscriptList: View {
     }
 }
 
+// MARK: - Colors
 
 private extension Color {
     static var paraBase: Color {
@@ -879,13 +314,7 @@ private extension Color {
             trait.userInterfaceStyle == .dark ? UIColor.secondarySystemBackground : UIColor.systemGray6
         })
     }
-    static var paraAlt: Color {
-        Color(UIColor { _ in UIColor.systemGray5 })
-    }
-    static var paraStroke: Color {
-        Color(UIColor.separator)
-    }
+    static var paraAlt: Color { Color(UIColor { _ in UIColor.systemGray5 }) }
+    static var paraStroke: Color { Color(UIColor.separator) }
 }
-
-
 

@@ -20,8 +20,12 @@ struct Segment: Codable, Identifiable {
     }
 
     init(id: Int, pt_text: String, en_text: String, pt_file: String, en_file: String, paragraph: Int = 0) {
-        self.id = id; self.pt_text = pt_text; self.en_text = en_text
-        self.pt_file = pt_file; self.en_file = en_file; self.paragraph = paragraph
+        self.id = id
+        self.pt_text = pt_text
+        self.en_text = en_text
+        self.pt_file = pt_file
+        self.en_file = en_file
+        self.paragraph = paragraph
     }
 
     init(from decoder: Decoder) throws {
