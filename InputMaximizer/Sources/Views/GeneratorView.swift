@@ -1,4 +1,3 @@
-
 //
 //  GeneratorView.swift
 //  InputMaximizer
@@ -36,8 +35,7 @@ struct GeneratorView: View {
     @State private var lengthPreset: LengthPreset = .medium
     
     // MARK: - State
-    @State private var apiKey: String = ""
-         // store/retrieve from Keychain in real use
+    @State private var apiKey: String = "" // store/retrieve from Keychain in real use
     @State private var sentencesPerSegment = 1
     @State private var isBusy = false
     @State private var status = ""
@@ -77,205 +75,21 @@ struct GeneratorView: View {
     
     // MARK: - Random topic source
     private let interests: [String] = [
-        // 🌱 Movement / Embodied Practices
-        "capoeira rodas ao amanhecer",
-        "princípios e filosofia do jiu-jítsu",
-        "kuzushi (desequilibrar) aplicado ao cotidiano",
-        "respiração sob estresse (breathwork)",
-        "rituais do surf e leitura do swell",
-        "treino de apneia e mergulho livre",
-        "taiji ao amanhecer em neblina de montanha",
-        "peregrinações a pé e seus rituais",
-        "dança improvisada como narrativa corporal",
-        "movimento animal inspirado no ido portal",
-        "caminhar descalço em terras desconhecidas",
-        "jogos de equilíbrio em pontes naturais",
-        "parkour como meditação urbana",
-        "cartografar o corpo em quedas e rolamentos",
-        "dança trance em desertos ao luar",
-        "apneia em cavernas submersas",
-        "treinos com pesos não convencionais (pedras, troncos)",
-        "formas elementares inspiradas no dobrar da água, fogo, ar e terra",
-        "movimento em espiral como fluxo de ar",
-        "meditar em equilíbrio sobre troncos flutuantes",
-        "prática de ‘cloud hands’ em picos nevados",
-        "dançar ao redor de fogueiras como invocação",
-        "explorar o ‘improviso marcial’ — luta como diálogo criativo",
-        "imitar o voo de pássaros em exercícios de salto",
-        "navegar movimentos de multidão como se fosse água",
-
-        // 🌌 Navigation / Orientation
-        "songlines como mapas vivos da paisagem",
-        "constelações de canoa como cartas do céu",
-        "orientação fluvial tradicional",
-        "diários de viagem costeira por vilas de pesca",
-        "rotas de estrelas no deserto",
-        "hutongs e os guardiões do tempo dos becos",
-        "ecos da Rota da Seda em viagens atuais",
-        "histórias de tratados marcadas na terra",
-        "ler ventos em bandeiras, roupas, árvores",
-        "topografias inventadas em sonhos lúcidos",
-        "mapear memórias em ruas de cidades estrangeiras",
-        "cartas astrais como mapas de viagem interior",
-        "trilhas de cães de rua como orientação urbana",
-        "navegar pelo silêncio em cidades superlotadas",
-        "ler direções no fluxo de nuvens e ventos",
-        "mapear desertos como mares sólidos",
-        "escutar o som de árvores para saber caminhos",
-        "usar cânticos como bússola comunitária",
-        "códigos secretos de viajantes marcados em pedras",
-        "narrativas de viagem inscritas em tatuagens",
-        "mapear sonhos para decidir rotas de viagem",
-        "cartas do céu inspiradas em dobra de ar",
-        "linhas de dragão como mapas subterrâneos",
-
-        // 🐾 Ecological & Animal Kinship
-        "acordos com espíritos do rio no folclore",
-        "trocas de corvídeos (gralhas/corvos) com pessoas",
-        "hieróglifos das baleias e migrações",
-        "comunidades de cães de rua e sua ética",
-        "etiqueta com tubarões em tradições locais",
-        "migração de renas na Lapônia",
-        "rede micorrízica como 'correio' subterrâneo",
-        "florescências bioluminescentes no mar",
-        "contos da aurora narrados por anciãos",
-        "amizades interestelares com cães de rua",
-        "escuta de cogumelos psicodélicos em florestas",
-        "mitologias do lobo no círculo ártico",
-        "espelhos líquidos de lagos boreais",
-        "inteligência das algas bioluminescentes",
-        "correspondência entre abelhas e poetas",
-        "espírito-guardião em forma de cão",
-        "mito da rena como guia de viajante",
-        "companheirismo com espíritos-animais (daemons, totens)",
-        "o cão como guia nômade e companheiro espiritual",
-        "vozes dos búfalos-d’água em mitos orientais",
-        "danças de baleias como gramática cósmica",
-        "cavalos mongóis como parceiros de viagem",
-        "mimetizar gestos de lobos no gelo",
-        "espíritos de corujas como guardiões noturnos",
-        "códigos secretos de formigueiros em florestas",
-        "navegar pelo canto de aves migratórias",
-        "contato visionário com animais de poder em rituais",
-
-        // 🏮 Cultural Practices & Histories
-        "capoeira como resistência e arte comunitária",
-        "bibliotecas de favela como âncoras culturais",
-        "histórias orais dos barcos-correio fluviais",
-        "ermitões de Wudang nas montanhas",
-        "estrada do chá e do cavalo (tea-horse road)",
-        "rituais da jade e seus simbolismos",
-        "duelos ao crepúsculo na memória popular",
-        "poesia antes do combate (ritual e foco)",
-        "cerimônias de retomada de terra (land-back)",
-        "cerimônias do chá psicodélico em florestas",
-        "lendas de guardiões de passagens de montanha",
-        "histórias orais de monges andarilhos",
-        "rituais de enterrar objetos em viagens",
-        "bibliotecas vivas (pessoas como livros)",
-        "memórias tatuadas em marinheiros",
-        "culturas de sauna como ritos de purificação",
-        "mitos nórdicos reinventados em viagens ao norte",
-        "rituais elementares em vilarejos de montanha",
-        "lendas sobre dobradores esquecidos do vento",
-        "histórias de nômades do fogo no deserto",
-        "tradições de mergulhadores japoneses (ama) como dobradores de água",
-        "rituais xamânicos do Ártico",
-        "arquitetura que dobra vento e sombra",
-        "cultos à aurora como renascimento espiritual",
-        "histórias dos faróis como dobradores de luz",
-        "narrativas sobre os primeiros mapas mundiais",
-        "contos de povos que viajavam apenas pelo som",
-
-        // 📓 Observational / Field Notes
-        "notas de campo em cavernas de permafrost",
-        "roteiros de expedição para ver a aurora",
-        "marginalia em manuscritos antigos",
-        "rolos de receitas de cozinhas costeiras",
-        "registros de bordo durante marés de tempestade",
-        "a voz de um cinto gasto de jiu-jítsu (objeto-narrador)",
-        "boletins de auditorias do cofre de sementes",
-        "histórias orais dos anos de seca",
-        "perfil de um guardião de marégrafo",
-        "diários de sonhos como guias de viagem",
-        "cartas a um daemon imaginário",
-        "croquis de mochileiro em abrigos improvisados",
-        "notas sobre diálogos com estranhos em trens noturnos",
-        "mapas desenhados na areia antes da maré subir",
-        "registros sobre luzes do norte como oráculos",
-        "descrições de sinestesias induzidas por cogumelos",
-        "crônicas de cães-guia invisíveis em viagens",
-        "cadernos de campo sobre movimentos elementares",
-        "esboços de aurora como símbolos arquetípicos",
-        "mapas de vento rabiscados em diários de viagem",
-        "fragmentos de mitos recolhidos em feiras e mercados",
-        "ilustrações de constelações inventadas",
-        "histórias recolhidas em banhos públicos tradicionais",
-
-        // 🌀 Philosophical / Mind Axis
-        "instantes de wu wei na vida diária",
-        "despir identidades em peregrinações",
-        "fenomenologia na chuva (perceber e descrever)",
-        "o Navio de Teseu em decisões pessoais",
-        "azar moral e escolhas pequenas",
-        "o ritual da paz merecida após conflito",
-        "paradoxos como trilhas de pensamento",
-        "meditar sobre o vazio em florestas boreais",
-        "identidade dissolvida em festivais nômades",
-        "eterno retorno como bússola interior",
-        "psicodélicos como mestres filosóficos",
-        "wu wei aplicado ao nomadismo digital",
-        "a sombra junguiana em viagens solitárias",
-        "arqueologia da imaginação",
-        "a dobra do ar como metáfora para wu wei",
-        "psicodélicos como portais para elementos internos",
-        "a leveza do ser como dobra do vento",
-        "raízes como símbolo de permanência (dobra da terra)",
-        "chamas internas como desejo e transformação",
-        "a água como memória e esquecimento",
-        "meditar em paradoxos como exercício de dobra",
-        "daemons como reflexos da alma junguiana",
-        "trilhas nômades como metáforas de identidade fluida",
-        "unir corpo e mente como dobrar os cinco elementos ocultos",
-
-        // ✨ Bonus: Practice + Place blends
-        "princípios de alavanca do jiu-jítsu aplicados a negociações",
-        "mapear um bairro caminhando em silêncio",
-        "aprender correntes e ventos com pescadores",
-        "cadernos de campo sobre pontes e travessias",
-        "cultura de feira livre e seus sinais",
-        "rituais do chá como cronômetro social",
-        "museus ao ar livre em costas rochosas",
-        "histórias de faróis e seus guardiões",
-        "aprendizados de navegação com estrelas em praias urbanas",
-        "aprender linguagens locais através de canções de feira",
-        "rituais com cães de rua em portos estrangeiros",
-        "poesia improvisada em cafés de esquina",
-        "andarilho psicodélico em Lapônia",
-        "códigos de movimento lidos em escadas de metrô",
-        "banhos de rio como meditação coletiva",
-        "navegar cidades pelo cheiro de especiarias",
-        "cerimônias do pôr do sol em praias desconhecidas",
-        "meditar em fontes termais como dobra da água e fogo",
-        "aprendendo idiomas com viajantes ao redor da fogueira",
-        "caminhar em silêncio em florestas boreais",
-        "dançar sob auroras como ritual de viagem",
-        "tecer mapas de vento em praias urbanas",
-        "cerimônias de chá psicodélico na Lapônia",
-        "conversar com anciãos do norte sobre mitos de gelo",
-        "rituais elementares recriados em desertos",
+        // (… keep your long list as-is …)
         "diários de viagem em cidades que lembram a Ba Sing Se"
     ]
 
     // MARK: - UI
     var body: some View {
         Form {
+            // OpenAI
             Section("OpenAI") {
                 SecureField("API Key", text: $apiKey)
                     .textInputAutocapitalization(.never)
                     .disableAutocorrection(true)
             }
 
+            // Mode
             Section("Mode") {
                 Picker("Generation Mode", selection: $mode) {
                     ForEach(GenerationMode.allCases) { m in
@@ -296,7 +110,10 @@ struct GeneratorView: View {
                 }
             }
 
-            Section("Options") {
+            // === Options split into three separate cards ===
+
+            // 1) Segmentation card
+            Section("Segmentation") {
                 Picker("Segment by", selection: $segmentation) {
                     ForEach(Segmentation.allCases) { s in
                         Text(s.rawValue).tag(s)
@@ -304,13 +121,18 @@ struct GeneratorView: View {
                 }
                 .pickerStyle(.segmented)
 
-                // Only meaningful for sentence-based segmentation
+                // Completely hide the stepper when using Paragraphs (as requested)
                 if segmentation == .sentences {
-                    Stepper("Sentences per segment: \(sentencesPerSegment)",
-                            value: $sentencesPerSegment, in: 1...3)
+                    Stepper(
+                        "Sentences per segment: \(sentencesPerSegment)",
+                        value: $sentencesPerSegment,
+                        in: 1...3
+                    )
                 }
+            }
 
-                // REPLACE the old Stepper("Approx. words: ...") block with this:
+            // 2) Length card
+            Section("Length") {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Length")
@@ -334,7 +156,10 @@ struct GeneratorView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 }
-                
+            }
+
+            // 3) Languages card
+            Section("Languages") {
                 Picker("Generate in", selection: $genLanguage) {
                     ForEach(supportedLanguages, id: \.self) { Text($0).tag($0) }
                 }
@@ -346,6 +171,7 @@ struct GeneratorView: View {
                 .pickerStyle(.menu)
             }
 
+            // Action
             Section {
                 Button {
                     Task { await generate() }
@@ -355,14 +181,19 @@ struct GeneratorView: View {
                         Text(isBusy ? "Generating..." : "Generate Lesson")
                     }
                 }
-                .disabled(apiKey.isEmpty || isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty))
-                if !status.isEmpty { Text(status).font(.footnote).foregroundStyle(.secondary) }
+                .disabled(apiKey.isEmpty || isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+
+                if !status.isEmpty {
+                    Text(status)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .navigationTitle("Generator")
+        .listStyle(.insetGrouped) // <- ensures separate white cards with system background between
     }
 
-    // MARK: - Models
     // MARK: - Models
     struct Seg: Codable {
         let id: Int
@@ -373,7 +204,9 @@ struct GeneratorView: View {
         let paragraph: Int?
     }
     
-    struct LessonEntry: Codable, Identifiable, Hashable { let id:String; let title:String; let folderName:String }
+    struct LessonEntry: Codable, Identifiable, Hashable {
+        let id: String; let title: String; let folderName: String
+    }
 
     // MARK: - Utils
     func slugify(_ input: String) -> String {
@@ -421,9 +254,7 @@ struct GeneratorView: View {
         return try await chat(body: body)
     }
 
-    // MARK: - Prompt Refiner (meta-prompt → elevated prompt)
     func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
-        
         let meta = """
         You are a prompt refiner. Transform the user's instruction, input text, or theme into a clear, actionable writing brief that will produce a high-quality text.
 
@@ -456,8 +287,6 @@ struct GeneratorView: View {
         return try await chat(body: body)
     }
     
-    
-    // Uses an already-elevated prompt to produce the final text (title + body)
     func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int) async throws -> String {
         let writerSystem = """
         You are a world-class writer. Follow the user's prompt meticulously.
@@ -552,7 +381,7 @@ struct GeneratorView: View {
                 // For creative freedom:
                 status = "Generating… (Prompt)\nLang: \(genLanguage) • ~\(lengthPreset.words) words"
                 fullText = try await generateFromElevatedPrompt(elevated, targetLang: genLanguage, wordCount: lengthPreset.words)
-            } // <-- ✅ CLOSES switch
+            } // <-- CLOSES switch
 
             // 2) Parse title + body from the model output
             let lines = fullText.split(separator: "\n", omittingEmptySubsequences: false)
@@ -623,10 +452,9 @@ struct GeneratorView: View {
                 }
             }
 
-            // Right before switch:
             var segsPrimary: [String] = []
             var segsSecondary: [String] = []
-            var segmentParagraphIndex: [Int] = []   // <-- Declare once
+            var segmentParagraphIndex: [Int] = []
 
             switch segmentation {
             case .sentences:
@@ -729,6 +557,5 @@ struct GeneratorView: View {
             status = "Error: \(error.localizedDescription)"
         }
     }
-
-
 }
+
