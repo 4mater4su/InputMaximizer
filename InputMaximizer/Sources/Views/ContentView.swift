@@ -67,12 +67,19 @@ struct ContentView: View {
     }
 
     // MARK: - Actions
+    /// ⛏️ FIX: start playback in the lane that matches the current continuous mode
     private func goToNextLessonAndPlay() {
         guard !lessons.isEmpty else { return }
         currentLessonIndex = (currentLessonIndex + 1) % lessons.count
         let next = lessons[currentLessonIndex]
         audioManager.loadLesson(folderName: next.folderName, lessonTitle: next.title)
-        audioManager.playPortuguese(from: 0)
+
+        switch audioManager.playbackMode {
+        case .target:
+            audioManager.playPortuguese(from: 0)
+        case .translation:
+            audioManager.playTranslation(resumeAfterTarget: false)
+        }
     }
 
     // MARK: - View
@@ -95,8 +102,17 @@ struct ContentView: View {
                             lessonTitle: currentLesson.title
                         )
                     }
+
                     if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.id }) {
-                        audioManager.playPortuguese(from: idx)
+                        // Optional: respect continuous lane when starting from a tap
+                        if audioManager.playbackMode == .translation {
+                            // start EN at this exact index and keep lane consistent
+                            // Note: playTranslation uses currentIndex internally, so set via PT call first:
+                            audioManager.playPortuguese(from: idx) // sets currentIndex safely
+                            audioManager.playTranslation(resumeAfterTarget: false)
+                        } else {
+                            audioManager.playPortuguese(from: idx)
+                        }
                     }
                 }
                 .onChange(of: audioManager.currentIndex) { _ in
