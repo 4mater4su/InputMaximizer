@@ -1,3 +1,5 @@
+// input_maximizerApp.swift
+
 import SwiftUI
 
 @main

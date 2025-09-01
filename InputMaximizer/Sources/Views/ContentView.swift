@@ -1,25 +1,8 @@
+// ContentVIew.swift
+
 import SwiftUI
 import AVFoundation
 import MediaPlayer
-
-// MARK: - Segment Model
-struct Segment: Codable, Identifiable {
-    let id: Int
-    let pt_text: String
-    let en_text: String
-    let pt_file: String
-    let en_file: String
-    
-    /// 0-based paragraph index; absent for old files.
-    let paragraph: Int?
-}
-
-// MARK: - Lesson Model & Loader
-struct Lesson: Identifiable, Hashable, Codable {
-    let id: String
-    let title: String
-    let folderName: String
-}
 
 final class LessonStore: ObservableObject {
     @Published var lessons: [Lesson] = []
