@@ -174,11 +174,11 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             resumeENAfterPT = true
             play(.pt, from: currentIndex, resumeAfter: false)
         case .both:
-               // In dual mode, opposite-once doesn't make sense (both are already played).
-               // Option A: no-op
-               // Option B: replay both languages for the current segment
-               // Here's a simple no-op:
-               break
+            // Replay both languages for the current segment
+            cancelPendingAdvance()
+            didFinishLesson = false
+            // Always restart from the first lane (PT or EN, depending on lastSingleMode)
+            play(firstLaneForPair, from: currentIndex, resumeAfter: false)
         }
     }
 
