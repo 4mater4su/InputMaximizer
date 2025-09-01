@@ -538,9 +538,13 @@ struct LessonSelectionView: View {
             .navigationTitle("Select a Lesson")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink("Generator") {
+                    NavigationLink {
                         GeneratorView()
-                            .environmentObject(store)
+                            .environmentObject(store) // already provided in your code
+                    } label: {
+                        ShinyCapsule(title: "Generate", systemImage: "wand.and.stars")
+                            .hoverEffect(.highlight)          // iPad/iOS
+                            .sensoryFeedback(.impact, trigger: UUID()) // subtle haptic on tap (iOS 18)
                     }
                 }
             }
