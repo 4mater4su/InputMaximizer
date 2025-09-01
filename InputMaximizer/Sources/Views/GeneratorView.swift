@@ -9,7 +9,9 @@ import SwiftUI
 
 struct GeneratorView: View {
     @EnvironmentObject private var lessonStore: LessonStore
+    @EnvironmentObject private var generator: GeneratorService
     @Environment(\.dismiss) private var dismiss   // optional, if you want to auto-close the screen
+    
     
     // MARK: - Length preset
     enum LengthPreset: Int, CaseIterable, Identifiable {
@@ -75,9 +77,196 @@ struct GeneratorView: View {
     
     // MARK: - Random topic source
     private let interests: [String] = [
-        // (… keep your long list as-is …)
+        // 🌱 Movement / Embodied Practices
+        "capoeira rodas ao amanhecer",
+        "princípios e filosofia do jiu-jítsu",
+        "kuzushi (desequilibrar) aplicado ao cotidiano",
+        "respiração sob estresse (breathwork)",
+        "rituais do surf e leitura do swell",
+        "treino de apneia e mergulho livre",
+        "taiji ao amanhecer em neblina de montanha",
+        "peregrinações a pé e seus rituais",
+        "dança improvisada como narrativa corporal",
+        "movimento animal inspirado no ido portal",
+        "caminhar descalço em terras desconhecidas",
+        "jogos de equilíbrio em pontes naturais",
+        "parkour como meditação urbana",
+        "cartografar o corpo em quedas e rolamentos",
+        "dança trance em desertos ao luar",
+        "apneia em cavernas submersas",
+        "treinos com pesos não convencionais (pedras, troncos)",
+        "formas elementares inspiradas no dobrar da água, fogo, ar e terra",
+        "movimento em espiral como fluxo de ar",
+        "meditar em equilíbrio sobre troncos flutuantes",
+        "prática de ‘cloud hands’ em picos nevados",
+        "dançar ao redor de fogueiras como invocação",
+        "explorar o ‘improviso marcial’ — luta como diálogo criativo",
+        "imitar o voo de pássaros em exercícios de salto",
+        "navegar movimentos de multidão como se fosse água",
+
+        // 🌌 Navigation / Orientation
+        "songlines como mapas vivos da paisagem",
+        "constelações de canoa como cartas do céu",
+        "orientação fluvial tradicional",
+        "diários de viagem costeira por vilas de pesca",
+        "rotas de estrelas no deserto",
+        "hutongs e os guardiões do tempo dos becos",
+        "ecos da Rota da Seda em viagens atuais",
+        "histórias de tratados marcadas na terra",
+        "ler ventos em bandeiras, roupas, árvores",
+        "topografias inventadas em sonhos lúcidos",
+        "mapear memórias em ruas de cidades estrangeiras",
+        "cartas astrais como mapas de viagem interior",
+        "trilhas de cães de rua como orientação urbana",
+        "navegar pelo silêncio em cidades superlotadas",
+        "ler direções no fluxo de nuvens e ventos",
+        "mapear desertos como mares sólidos",
+        "escutar o som de árvores para saber caminhos",
+        "usar cânticos como bússola comunitária",
+        "códigos secretos de viajantes marcados em pedras",
+        "narrativas de viagem inscritas em tatuagens",
+        "mapear sonhos para decidir rotas de viagem",
+        "cartas do céu inspiradas em dobra de ar",
+        "linhas de dragão como mapas subterrâneos",
+
+        // 🐾 Ecological & Animal Kinship
+        "acordos com espíritos do rio no folclore",
+        "trocas de corvídeos (gralhas/corvos) com pessoas",
+        "hieróglifos das baleias e migrações",
+        "comunidades de cães de rua e sua ética",
+        "etiqueta com tubarões em tradições locais",
+        "migração de renas na Lapônia",
+        "rede micorrízica como 'correio' subterrâneo",
+        "florescências bioluminescentes no mar",
+        "contos da aurora narrados por anciãos",
+        "amizades interestelares com cães de rua",
+        "escuta de cogumelos psicodélicos em florestas",
+        "mitologias do lobo no círculo ártico",
+        "espelhos líquidos de lagos boreais",
+        "inteligência das algas bioluminescentes",
+        "correspondência entre abelhas e poetas",
+        "espírito-guardião em forma de cão",
+        "mito da rena como guia de viajante",
+        "companheirismo com espíritos-animais (daemons, totens)",
+        "o cão como guia nômade e companheiro espiritual",
+        "vozes dos búfalos-d’água em mitos orientais",
+        "danças de baleias como gramática cósmica",
+        "cavalos mongóis como parceiros de viagem",
+        "mimetizar gestos de lobos no gelo",
+        "espíritos de corujas como guardiões noturnos",
+        "códigos secretos de formigueiros em florestas",
+        "navegar pelo canto de aves migratórias",
+        "contato visionário com animais de poder em rituais",
+
+        // 🏮 Cultural Practices & Histories
+        "capoeira como resistência e arte comunitária",
+        "bibliotecas de favela como âncoras culturais",
+        "histórias orais dos barcos-correio fluviais",
+        "ermitões de Wudang nas montanhas",
+        "estrada do chá e do cavalo (tea-horse road)",
+        "rituais da jade e seus simbolismos",
+        "duelos ao crepúsculo na memória popular",
+        "poesia antes do combate (ritual e foco)",
+        "cerimônias de retomada de terra (land-back)",
+        "cerimônias do chá psicodélico em florestas",
+        "lendas de guardiões de passagens de montanha",
+        "histórias orais de monges andarilhos",
+        "rituais de enterrar objetos em viagens",
+        "bibliotecas vivas (pessoas como livros)",
+        "memórias tatuadas em marinheiros",
+        "culturas de sauna como ritos de purificação",
+        "mitos nórdicos reinventados em viagens ao norte",
+        "rituais elementares em vilarejos de montanha",
+        "lendas sobre dobradores esquecidos do vento",
+        "histórias de nômades do fogo no deserto",
+        "tradições de mergulhadores japoneses (ama) como dobradores de água",
+        "rituais xamânicos do Ártico",
+        "arquitetura que dobra vento e sombra",
+        "cultos à aurora como renascimento espiritual",
+        "histórias dos faróis como dobradores de luz",
+        "narrativas sobre os primeiros mapas mundiais",
+        "contos de povos que viajavam apenas pelo som",
+
+        // 📓 Observational / Field Notes
+        "notas de campo em cavernas de permafrost",
+        "roteiros de expedição para ver a aurora",
+        "marginalia em manuscritos antigos",
+        "rolos de receitas de cozinhas costeiras",
+        "registros de bordo durante marés de tempestade",
+        "a voz de um cinto gasto de jiu-jítsu (objeto-narrador)",
+        "boletins de auditorias do cofre de sementes",
+        "histórias orais dos anos de seca",
+        "perfil de um guardião de marégrafo",
+        "diários de sonhos como guias de viagem",
+        "cartas a um daemon imaginário",
+        "croquis de mochileiro em abrigos improvisados",
+        "notas sobre diálogos com estranhos em trens noturnos",
+        "mapas desenhados na areia antes da maré subir",
+        "registros sobre luzes do norte como oráculos",
+        "descrições de sinestesias induzidas por cogumelos",
+        "crônicas de cães-guia invisíveis em viagens",
+        "cadernos de campo sobre movimentos elementares",
+        "esboços de aurora como símbolos arquetípicos",
+        "mapas de vento rabiscados em diários de viagem",
+        "fragmentos de mitos recolhidos em feiras e mercados",
+        "ilustrações de constelações inventadas",
+        "histórias recolhidas em banhos públicos tradicionais",
+
+        // 🌀 Philosophical / Mind Axis
+        "instantes de wu wei na vida diária",
+        "despir identidades em peregrinações",
+        "fenomenologia na chuva (perceber e descrever)",
+        "o Navio de Teseu em decisões pessoais",
+        "azar moral e escolhas pequenas",
+        "o ritual da paz merecida após conflito",
+        "paradoxos como trilhas de pensamento",
+        "meditar sobre o vazio em florestas boreais",
+        "identidade dissolvida em festivais nômades",
+        "eterno retorno como bússola interior",
+        "psicodélicos como mestres filosóficos",
+        "wu wei aplicado ao nomadismo digital",
+        "a sombra junguiana em viagens solitárias",
+        "arqueologia da imaginação",
+        "a dobra do ar como metáfora para wu wei",
+        "psicodélicos como portais para elementos internos",
+        "a leveza do ser como dobra do vento",
+        "raízes como símbolo de permanência (dobra da terra)",
+        "chamas internas como desejo e transformação",
+        "a água como memória e esquecimento",
+        "meditar em paradoxos como exercício de dobra",
+        "daemons como reflexos da alma junguiana",
+        "trilhas nômades como metáforas de identidade fluida",
+        "unir corpo e mente como dobrar os cinco elementos ocultos",
+
+        // ✨ Bonus: Practice + Place blends
+        "princípios de alavanca do jiu-jítsu aplicados a negociações",
+        "mapear um bairro caminhando em silêncio",
+        "aprender correntes e ventos com pescadores",
+        "cadernos de campo sobre pontes e travessias",
+        "cultura de feira livre e seus sinais",
+        "rituais do chá como cronômetro social",
+        "museus ao ar livre em costas rochosas",
+        "histórias de faróis e seus guardiões",
+        "aprendizados de navegação com estrelas em praias urbanas",
+        "aprender linguagens locais através de canções de feira",
+        "rituais com cães de rua em portos estrangeiros",
+        "poesia improvisada em cafés de esquina",
+        "andarilho psicodélico em Lapônia",
+        "códigos de movimento lidos em escadas de metrô",
+        "banhos de rio como meditação coletiva",
+        "navegar cidades pelo cheiro de especiarias",
+        "cerimônias do pôr do sol em praias desconhecidas",
+        "meditar em fontes termais como dobra da água e fogo",
+        "aprendendo idiomas com viajantes ao redor da fogueira",
+        "caminhar em silêncio em florestas boreais",
+        "dançar sob auroras como ritual de viagem",
+        "tecer mapas de vento em praias urbanas",
+        "cerimônias de chá psicodélico na Lapônia",
+        "conversar com anciãos do norte sobre mitos de gelo",
+        "rituais elementares recriados em desertos",
         "diários de viagem em cidades que lembram a Ba Sing Se"
     ]
+
 
     // MARK: - UI
     var body: some View {
@@ -174,388 +363,33 @@ struct GeneratorView: View {
             // Action
             Section {
                 Button {
-                    Task { await generate() }
+                    let req = GeneratorService.Request(
+                        apiKey: apiKey,
+                        mode: (mode == .prompt ? .prompt : .random),
+                        userPrompt: userPrompt,
+                        genLanguage: genLanguage,
+                        transLanguage: transLanguage,
+                        segmentation: (segmentation == .paragraphs ? .paragraphs : .sentences),
+                        sentencesPerSegment: sentencesPerSegment,
+                        lengthWords: lengthPreset.words
+                    )
+                    generator.start(req, lessonStore: lessonStore)
                 } label: {
                     HStack {
-                        if isBusy { ProgressView() }
-                        Text(isBusy ? "Generating..." : "Generate Lesson")
+                        if generator.isBusy { ProgressView() }
+                        Text(generator.isBusy ? "Generating..." : "Generate Lesson")
                     }
                 }
-                .disabled(apiKey.isEmpty || isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                .disabled(apiKey.isEmpty || generator.isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
 
-                if !status.isEmpty {
-                    Text(status)
+                if !generator.status.isEmpty {
+                    Text(generator.status)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
         }
         .navigationTitle("Generator")
-        .listStyle(.insetGrouped) // <- ensures separate white cards with system background between
-    }
-
-    // MARK: - Models
-    struct Seg: Codable {
-        let id: Int
-        let pt_text: String
-        let en_text: String
-        let pt_file: String
-        let en_file: String
-        let paragraph: Int?
-    }
-    
-    struct LessonEntry: Codable, Identifiable, Hashable {
-        let id: String; let title: String; let folderName: String
-    }
-
-    // MARK: - Utils
-    func slugify(_ input: String) -> String {
-        // remove diacritics, keep alphanumerics, dash, underscore; replace spaces with underscores
-        var s = input.folding(options: .diacriticInsensitive, locale: .current)
-        s = s.replacingOccurrences(of: " ", with: "_")
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
-        s = String(s.unicodeScalars.filter { allowed.contains($0) })
-        if s.isEmpty { s = "Lesson_" + String(Int(Date().timeIntervalSince1970)) }
-        return s
-    }
-
-    func save(_ data: Data, to url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
-    }
-    
-    /// If the title is ALL CAPS, convert it to Title Case (locale-aware).
-    func normalizeTitleCaseIfAllCaps(_ s: String) -> String {
-        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { return t }
-        let letters = t.unicodeScalars.filter { CharacterSet.letters.contains($0) }
-        let isAllCaps = !letters.isEmpty && letters.allSatisfy { CharacterSet.uppercaseLetters.contains($0) }
-        return isAllCaps ? t.lowercased(with: .current).capitalized(with: .current) : t
-    }
-
-    // MARK: - LLM prompts
-    func generateText(topic: String, targetLang: String, wordCount: Int) async throws -> String {
-        let prompt = """
-        Write a short, clear, factual text (~\(wordCount) words) in \(targetLang) about: \(topic).
-
-        Rules:
-        1) First line: TITLE only (no quotes).
-        2) Blank line.
-        3) Body in short sentences.
-        4) Include exactly one plausible numeric detail in the body.
-        """
-        let body: [String:Any] = [
-            "model": "gpt-5-nano",
-            "messages": [
-                ["role":"system","content":"Be clear, concrete, and factual."],
-                ["role":"user","content": prompt]
-            ],
-        ]
-        return try await chat(body: body)
-    }
-
-    func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
-        let meta = """
-        You are a prompt refiner. Transform the user's instruction, input text, or theme into a clear, actionable writing brief that will produce a high-quality text.
-
-        Keep the user's original intent, named entities, facts, references, and requested form (e.g., essay, article, story, poem) intact.
-        Do NOT add new information; only clarify, structure, and make constraints explicit.
-
-        Constraints to enforce:
-        - Language: \(targetLang)
-        - Target length: ≈ \(wordCount) words (flexible ±15%)
-
-        Your refined prompt must:
-        - State the primary purpose (inform / explain / explore / persuade / narrate / summarize / report).
-        - Specify audience and voice/register if provided; otherwise insert placeholders like [audience] and [voice].
-        - Define a simple paragraph structure with sentences which are not too long.
-        - List must-cover points and requirements derived from the user’s material.
-
-        Return ONLY the refined prompt text, nothing else.
-
-        User instruction or material:
-        \(raw)
-        """
-        
-        let body: [String:Any] = [
-            "model": "gpt-5-nano",
-            "messages": [
-                ["role":"system","content":"Refine prompts faithfully; elevate without drifting from user intent."],
-                ["role":"user","content": meta]
-            ],
-        ]
-        return try await chat(body: body)
-    }
-    
-    func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int) async throws -> String {
-        let writerSystem = """
-        You are a world-class writer. Follow the user's prompt meticulously.
-        Write in \(targetLang). Aim for ~\(wordCount) words total.
-        Output format:
-        1) First line: short TITLE only (no quotes)
-        2) Blank line
-        3) Body text
-        """
-        let body: [String:Any] = [
-            "model": "gpt-5-nano",
-            "messages": [
-                ["role":"system","content": writerSystem],
-                ["role":"user","content": elevated]
-            ],
-        ]
-        return try await chat(body: body)
-    }
-
-    func translate(_ text: String, to targetLang: String) async throws -> String {
-        let body: [String:Any] = [
-            "model":"gpt-5-nano",
-            "messages":[
-                ["role":"system","content":"Translate naturally and idiomatically."],
-                ["role":"user","content":"Translate into \(targetLang):\n\n\(text)"]
-            ],
-        ]
-        return try await chat(body: body)
-    }
-
-    func chat(body: [String:Any]) async throws -> String {
-        let url = URL(string: "https://api.openai.com/v1/chat/completions")!
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: req)
-        let j = try JSONSerialization.jsonObject(with: data) as! [String:Any]
-        let content = (((j["choices"] as? [[String:Any]])?.first?["message"] as? [String:Any])?["content"] as? String) ?? ""
-        return content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-    }
-
-    func tts(_ text:String, filename:String, folder:URL) async throws -> URL {
-        let url = URL(string: "https://api.openai.com/v1/audio/speech")!
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String:Any] = [
-            "model": "gpt-4o-mini-tts",
-            "voice": "shimmer",
-            "input": text,
-            "format": "mp3"
-        ]
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: req)
-        let out = folder.appendingPathComponent(filename)
-        try save(data, to: out)
-        return out
-    }
-
-    func languageSlug(_ name: String) -> String {
-        let s = slugify(name).lowercased()
-        // keep it short but unique-ish
-        return String(s.prefix(6))   // e.g., "portug", "englis", "deutsc"
-    }
-    
-    // MARK: - Generate
-    func generate() async {
-        isBusy = true
-        defer { isBusy = false }
-
-        do {
-            // 1) Build text (title + body) depending on mode
-            let fullText: String
-            switch mode {
-            case .random:
-                let topic = interests.randomElement() ?? "capoeira rodas ao amanhecer"
-                status = "Generating… (Random)\nTopic: \(topic)\nLang: \(genLanguage) • ~\(lengthPreset.words) words"
-                fullText = try await generateText(topic: topic, targetLang: genLanguage, wordCount: lengthPreset.words)
-                 
-            case .prompt:
-                let cleaned = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !cleaned.isEmpty else { status = "Please enter a prompt."; return }
-                status = "Elevating prompt…"
-                let elevated = try await refinePrompt(cleaned, targetLang: genLanguage, wordCount: lengthPreset.words)
-                #if DEBUG
-                print("=== Elevated Prompt ===\n\(elevated)\n========================")
-                #endif
-
-                // For creative freedom:
-                status = "Generating… (Prompt)\nLang: \(genLanguage) • ~\(lengthPreset.words) words"
-                fullText = try await generateFromElevatedPrompt(elevated, targetLang: genLanguage, wordCount: lengthPreset.words)
-            } // <-- CLOSES switch
-
-            // 2) Parse title + body from the model output
-            let lines = fullText.split(separator: "\n", omittingEmptySubsequences: false)
-            let rawTitle = lines.first.map(String.init)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                ?? "Sem Título"
-            let generatedTitle = normalizeTitleCaseIfAllCaps(rawTitle)
-            let bodyPrimary = lines.dropFirst().joined(separator: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            self.title = generatedTitle
-            var folder = slugify(generatedTitle)
-
-            let baseRoot = FileManager.docsLessonsDir
-            var base = baseRoot.appendingPathComponent(folder, isDirectory: true)
-            if (try? base.checkResourceIsReachable()) == true {
-                folder += "_" + String(Int(Date().timeIntervalSince1970))
-                base = baseRoot.appendingPathComponent(folder, isDirectory: true)
-            }
-            self.lessonID = folder
-
-            status = "Translating to \(transLanguage)…\nTítulo: \(generatedTitle)"
-
-            // Avoid translating into the same language
-            let secondaryText: String
-            if genLanguage.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                == transLanguage.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
-                secondaryText = bodyPrimary
-            } else {
-                secondaryText = try await translate(bodyPrimary, to: transLanguage)
-            }
-
-            func paragraphs(_ txt: String) -> [String] {
-                var s = txt.replacingOccurrences(of: "\r\n", with: "\n")
-                           .replacingOccurrences(of: "\r", with: "\n")
-                while s.contains("\n\n\n") { s = s.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
-
-                return s
-                    .components(separatedBy: "\n\n")
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-                    .map { p in
-                        let trimmed = p
-                        if trimmed.last.map({ ".!?".contains($0) }) == true { return trimmed }
-                        return trimmed + "."
-                    }
-            }
-
-            func sentences(_ txt: String) -> [String] {
-                txt.split(whereSeparator: { ".!?".contains($0) })
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-                    .map { s in
-                        if s.hasSuffix(".") || s.hasSuffix("!") || s.hasSuffix("?") { return s }
-                        return s + "."
-                    }
-            }
-            
-            func sentencesPerParagraph(_ txt: String) -> [Int] {
-                let ps = paragraphs(txt)
-                return ps.map { sentences($0).count }
-            }
-            
-            func chunk<T>(_ array: [T], size: Int) -> [[T]] {
-                guard size > 0 else { return [] }
-                return stride(from: 0, to: array.count, by: size).map { i in
-                    Array(array[i..<min(i + size, array.count)])
-                }
-            }
-
-            var segsPrimary: [String] = []
-            var segsSecondary: [String] = []
-            var segmentParagraphIndex: [Int] = []
-
-            switch segmentation {
-            case .sentences:
-                let sentPrimary = sentences(bodyPrimary)
-                let sentSecondary = sentences(secondaryText)
-
-                let pChunks = chunk(sentPrimary, size: sentencesPerSegment).map { $0.joined(separator: " ") }
-                let sChunks = chunk(sentSecondary, size: sentencesPerSegment).map { $0.joined(separator: " ") }
-                let count = min(pChunks.count, sChunks.count)
-
-                segsPrimary = Array(pChunks.prefix(count))
-                segsSecondary = Array(sChunks.prefix(count))
-
-                // Compute paragraph index for each segment
-                let perPara = sentencesPerParagraph(bodyPrimary) // [3,2,4] etc.
-                var sentToPara: [Int:Int] = [:]
-                var running = 0
-                for (pIdx, c) in perPara.enumerated() {
-                    for s in running ..< running + c {
-                        sentToPara[s] = pIdx
-                    }
-                    running += c
-                }
-                segmentParagraphIndex = (0..<count).map { seg in
-                    let firstSentenceIndex = seg * sentencesPerSegment
-                    return sentToPara[firstSentenceIndex] ?? 0
-                }
-
-                status = "Preparing audio… \(segsPrimary.count) segments × \(sentencesPerSegment) sentences"
-
-            case .paragraphs:
-                let pParas = paragraphs(bodyPrimary)
-                let sParas = paragraphs(secondaryText)
-                let count = min(pParas.count, sParas.count)
-
-                segsPrimary = Array(pParas.prefix(count))
-                segsSecondary = Array(sParas.prefix(count))
-
-                // In paragraph mode each seg *is* a paragraph
-                segmentParagraphIndex = Array(0..<count)
-
-                status = "Preparing audio… \(segsPrimary.count) paragraph segments"
-            }
-
-            let count = min(segsPrimary.count, segsSecondary.count)
-            let ptSegs = Array(segsPrimary.prefix(count))
-            let enSegs = Array(segsSecondary.prefix(count))
-
-            // 6) Create folder and TTS
-            try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-
-            var rows: [Seg] = []
-
-            let src = languageSlug(genLanguage)
-            let dst = languageSlug(transLanguage)
-
-            for i in 0..<count {
-                status = "TTS \(i+1)/\(count) \(genLanguage)…"
-                let ptFile = "\(src)_\(lessonID)_\(i+1).mp3"
-                _ = try await tts(ptSegs[i], filename: ptFile, folder: base)
-
-                status = "TTS \(i+1)/\(count) \(transLanguage)…"
-                let enFile = "\(dst)_\(lessonID)_\(i+1).mp3"
-                _ = try await tts(enSegs[i], filename: enFile, folder: base)
-
-                rows.append(.init(
-                    id: i+1,
-                    pt_text: segsPrimary[i],
-                    en_text: segsSecondary[i],
-                    pt_file: ptFile,
-                    en_file: enFile,
-                    paragraph: segmentParagraphIndex[i]
-                ))
-            }
-
-            // 7) segments_<lesson>.json
-            let segJSON = base.appendingPathComponent("segments_\(lessonID).json")
-            let segData = try JSONEncoder().encode(rows)
-            try save(segData, to: segJSON)
-
-            // 8) update lessons.json in Documents
-            struct Manifest: Codable { var id:String; var title:String; var folderName:String }
-            let manifestURL = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
-            var list: [Manifest] = []
-            if let d = try? Data(contentsOf: manifestURL) {
-                list = (try? JSONDecoder().decode([Manifest].self, from: d)) ?? []
-                list.removeAll { $0.id == lessonID }
-            }
-            list.append(.init(id: lessonID, title: title, folderName: lessonID))
-            let out = try JSONEncoder().encode(list)
-            try save(out, to: manifestURL)
-
-            await MainActor.run {
-                lessonStore.load()
-                // dismiss()
-            }
-
-            status = "Done. Open the lesson list and pull to refresh."
-        } catch {
-            status = "Error: \(error.localizedDescription)"
-        }
+        .listStyle(.insetGrouped)
     }
 }
-
