@@ -49,6 +49,8 @@ struct GeneratorView: View {
     @State private var genLanguage: String = "Portuguese"
     @State private var transLanguage: String = "English"
     
+    @State private var randomTopic: String?
+    
     private let supportedLanguages: [String] = [
         "Afrikaans","Arabic","Armenian","Azerbaijani","Belarusian","Bosnian","Bulgarian","Catalan","Chinese","Croatian",
         "Czech","Danish","Dutch","English","Estonian","Finnish","French","Galician","German","Greek","Hebrew","Hindi",
@@ -287,6 +289,18 @@ struct GeneratorView: View {
                 }
                 .pickerStyle(.segmented)
             }
+            
+            if mode == .random {
+                Section("Random Topic") {
+                    Text(randomTopic ?? "Tap Randomize to pick a topic")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    Button("Randomize") {
+                        randomTopic = interests.randomElement()
+                    }
+                }
+            }
 
             if mode == .prompt {
                 Section("Prompt") {
@@ -371,7 +385,10 @@ struct GeneratorView: View {
                         transLanguage: transLanguage,
                         segmentation: (segmentation == .paragraphs ? .paragraphs : .sentences),
                         sentencesPerSegment: sentencesPerSegment,
-                        lengthWords: lengthPreset.words
+                        lengthWords: lengthPreset.words,
+                        userChosenTopic: randomTopic,      // 🔽 pass current selection from UI (may be nil)
+                        topicPool: interests               // 🔽 pass the full list so service can randomize
+
                     )
                     generator.start(req, lessonStore: lessonStore)
                 } label: {

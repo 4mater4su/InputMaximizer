@@ -21,7 +21,7 @@ final class GeneratorService: ObservableObject {
     private var currentTask: Task<Void, Never>?
     private let background = BackgroundActivityManager()
 
-    struct Request: Equatable {
+    struct Request: Equatable, Sendable {
         enum GenerationMode: String { case random, prompt }
         enum Segmentation: String { case sentences, paragraphs }
 
@@ -36,6 +36,11 @@ final class GeneratorService: ObservableObject {
         var sentencesPerSegment: Int
 
         var lengthWords: Int
+        
+        // Random topic inputs from the UI
+        var userChosenTopic: String? = nil         // if user pressed “Randomize” we pass it here
+        var topicPool: [String]? = nil             // the interests array to sample from
+
     }
 
     /// Start a generation job. If one is running, ignore.
@@ -233,7 +238,20 @@ private extension GeneratorService {
         let fullText: String
         switch req.mode {
         case .random:
-            let topic = "capoeira rodas ao amanhecer" // or randomize externally
+            // Pick a topic:
+            // 1) use userChosenTopic if provided and non-empty
+            // 2) else pick from topicPool if available
+            // 3) else use a safe default
+            let topic: String = {
+                if let t = req.userChosenTopic?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+                    return t
+                }
+                if let pool = req.topicPool, let pick = pool.randomElement() {
+                    return pick
+                }
+                return "capoeira rodas ao amanhecer"
+            }()
+
             await progress("Generating… (Random)\nTopic: \(topic)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
             fullText = try await generateText(topic: topic, targetLang: req.genLanguage, wordCount: req.lengthWords)
 

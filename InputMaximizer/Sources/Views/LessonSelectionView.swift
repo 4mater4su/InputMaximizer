@@ -360,12 +360,28 @@ struct LessonSelectionView: View {
     @EnvironmentObject private var audioManager: AudioManager
     @EnvironmentObject private var store: LessonStore
     @EnvironmentObject private var folderStore: FolderStore
+    @EnvironmentObject private var generator: GeneratorService
 
     @State private var lessonToDelete: Lesson?
     @State private var showDeleteConfirm = false
     @State private var resumeLesson: Lesson?
     @State private var selectedLesson: Lesson?
 
+    @State private var toastMessage: String? = nil
+    @State private var toastIsSuccess: Bool = false
+    @State private var toastAutoDismissTask: Task<Void, Never>? = nil
+    
+    // Helper: show/dismiss the banner
+    private func showToast(message: String, success: Bool) {
+        toastAutoDismissTask?.cancel()
+        toastMessage = message
+        toastIsSuccess = success
+        toastAutoDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if !Task.isCancelled { withAnimation { toastMessage = nil } }
+        }
+    }
+    
     // Hide lessons that already belong to any folder
     private var folderedLessonIDs: Set<String> {
         Set(folderStore.folders.flatMap { $0.lessonIDs })
@@ -558,6 +574,42 @@ struct LessonSelectionView: View {
                 Button("Cancel", role: .cancel) {}
             } message: { lesson in
                 Text("“\(lesson.title)” will be removed from your device.")
+            }
+            
+            // ✅ Watch the generator’s lifecycle
+            .onChange(of: generator.isBusy) { isBusy in
+                guard !isBusy else { return } // only react when it just finished
+                let status = generator.status.lowercased()
+
+                if let id = generator.lastLessonID,
+                   let lesson = store.lessons.first(where: { $0.id == id || $0.folderName == id }) {
+                    // success case: we found the generated lesson
+                    withAnimation(.spring()) {
+                        showToast(message: "Lesson created: \(lesson.title). Tap to open.", success: true)
+                    }
+                } else if status.hasPrefix("error") {
+                    withAnimation(.spring()) {
+                        showToast(message: "Generation failed. Tap to review.", success: false)
+                    }
+                } else if status.contains("cancelled") {
+                    withAnimation(.spring()) {
+                        showToast(message: "Generation cancelled.", success: false)
+                    }
+                }
+            }
+            // ✅ Place the banner at the very top
+            .overlay(alignment: .top) {
+                if let message = toastMessage {
+                    ToastBanner(message: message, isSuccess: toastIsSuccess) {
+                        // On tap: navigate to the lesson if we have it
+                        if let id = generator.lastLessonID,
+                           let lesson = store.lessons.first(where: { $0.id == id || $0.folderName == id }) {
+                            selectedLesson = lesson        // ← uses your existing navigationDestination
+                        }
+                        withAnimation { toastMessage = nil }
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
         }
     }
