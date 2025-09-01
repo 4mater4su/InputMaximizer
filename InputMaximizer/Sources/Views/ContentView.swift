@@ -1,4 +1,9 @@
-// ContentView.swift
+//
+//  ContentView.swift
+//  InputMaximizer
+//
+//  Created by Robin Geske on 01.09.25.
+//
 
 import SwiftUI
 
@@ -67,7 +72,7 @@ struct ContentView: View {
     }
 
     // MARK: - Actions
-    /// ⛏️ FIX: start playback in the lane that matches the current continuous mode
+    /// Start playback in the lane that matches the current continuous mode
     private func goToNextLessonAndPlay() {
         guard !lessons.isEmpty else { return }
         currentLessonIndex = (currentLessonIndex + 1) % lessons.count
@@ -104,15 +109,8 @@ struct ContentView: View {
                     }
 
                     if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.id }) {
-                        // Optional: respect continuous lane when starting from a tap
-                        if audioManager.playbackMode == .translation {
-                            // start EN at this exact index and keep lane consistent
-                            // Note: playTranslation uses currentIndex internally, so set via PT call first:
-                            audioManager.playPortuguese(from: idx) // sets currentIndex safely
-                            audioManager.playTranslation(resumeAfterTarget: false)
-                        } else {
-                            audioManager.playPortuguese(from: idx)
-                        }
+                        // ✅ Play directly in the current continuous lane (no PT-then-EN hop)
+                        audioManager.playInContinuousLane(from: idx)
                     }
                 }
                 .onChange(of: audioManager.currentIndex) { _ in
@@ -151,15 +149,24 @@ struct ContentView: View {
                 .accessibilityLabel(audioManager.isPlayingPT ? "Pause Portuguese" : "Play Portuguese")
                 .accessibilityHint("Toggles Portuguese playback.")
 
+                // One-off opposite lane (unchanged)
                 Button {
-                    audioManager.playTranslation()
+                    audioManager.playOppositeOnce()
                 } label: {
                     Image(systemName: "globe")
                         .imageScale(.large)
                 }
                 .buttonStyle(MinimalIconButtonStyle())
-                .accessibilityLabel("Play translation once")
-                .accessibilityHint("Plays the translated line once, then resumes target language when appropriate.")
+                .accessibilityLabel(
+                    audioManager.playbackMode == .target
+                    ? "Play translation once"
+                    : "Play target once"
+                )
+                .accessibilityHint(
+                    audioManager.playbackMode == .target
+                    ? "Plays the translated line once, then resumes target language."
+                    : "Plays the target line once, then resumes translation."
+                )
             }
             .padding(.bottom, 20)
         }
@@ -219,7 +226,7 @@ struct ContentView: View {
                     ? "Switch to continuous translation playback"
                     : "Switch to continuous target playback"
                 )
-                .accessibilityHint("Changes which language auto-advance uses. One-off translation button still works.")
+                .accessibilityHint("Changes which language auto-advance uses. One-off button still plays the opposite lane.")
             }
         }
     }

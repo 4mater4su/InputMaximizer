@@ -47,7 +47,10 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private var audioPlayer: AVAudioPlayer?
     private var pendingAdvance: DispatchWorkItem?
-    private var resumePTAfterENG = false
+
+    // One-off resume flags (symmetric)
+    private var resumePTAfterENG = false  // play EN once, then resume PT
+    private var resumeENAfterPT = false   // play PT once, then resume EN
 
     // End-of-lesson double-tap
     private var allowNextDoubleUntil: Date?
@@ -132,6 +135,31 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         play(.en, from: currentIndex, resumeAfter: resumeAfterTarget && playbackMode == .target)
     }
 
+    /// NEW: Start playback directly in the current continuous lane from a given index.
+    func playInContinuousLane(from index: Int) {
+        switch playbackMode {
+        case .target:
+            play(.pt, from: index, resumeAfter: false)
+        case .translation:
+            play(.en, from: index, resumeAfter: false)
+        }
+    }
+
+    /// NEW: One-off opposite lane, then resume the current continuous lane.
+    func playOppositeOnce() {
+        switch playbackMode {
+        case .target:
+            // same as your existing "globe" behavior
+            playTranslation(resumeAfterTarget: true) // EN once, back to PT
+        case .translation:
+            // play PT once, then resume EN lane
+            cancelPendingAdvance()
+            didFinishLesson = false
+            resumeENAfterPT = true
+            play(.pt, from: currentIndex, resumeAfter: false)
+        }
+    }
+
     /// Convenience for "review English then return".
     func playEnglish() {
         play(.en, from: currentIndex, resumeAfter: true)
@@ -173,6 +201,7 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isPaused = false
         isPlaying = false
         resumePTAfterENG = false
+        resumeENAfterPT = false
         cancelPendingAdvance()
         didFinishLesson = false
         keepalive.stop()
@@ -183,9 +212,15 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         isPlaying = false
 
+        // Handle one-off resumes (symmetric)
         if resumePTAfterENG {
             resumePTAfterENG = false
             play(.pt, from: currentIndex, resumeAfter: false)
+            return
+        }
+        if resumeENAfterPT {
+            resumeENAfterPT = false
+            play(.en, from: currentIndex, resumeAfter: false)
             return
         }
 
@@ -209,7 +244,8 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         case .pt:
             isPlayingPT = true
             isPaused = false
-            resumePTAfterENG = false
+            // if we're playing PT, make sure we don't incorrectly resume PT-after-EN
+            if resumeAfter == false { resumePTAfterENG = false }
             playFile(named: segments[currentIndex].pt_file)
             updateNowPlayingInfo(isPTOverride: true)
 
@@ -513,4 +549,3 @@ struct ResourceLocator {
         return urls.first { $0.lastPathComponent == filename }
     }
 }
-

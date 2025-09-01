@@ -133,7 +133,7 @@ final class FolderStore: ObservableObject {
     func move(from source: IndexSet, to destination: Int) { folders.move(fromOffsets: source, toOffset: destination) }
 
     func rename(id: UUID, to newName: String) {
-        guard let idx = index(of: id) else { return } // ✅ fixed (was 'var idx')
+        guard let idx = index(of: id) else { return }
         var f = folders[idx]
         let proposed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !proposed.isEmpty else { return }
@@ -384,14 +384,28 @@ struct LessonSelectionView: View {
     @State private var newFolderName: String = ""
     @State private var selectedLessonIDs = Set<String>()
 
+    // MARK: - Helper: choose the correct list for a given lesson
+    private func lessonsList(containing lesson: Lesson) -> [Lesson] {
+        if let folder = folderStore.folders.first(where: { $0.lessonIDs.contains(lesson.id) }) {
+            // Preserve folder order
+            let ids = folder.lessonIDs
+            return ids.compactMap { id in store.lessons.first(where: { $0.id == id }) }
+        } else {
+            // Lesson is unfiled → use current unfiled list
+            return unfiledLessons
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
 
+                    // NOW PLAYING BAR
                     if let playing = activeLesson,
                        (audioManager.isPlaying || audioManager.isPaused || !audioManager.segments.isEmpty) {
                         Button {
+                            // Navigate using the list that actually contains this lesson
                             resumeLesson = playing
                         } label: {
                             HStack(spacing: 12) {
@@ -519,12 +533,14 @@ struct LessonSelectionView: View {
                     .environmentObject(audioManager)
                     .environmentObject(folderStore)
             }
+            // ✅ Use the correct list for the selected lesson
             .navigationDestination(item: $selectedLesson) { lesson in
-                ContentView(selectedLesson: lesson, lessons: unfiledLessons)
+                ContentView(selectedLesson: lesson, lessons: lessonsList(containing: lesson))
                     .environmentObject(audioManager)
             }
+            // ✅ Use the correct list for the "Now Playing" lesson
             .navigationDestination(item: $resumeLesson) { lesson in
-                ContentView(selectedLesson: lesson, lessons: unfiledLessons)
+                ContentView(selectedLesson: lesson, lessons: lessonsList(containing: lesson))
                     .environmentObject(audioManager)
             }
             .sheet(isPresented: $showingCreateFolder) { createFolderSheet }
@@ -615,3 +631,4 @@ private extension Color {
         : UIColor.systemYellow.withAlphaComponent(0.22)
     })
 }
+
