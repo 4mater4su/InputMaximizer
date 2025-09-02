@@ -207,12 +207,14 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
         // Nothing playing
         if didFinishLesson {
-            play(.pt, from: 0, resumeAfter: false) // replay current lesson
+            // Restart according to the current continuous mode
+            playInContinuousLane(from: 0)
             didFinishLesson = false
         } else if isInDelay {
             playEnglish()
         } else {
-            play(.pt, from: currentIndex, resumeAfter: false)
+            // Respect the current continuous lane for ad-hoc starts, too
+            playInContinuousLane(from: currentIndex)
         }
     }
 
@@ -325,18 +327,38 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
         // End of lesson?
         guard currentIndex < segments.count - 1 else {
+            // reset playback state
             isPlayingPT = false
             isPaused = false
             isInDelay = false
             didFinishLesson = true
             allowNextDoubleUntil = nil
+
+            // ⬅️ Make sure we move the cursor back to the first segment
             currentIndex = 0
+
+            // keep Control Center info coherent with the lane
+            let titleForFirstLane: String = {
+                guard !segments.isEmpty else { return "Lesson" }
+                let seg0 = segments[0]
+                switch playbackMode {
+                case .target:      return seg0.pt_text
+                case .translation: return seg0.en_text
+                case .both:
+                    return (firstLaneForPair == .pt) ? seg0.pt_text : seg0.en_text
+                }
+            }()
+
+            // update Now Playing (shows 0 duration/paused keepalive)
             updateNowPlayingInfo()
+
             // keepalive so remote center remains addressable
-            keepalive.start(nowPlayingTitle: segments.isEmpty ? "Lesson" : segments[0].pt_text,
-                            artist: currentLessonTitle.isEmpty ? NowPlayingBuilder.defaultArtist : currentLessonTitle,
-                            queueCount: segments.count,
-                            queueIndex: currentIndex)
+            keepalive.start(
+                nowPlayingTitle: titleForFirstLane,
+                artist: currentLessonTitle.isEmpty ? NowPlayingBuilder.defaultArtist : currentLessonTitle,
+                queueCount: segments.count,
+                queueIndex: currentIndex // ← should be 0 after the assignment above
+            )
             return
         }
 
@@ -408,11 +430,13 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                         return .success
                     } else {
                         allowNextDoubleUntil = now.addingTimeInterval(doubleTapWindow)
-                        play(.pt, from: 0, resumeAfter: false)
+                        // Restart according to the current continuous mode (not hard-coded PT)
+                        playInContinuousLane(from: 0)
                         didFinishLesson = false
                         return .success
                     }
                 }
+
 
                 if isInDelay {
                     playEnglish()

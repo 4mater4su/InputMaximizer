@@ -162,47 +162,39 @@ private extension GeneratorService {
         progress: @escaping @Sendable (String) async -> Void
     ) async throws -> String {
 
-        func generateText(topic: String, targetLang: String, wordCount: Int) async throws -> String {
-            let prompt = """
-            Write a short, clear, factual text (~\(wordCount) words) in \(targetLang) about: \(topic).
-
-            Rules:
-            1) First line: TITLE only (no quotes).
-            2) Blank line.
-            3) Body in short sentences.
-            4) Include exactly one plausible numeric detail in the body.
-            """
-            let body: [String:Any] = [
-                "model": "gpt-5-nano",
-                "messages": [
-                    ["role":"system","content":"Be clear, concrete, and factual."],
-                    ["role":"user","content": prompt]
-                ],
-            ]
-            return try await chat(apiKey: req.apiKey, body: body)
-        }
-
         func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
             let meta = """
-            You are a prompt refiner. Transform the user's instruction or text into a clear writing brief.
+            You are a prompt refiner. Transform the user's instruction, input text, or theme into a clear, actionable writing brief that will produce a high-quality text.
 
-            Constraints:
+            Keep the user's original intent, named entities, facts, references, and requested form (e.g., essay, article, story, poem) intact.
+            Do NOT add new information; only clarify, structure, and make constraints explicit.
+
+            Constraints to enforce:
             - Language: \(targetLang)
-            - Target length ≈ \(wordCount) words
+            - Target length: ≈ \(wordCount) words (flexible ±15%)
 
-            Return ONLY the refined prompt.
-            User input:
+            Your refined prompt must:
+            - State the primary purpose (inform / explain / explore / persuade / narrate / summarize / report).
+            - Specify audience and voice/register if provided.
+            - Define a simple paragraph structure with sentences which are not too long.
+            - List must-cover points and requirements derived from the user’s material.
+
+            Return ONLY the refined prompt text, nothing else.
+
+            User instruction or material:
             \(raw)
             """
+            
             let body: [String:Any] = [
                 "model": "gpt-5-nano",
                 "messages": [
-                    ["role":"system","content":"Refine prompts faithfully; elevate without drifting."],
+                    ["role":"system","content":"Refine prompts faithfully; elevate without drifting from user intent."],
                     ["role":"user","content": meta]
                 ],
             ]
             return try await chat(apiKey: req.apiKey, body: body)
         }
+
 
         func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int) async throws -> String {
             let system = """
@@ -212,6 +204,8 @@ private extension GeneratorService {
             1) First line: short TITLE only (no quotes)
             2) Blank line
             3) Body text
+            4) Only use a full stops '.' to indicate the end of a sentence.
+            
             """
             let body: [String:Any] = [
                 "model": "gpt-5-nano",
@@ -252,15 +246,17 @@ private extension GeneratorService {
                 return "capoeira rodas ao amanhecer"
             }()
 
-            await progress("Generating… (Random)\nTopic: \(topic)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
-            fullText = try await generateText(topic: topic, targetLang: req.genLanguage, wordCount: req.lengthWords)
+            await progress("Elevating prompt… (Random)\nTopic: \(topic)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
+            let elevated = try await refinePrompt(topic, targetLang: req.genLanguage, wordCount: req.lengthWords)
+            await progress("Generating… \(elevated)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
+            fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords)
 
         case .prompt:
             let cleaned = req.userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { throw NSError(domain: "Generator", code: 1, userInfo: [NSLocalizedDescriptionKey: "Empty prompt"]) }
             await progress("Elevating prompt…")
             let elevated = try await refinePrompt(cleaned, targetLang: req.genLanguage, wordCount: req.lengthWords)
-            await progress("Generating… (Prompt)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
+            await progress("Generating… \(elevated)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
             fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords)
         }
 
