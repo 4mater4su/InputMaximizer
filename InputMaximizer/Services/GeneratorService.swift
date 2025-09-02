@@ -33,8 +33,6 @@ final class GeneratorService: ObservableObject {
         var transLanguage: String
 
         var segmentation: Segmentation
-        var sentencesPerSegment: Int
-
         var lengthWords: Int
         
         // Random topic inputs from the UI
@@ -315,13 +313,6 @@ private extension GeneratorService {
             return ps.map { sentences($0).count }
         }
 
-        func chunk<T>(_ array: [T], size: Int) -> [[T]] {
-            guard size > 0 else { return [] }
-            return stride(from: 0, to: array.count, by: size).map { i in
-                Array(array[i..<min(i + size, array.count)])
-            }
-        }
-
         // ---- Build segments ----
         var segsPrimary: [String] = []
         var segsSecondary: [String] = []
@@ -329,29 +320,25 @@ private extension GeneratorService {
 
         switch req.segmentation {
         case .sentences:
+            // 1 sentence = 1 segment
             let sentPrimary = sentences(bodyPrimary)
             let sentSecondary = sentences(secondaryText)
-            let pChunks = chunk(sentPrimary, size: req.sentencesPerSegment).map { $0.joined(separator: " ") }
-            let sChunks = chunk(sentSecondary, size: req.sentencesPerSegment).map { $0.joined(separator: " ") }
-            let count = min(pChunks.count, sChunks.count)
-
-            segsPrimary = Array(pChunks.prefix(count))
-            segsSecondary = Array(sChunks.prefix(count))
-
+            let count = min(sentPrimary.count, sentSecondary.count)
+            
+            segsPrimary = Array(sentPrimary.prefix(count))
+            segsSecondary = Array(sentSecondary.prefix(count))
+            
+            // Map each sentence index to its paragraph index
             let perPara = sentencesPerParagraph(bodyPrimary)
             var sentToPara: [Int:Int] = [:]
             var running = 0
             for (pIdx, c) in perPara.enumerated() {
                 for s in running ..< running + c { sentToPara[s] = pIdx }
-                running += c
+                    running += c
             }
-            segmentParagraphIndex = (0..<count).map { seg in
-                let firstSentenceIndex = seg * req.sentencesPerSegment
-                return sentToPara[firstSentenceIndex] ?? 0
-            }
-
-            await progress("Preparing audio… \(segsPrimary.count) segments × \(req.sentencesPerSegment) sentences")
-
+            segmentParagraphIndex = (0..<count).map { sentToPara[$0] ?? 0 }
+            
+            await progress("Preparing audio… \(segsPrimary.count) sentence segments")
         case .paragraphs:
             let pParas = paragraphs(bodyPrimary)
             let sParas = paragraphs(secondaryText)

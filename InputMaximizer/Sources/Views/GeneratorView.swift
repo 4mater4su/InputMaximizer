@@ -38,7 +38,6 @@ struct GeneratorView: View {
     
     // MARK: - State
     @State private var apiKey: String = "" // store/retrieve from Keychain in real use
-    @State private var sentencesPerSegment = 1
     @State private var isBusy = false
     @State private var status = ""
 
@@ -323,15 +322,6 @@ struct GeneratorView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-
-                // Completely hide the stepper when using Paragraphs (as requested)
-                if segmentation == .sentences {
-                    Stepper(
-                        "Sentences per segment: \(sentencesPerSegment)",
-                        value: $sentencesPerSegment,
-                        in: 1...3
-                    )
-                }
             }
 
             // 2) Length card
@@ -384,7 +374,6 @@ struct GeneratorView: View {
                         genLanguage: genLanguage,
                         transLanguage: transLanguage,
                         segmentation: (segmentation == .paragraphs ? .paragraphs : .sentences),
-                        sentencesPerSegment: sentencesPerSegment,
                         lengthWords: lengthPreset.words,
                         userChosenTopic: randomTopic,      // 🔽 pass current selection from UI (may be nil)
                         topicPool: interests               // 🔽 pass the full list so service can randomize
