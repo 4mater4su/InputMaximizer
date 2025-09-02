@@ -398,11 +398,22 @@ struct GeneratorView: View {
                 }
             }
         }
-        .contentShape(Rectangle()) // ensures taps on empty space register
-        .onTapGesture {
-            if mode == .prompt { promptIsFocused = false }
-        }
+        
+        .background(
+            TapToDismissKeyboard {
+                if mode == .prompt { promptIsFocused = false }
+            }
+        )
         .scrollDismissesKeyboard(.immediately)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { promptIsFocused = false }
+            }
+        }
+        .onChange(of: mode) { newValue in
+            promptIsFocused = (newValue == .prompt)
+        }
         .navigationTitle("Generator")
         .listStyle(.insetGrouped)
     }
