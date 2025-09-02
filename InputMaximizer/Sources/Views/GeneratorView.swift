@@ -50,6 +50,8 @@ struct GeneratorView: View {
     
     @State private var randomTopic: String?
     
+    @FocusState private var promptIsFocused: Bool
+    
     private let supportedLanguages: [String] = [
         "Afrikaans","Arabic","Armenian","Azerbaijani","Belarusian","Bosnian","Bulgarian","Catalan","Chinese","Croatian",
         "Czech","Danish","Dutch","English","Estonian","Finnish","French","Galician","German","Greek","Hebrew","Hindi",
@@ -307,6 +309,7 @@ struct GeneratorView: View {
                         .frame(minHeight: 120)
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
                         .padding(.vertical, 2)
+                        .focused($promptIsFocused)
                     Text("Describe instructions, a theme, or paste a source text.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -395,6 +398,11 @@ struct GeneratorView: View {
                 }
             }
         }
+        .contentShape(Rectangle()) // ensures taps on empty space register
+        .onTapGesture {
+            if mode == .prompt { promptIsFocused = false }
+        }
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle("Generator")
         .listStyle(.insetGrouped)
     }
