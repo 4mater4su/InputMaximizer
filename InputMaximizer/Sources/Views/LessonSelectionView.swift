@@ -248,7 +248,11 @@ struct FolderDetailView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.appBackground)
         .navigationTitle(currentFolder.name)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(Color.appBackground, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 EditButton()
@@ -319,7 +323,11 @@ struct FolderDetailView: View {
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
             .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Color.appBackground)
             .navigationTitle("Add/Remove Lessons")
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showMembersSheet = false } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -338,7 +346,11 @@ struct FolderDetailView: View {
                 TextField("Folder name", text: $renameText)
                     .textInputAutocapitalization(.words)
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.appBackground)
             .navigationTitle("Rename Folder")
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showRenameSheet = false } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -362,6 +374,9 @@ struct LessonSelectionView: View {
     @EnvironmentObject private var folderStore: FolderStore
     @EnvironmentObject private var generator: GeneratorService
 
+    @AppStorage("appearancePreference") private var appearanceRaw: String = AppearancePreference.system.rawValue
+    private var appearance: AppearancePreference { AppearancePreference(rawValue: appearanceRaw) ?? .system }
+
     @State private var lessonToDelete: Lesson?
     @State private var showDeleteConfirm = false
     @State private var resumeLesson: Lesson?
@@ -371,7 +386,6 @@ struct LessonSelectionView: View {
     @State private var toastIsSuccess: Bool = false
     @State private var toastAutoDismissTask: Task<Void, Never>? = nil
     
-    // Helper: show/dismiss the banner
     private func showToast(message: String, success: Bool) {
         toastAutoDismissTask?.cancel()
         toastMessage = message
@@ -382,10 +396,8 @@ struct LessonSelectionView: View {
         }
     }
     
-    // LessonSelectionView.swift
-    @State private var showAppearanceSheet = false    
+    @State private var showAppearanceSheet = false
     
-    // Hide lessons that already belong to any folder
     private var folderedLessonIDs: Set<String> {
         Set(folderStore.folders.flatMap { $0.lessonIDs })
     }
@@ -398,19 +410,15 @@ struct LessonSelectionView: View {
         return store.lessons.first { $0.folderName == fn }
     }
 
-    // Create Folder Sheet State
     @State private var showingCreateFolder = false
     @State private var newFolderName: String = ""
     @State private var selectedLessonIDs = Set<String>()
 
-    // MARK: - Helper: choose the correct list for a given lesson
     private func lessonsList(containing lesson: Lesson) -> [Lesson] {
         if let folder = folderStore.folders.first(where: { $0.lessonIDs.contains(lesson.id) }) {
-            // Preserve folder order
             let ids = folder.lessonIDs
             return ids.compactMap { id in store.lessons.first(where: { $0.id == id }) }
         } else {
-            // Lesson is unfiled → use current unfiled list
             return unfiledLessons
         }
     }
@@ -424,7 +432,6 @@ struct LessonSelectionView: View {
                     if let playing = activeLesson,
                        (audioManager.isPlaying || audioManager.isPaused || !audioManager.segments.isEmpty) {
                         Button {
-                            // Navigate using the list that actually contains this lesson
                             resumeLesson = playing
                         } label: {
                             HStack(spacing: 12) {
@@ -444,8 +451,7 @@ struct LessonSelectionView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .padding(12)
-                            .background(Color.surfaceSoft)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .cardBackground()
                         }
                     }
 
@@ -485,7 +491,8 @@ struct LessonSelectionView: View {
                                         }
                                         .padding()
                                         .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
-                                        .background(Color.uiFolder)
+                                        .background(Color.folderTile)
+                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.hairline, lineWidth: 1))
                                         .clipShape(RoundedRectangle(cornerRadius: 12))
                                     }
                                     .contextMenu {
@@ -518,8 +525,7 @@ struct LessonSelectionView: View {
                                         .font(.headline)
                                         .frame(maxWidth: .infinity)
                                         .padding()
-                                        .background(Color.surfaceSoft)
-                                        .cornerRadius(12)
+                                        .cardBackground()
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
@@ -538,9 +544,12 @@ struct LessonSelectionView: View {
                 }
                 .padding()
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.appBackground)
             .navigationTitle("Select a Lesson")
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbar {
-                // existing trailing item (Generate button)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink {
                         GeneratorView()
@@ -550,7 +559,6 @@ struct LessonSelectionView: View {
                     }
                 }
 
-                // 👇 add your paintbrush button here
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
                         showAppearanceSheet = true
@@ -565,12 +573,10 @@ struct LessonSelectionView: View {
                     .environmentObject(audioManager)
                     .environmentObject(folderStore)
             }
-            // ✅ Use the correct list for the selected lesson
             .navigationDestination(item: $selectedLesson) { lesson in
                 ContentView(selectedLesson: lesson, lessons: lessonsList(containing: lesson))
                     .environmentObject(audioManager)
             }
-            // ✅ Use the correct list for the "Now Playing" lesson
             .navigationDestination(item: $resumeLesson) { lesson in
                 ContentView(selectedLesson: lesson, lessons: lessonsList(containing: lesson))
                     .environmentObject(audioManager)
@@ -594,15 +600,12 @@ struct LessonSelectionView: View {
             } message: { lesson in
                 Text("“\(lesson.title)” will be removed from your device.")
             }
-            
-            // ✅ Watch the generator’s lifecycle
             .onChange(of: generator.isBusy) { isBusy in
-                guard !isBusy else { return } // only react when it just finished
+                guard !isBusy else { return }
                 let status = generator.status.lowercased()
 
                 if let id = generator.lastLessonID,
                    let lesson = store.lessons.first(where: { $0.id == id || $0.folderName == id }) {
-                    // success case: we found the generated lesson
                     withAnimation(.spring()) {
                         showToast(message: "Lesson created: \(lesson.title). Tap to open.", success: true)
                     }
@@ -616,14 +619,12 @@ struct LessonSelectionView: View {
                     }
                 }
             }
-            // ✅ Place the banner at the very top
             .overlay(alignment: .top) {
                 if let message = toastMessage {
                     ToastBanner(message: message, isSuccess: toastIsSuccess) {
-                        // On tap: navigate to the lesson if we have it
                         if let id = generator.lastLessonID,
                            let lesson = store.lessons.first(where: { $0.id == id || $0.folderName == id }) {
-                            selectedLesson = lesson        // ← uses your existing navigationDestination
+                            selectedLesson = lesson
                         }
                         withAnimation { toastMessage = nil }
                     }
@@ -631,6 +632,7 @@ struct LessonSelectionView: View {
                 }
             }
         }
+        .preferredColorScheme(appearance.colorScheme) // ← honor user appearance choice
     }
 
     // MARK: - Create Folder Sheet
@@ -678,7 +680,11 @@ struct LessonSelectionView: View {
                     .frame(minHeight: 400)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.appBackground)
             .navigationTitle("New Folder")
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showingCreateFolder = false } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -692,24 +698,4 @@ struct LessonSelectionView: View {
         }
     }
 }
-
-// MARK: - Helpers
-
-private extension Color {
-    static let uiFolder = Color(UIColor { trait in
-        trait.userInterfaceStyle == .dark
-        ? UIColor.systemYellow.withAlphaComponent(0.18)
-        : UIColor.systemYellow.withAlphaComponent(0.22)
-    })
-
-    // ✅ Add surfaceSoft here, as a static var on Color
-    static var surfaceSoft: Color {
-        Color(UIColor { trait in
-            trait.userInterfaceStyle == .dark
-            ? UIColor.secondarySystemBackground.withAlphaComponent(0.8)
-            : UIColor.systemBlue.withAlphaComponent(0.10)
-        })
-    }
-}
-
 

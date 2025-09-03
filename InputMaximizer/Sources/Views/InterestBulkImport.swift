@@ -5,9 +5,10 @@
 //  Created by Robin Geske on 03.09.25.
 //
 
-// MARK: - Bulk import sheet for Interests
-
 import SwiftUI
+import Foundation
+
+// MARK: - Bulk import sheet for Interests
 
 struct InterestBulkImportView: View {
     @Binding var interestRow: AspectRow
@@ -18,7 +19,7 @@ struct InterestBulkImportView: View {
     @State private var dedupe = true
 
     private var parsed: [AspectOption] {
-        AspectRow.options(fromBulkText: pastedText)
+        AspectRow.options(fromBulkText: pastedText)   // ← uses the extension below
     }
 
     private var mergedPreview: [AspectOption] {
@@ -79,7 +80,6 @@ struct InterestBulkImportView: View {
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         } else {
-                            // show the first 12 as a glance
                             ForEach(mergedPreview.prefix(12), id: \.id) { opt in
                                 HStack {
                                     Text(opt.label)
@@ -97,7 +97,11 @@ struct InterestBulkImportView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.appBackground)
             .navigationTitle("Bulk Import Interests")
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -137,3 +141,83 @@ struct InterestBulkImportView: View {
     - Ancient libraries
     """
 }
+
+// MARK: - Bulk import parsing (AspectRow extension)
+
+extension AspectRow {
+    /// Parses a bulk list of options from text.
+    /// Official Scheme v1 (recommended):
+    ///   - Lines beginning with "-" or "*" followed by the label.
+    ///   - Optional attributes after a "|" pipe, e.g.:  "- Northern lights | enabled=false"
+    ///
+    /// Also accepted (friendly extras):
+    ///   • Plain lines (one label per line)
+    ///   • JSON array of strings: ["A","B","C"]
+    ///   • CSV/TSV first column used as label (header ignored)
+    static func options(fromBulkText raw: String) -> [AspectOption] {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return [] }
+
+        // 1) Try JSON array of strings
+        if let data = text.data(using: .utf8),
+           let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] {
+            let labels = arr.compactMap { $0 as? String }
+            if !labels.isEmpty {
+                return labels
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .map { AspectOption(label: $0, enabled: true) }
+            }
+        }
+
+        // 2) Try CSV/TSV (take first column, skip header if it looks like one)
+        if text.contains(",") || text.contains("\t") {
+            let lines = text.components(separatedBy: .newlines)
+            var out: [AspectOption] = []
+            for (i, line) in lines.enumerated() {
+                let parts = line.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "," || $0 == "\t" })
+                guard let first = parts.first else { continue }
+                var label = String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !label.isEmpty else { continue }
+                // skip header-ish first cell
+                if i == 0, label.lowercased().contains("label") { continue }
+                out.append(.init(label: label))
+            }
+            if !out.isEmpty { return out }
+        }
+
+        // 3) Official Scheme v1 + plain-lines fallback
+        var results: [AspectOption] = []
+
+        text.components(separatedBy: .newlines).forEach { line in
+            var s = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !s.isEmpty else { return }
+            if s.hasPrefix("#") { return } // comment
+
+            // Strip leading bullet
+            if s.hasPrefix("- ") { s.removeFirst(2) }
+            else if s.hasPrefix("* ") { s.removeFirst(2) }
+
+            // Split attributes via "|"
+            let parts = s.split(separator: "|", maxSplits: 8, omittingEmptySubsequences: true)
+                         .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+            guard let head = parts.first, !head.isEmpty else { return }
+            var enabled = true
+            if parts.count > 1 {
+                for attr in parts.dropFirst() {
+                    // enabled=true/false (case-insensitive)
+                    let kv = attr.split(separator: "=", maxSplits: 1)
+                                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    if kv.count == 2, kv[0].lowercased() == "enabled" {
+                        enabled = (kv[1].lowercased() == "true" || kv[1] == "1" || kv[1].lowercased() == "yes")
+                    }
+                }
+            }
+            results.append(.init(label: head, enabled: enabled))
+        }
+
+        return results
+    }
+}
+

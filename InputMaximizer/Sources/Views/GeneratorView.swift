@@ -259,6 +259,10 @@ struct GeneratorView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.appBackground)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(Color.appBackground, for: .navigationBar)
         .background(
             TapToDismissKeyboard {
                 if mode == .prompt { promptIsFocused = false }
@@ -296,38 +300,6 @@ struct GeneratorView: View {
                 .onDisappear {
                     styleTableJSON = saveTable(styleTable)
                     interestRowJSON = saveRow(interestRow)
-                }
-        }
-    }
-}
-
-/// Simple wrap layout for chips using alignment guides
-private struct WrapLayout<Content: View>: View {
-    @ViewBuilder var content: Content
-    var body: some View {
-        GeometryReader { geo in
-            self.generateContent(in: geo.size)
-        }
-        .frame(minHeight: 10)
-    }
-
-    private func generateContent(in size: CGSize) -> some View {
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-        return ZStack(alignment: .topLeading) {
-            content
-                .alignmentGuide(.leading) { d in
-                    if (width + d.width) > size.width {
-                        width = 0
-                        height -= d.height
-                    }
-                    let result = width
-                    width += d.width
-                    return result
-                }
-                .alignmentGuide(.top) { d in
-                    let result = height
-                    return result
                 }
         }
     }

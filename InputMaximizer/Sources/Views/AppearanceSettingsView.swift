@@ -21,7 +21,11 @@ struct AppearanceSettingsView: View {
                 }
                 .pickerStyle(.inline)
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.appBackground)
             .navigationTitle("Appearance")
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -30,3 +34,4 @@ struct AppearanceSettingsView: View {
         }
     }
 }
+

@@ -136,6 +136,7 @@ struct ContentView: View {
                     .foregroundColor(.secondary)
 
                 Slider(value: $storedDelay, in: 0...20, step: 0.5)
+                    .tint(.accentColor)
                     .accessibilityLabel("Pause Between Segments")
                     .accessibilityValue("\(storedDelay, specifier: "%.1f") seconds")
             }
@@ -258,21 +259,31 @@ private struct SegmentRow: View {
     let onTap: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(segment.pt_text)
-                .font(.headline)
-                .foregroundColor(isPlaying ? .blue : .primary)
-            if showTranslation {
-                Text(segment.en_text)
-                    .font(.subheadline)
-                    .foregroundColor(.gray)
+        HStack(spacing: 10) {
+            // Accent rail highlights the currently playing segment
+            Rectangle()
+                .fill(isPlaying ? Color.accentColor : .clear)
+                .frame(width: 3)
+                .cornerRadius(2)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(segment.pt_text)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                if showTranslation {
+                    Text(segment.en_text)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isPlaying ? Color.accentColor.opacity(0.18) : .clear)
+        .padding(10)
+        .background(isPlaying ? Color.selectionAccent : Color.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.hairline, lineWidth: 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .id(rowID)
         .onTapGesture(perform: onTap)
     }
@@ -286,7 +297,6 @@ private struct ParagraphBox: View {
     let onTap: (Segment) -> Void
 
     var body: some View {
-        let isAlt = group.id % 2 == 1
         VStack(alignment: .leading, spacing: 12) {
             ForEach(group.segments) { seg in
                 SegmentRow(
@@ -299,15 +309,7 @@ private struct ParagraphBox: View {
             }
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill((isAlt ? Color.paraAlt : Color.paraBase).opacity(0.30))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.paraStroke.opacity(0.18), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.08), radius: 1, x: 0, y: 1)
+        .cardBackground() // unified card look
     }
 }
 
@@ -342,17 +344,7 @@ private struct TranscriptList: View {
             .id(folderName)          // reset layout identity on lesson change
             .padding()
         }
+        .background(Color.appBackground)
     }
 }
 
-// MARK: - Colors
-
-private extension Color {
-    static var paraBase: Color {
-        Color(UIColor { trait in
-            trait.userInterfaceStyle == .dark ? UIColor.secondarySystemBackground : UIColor.systemGray6
-        })
-    }
-    static var paraAlt: Color { Color(UIColor { _ in UIColor.systemGray5 }) }
-    static var paraStroke: Color { Color(UIColor.separator) }
-}

@@ -22,30 +22,13 @@ struct ShinyCapsule: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .foregroundStyle(.white)
-        .background(
-            ZStack {
-                LinearGradient(
-                    colors: [Color.blue, Color.purple],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .clipShape(Capsule())
-
-                // soft gloss
-                LinearGradient(
-                    colors: [Color.white.opacity(0.35), .clear],
-                    startPoint: .top,
-                    endPoint: .center
-                )
-                .clipShape(Capsule())
-                .blendMode(.screen)
-            }
-        )
-        .overlay(
-            Capsule().stroke(.white.opacity(0.18), lineWidth: 1)
-        )
-        .shadow(color: Color.purple.opacity(glow ? 0.35 : 0.18), radius: glow ? 10 : 6, x: 0, y: glow ? 6 : 3)
+        .background(LinearGradient.callToAction.clipShape(Capsule()))
+        .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 1))
+        .shadow(color: Color.purple.opacity(glow ? 0.28 : 0.16),
+                radius: glow ? 10 : 6,
+                x: 0, y: glow ? 6 : 3)
         .contentShape(Rectangle())
         .accessibilityLabel(title)
     }
 }
+
