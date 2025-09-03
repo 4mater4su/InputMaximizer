@@ -13,11 +13,48 @@ struct AspectOption: Identifiable, Hashable, Codable {
     var enabled: Bool = true
 }
 
+// NEW: single include switch per row
 struct AspectRow: Identifiable, Hashable, Codable {
     var id = UUID()
     var title: String
     var options: [AspectOption]
-    var pickOne: Bool = true
+    var isActive: Bool = true
+
+    // Back-compat: if old data had pickOne or mode, map them into isActive.
+    enum CodingKeys: String, CodingKey { case id, title, options, isActive, pickOne, mode }
+
+    init(id: UUID = UUID(), title: String, options: [AspectOption], isActive: Bool = true) {
+        self.id = id
+        self.title = title
+        self.options = options
+        self.isActive = isActive
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id      = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        title   = try c.decode(String.self, forKey: .title)
+        options = try c.decode([AspectOption].self, forKey: .options)
+
+        if let active = try c.decodeIfPresent(Bool.self, forKey: .isActive) {
+            isActive = active
+        } else if let mode = try c.decodeIfPresent(String.self, forKey: .mode) {
+            // any mode except "off" is treated as active
+            isActive = mode != "off"
+        } else {
+            // if old data only had pickOne, assume it was active
+            _ = try c.decodeIfPresent(Bool.self, forKey: .pickOne)
+            isActive = true
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(options, forKey: .options)
+        try c.encode(isActive, forKey: .isActive)
+    }
 }
 
 struct AspectTable: Equatable, Codable {
@@ -26,43 +63,37 @@ struct AspectTable: Equatable, Codable {
 
     mutating func enableAll() {
         for i in rows.indices {
-            for j in rows[i].options.indices {
-                rows[i].options[j].enabled = true
-            }
+            rows[i].isActive = true
+            for j in rows[i].options.indices { rows[i].options[j].enabled = true }
         }
     }
     mutating func disableAll() {
         for i in rows.indices {
-            for j in rows[i].options.indices {
-                rows[i].options[j].enabled = false
-            }
+            rows[i].isActive = false
+            for j in rows[i].options.indices { rows[i].options[j].enabled = false }
         }
     }
 
+    /// Picks exactly ONE enabled option per active row. Skips inactive or empty rows.
     func randomSelection() -> [(row: AspectRow, picked: [AspectOption])] {
-        rows.map { row in
+        rows.compactMap { row in
+            guard row.isActive else { return nil }
             let enabled = row.options.filter { $0.enabled }
-            guard !enabled.isEmpty else { return (row, []) }
-            if row.pickOne {
-                return (row, [enabled.randomElement()!])
-            } else {
-                let count = Int.random(in: 1...enabled.count)
-                return (row, Array(enabled.shuffled().prefix(count)))
-            }
+            guard let one = enabled.randomElement() else { return nil }
+            return (row, [one])
         }
     }
 
     func renderSeed(from selection: [(row: AspectRow, picked: [AspectOption])]) -> String {
-        selection
-            .filter { !$0.picked.isEmpty }
-            .map { pair in
-                let joined = pair.picked.map { $0.label }.joined(separator: ", ")
-                return "\(pair.row.title): \(joined)"
-            }
-            .joined(separator: " • ")
+        selection.map { pair in
+            let joined = pair.picked.map(\.label).joined(separator: ", ")
+            return "\(pair.row.title): \(joined)"
+        }
+        .joined(separator: " • ")
     }
 }
 
+// Defaults stay the same; no need to pass isActive because it defaults to true.
 extension AspectTable {
     static func defaults() -> AspectTable {
         AspectTable(
@@ -72,28 +103,28 @@ extension AspectTable {
                     AspectOption(label: "First-person"),
                     AspectOption(label: "Second-person"),
                     AspectOption(label: "Third-person")
-                ], pickOne: true),
+                ]),
                 AspectRow(title: "Tone", options: [
                     AspectOption(label: "Reflective"),
                     AspectOption(label: "Exploratory"),
                     AspectOption(label: "Instructional"),
                     AspectOption(label: "Poetic")
-                ], pickOne: true),
+                ]),
                 AspectRow(title: "Register", options: [
                     AspectOption(label: "Casual"),
                     AspectOption(label: "Neutral"),
                     AspectOption(label: "Formal")
-                ], pickOne: true),
+                ]),
                 AspectRow(title: "Form", options: [
                     AspectOption(label: "Field notes"),
                     AspectOption(label: "Essay"),
                     AspectOption(label: "Vignette"),
                     AspectOption(label: "How-to")
-                ], pickOne: true),
+                ]),
                 AspectRow(title: "Tense", options: [
                     AspectOption(label: "Present"),
                     AspectOption(label: "Past")
-                ], pickOne: true)
+                ])
             ]
         )
     }
@@ -112,6 +143,6 @@ extension AspectTable {
             AspectOption(label: "faróis e guardiões"),
             AspectOption(label: "cerimônias do chá"),
             AspectOption(label: "bibliotecas vivas")
-        ], pickOne: true)
+        ])
     }
 }

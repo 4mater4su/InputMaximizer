@@ -89,12 +89,20 @@ struct GeneratorView: View {
 
     // Build a topic from selected aspects + one interest
     private func buildRandomTopic() -> String {
-        let styleSel = styleTable.randomSelection()
+        let styleSel = styleTable.randomSelection()           // only active rows with at least one enabled option
         let styleSeed = styleTable.renderSeed(from: styleSel)
+
         let enabledInterests = interestRow.options.filter { $0.enabled }
-        let interestSeed = enabledInterests.randomElement()?.label ?? "capoeira ao amanhecer"
-        return styleSeed.isEmpty ? "Interest: \(interestSeed)"
-                                 : "\(styleSeed) • Interest: \(interestSeed)"
+        let interestSeed: String? = (interestRow.isActive && !enabledInterests.isEmpty)
+            ? enabledInterests.randomElement()!.label
+            : nil
+
+        var parts: [String] = []
+        if !styleSeed.isEmpty { parts.append(styleSeed) }
+        if let interest = interestSeed { parts.append("Interest: \(interest)") }
+
+        if parts.isEmpty { return "Interest: capoeira ao amanhecer" } // final fallback
+        return parts.joined(separator: " • ")
     }
 
     // MARK: - Persistence helpers

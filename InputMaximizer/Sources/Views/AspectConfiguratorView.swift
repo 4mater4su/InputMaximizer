@@ -61,8 +61,10 @@ struct AspectRowEditor: View {
             HStack {
                 Text(row.title).font(.headline)
                 Spacer()
-                Toggle("Pick one", isOn: $row.pickOne).labelsHidden()
+                Toggle("Include", isOn: $row.isActive)
+                    .labelsHidden()
             }
+
             LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
                 ForEach(row.options.indices, id: \.self) { idx in
                     let enabled = row.options[idx].enabled
@@ -80,6 +82,8 @@ struct AspectRowEditor: View {
                             .cornerRadius(10)
                     }
                     .buttonStyle(.plain)
+                    .disabled(!row.isActive)
+                    .opacity(row.isActive ? 1.0 : 0.35)
                 }
             }
             .padding(.top, 2)
@@ -87,3 +91,5 @@ struct AspectRowEditor: View {
         .padding(.vertical, 4)
     }
 }
+
+
