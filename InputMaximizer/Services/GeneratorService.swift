@@ -135,7 +135,7 @@ private extension GeneratorService {
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func tts(apiKey: String, text: String, filename: String, folder: URL) async throws -> URL {
+    static func tts(apiKey: String, text: String, filename: String, folder: URL, language: String) async throws -> URL {
         var req = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/speech")!)
         req.httpMethod = "POST"
         req.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -144,7 +144,8 @@ private extension GeneratorService {
             "model": "gpt-4o-mini-tts",
             "voice": "shimmer",
             "input": text,
-            "format": "mp3"
+            "format": "mp3",
+            "instructions": "Speak naturally in \(language)."
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await URLSession.shared.data(for: req)
@@ -374,12 +375,24 @@ private extension GeneratorService {
             try Task.checkCancellation()
             await progress("TTS \(i+1)/\(count) \(req.genLanguage)…")
             let ptFile = "\(src)_\(lessonID)_\(i+1).mp3"
-            _ = try await tts(apiKey: req.apiKey, text: ptSegs[i], filename: ptFile, folder: base)
+            _ = try await tts(
+                apiKey: req.apiKey,
+                text: ptSegs[i],
+                filename: ptFile,
+                folder: base,
+                language: req.genLanguage
+            )
 
             try Task.checkCancellation()
             await progress("TTS \(i+1)/\(count) \(req.transLanguage)…")
             let enFile = "\(dst)_\(lessonID)_\(i+1).mp3"
-            _ = try await tts(apiKey: req.apiKey, text: enSegs[i], filename: enFile, folder: base)
+            _ = try await tts(
+                apiKey: req.apiKey,
+                text: enSegs[i],
+                filename: enFile,
+                folder: base,
+                language: req.transLanguage
+            )
 
             rows.append(.init(
                 id: i+1,

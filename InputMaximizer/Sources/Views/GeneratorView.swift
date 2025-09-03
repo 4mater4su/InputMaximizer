@@ -49,7 +49,7 @@ struct GeneratorView: View {
     @State private var lessonID: String = "Lesson001"
     @State private var title: String = ""          // filled from generated PT title
 
-    @State private var genLanguage: String = "Portuguese"
+    @State private var genLanguage: String = "Portuguese (Brazil)"
     @State private var transLanguage: String = "English"
 
     @State private var randomTopic: String?
@@ -62,11 +62,11 @@ struct GeneratorView: View {
     @FocusState private var promptIsFocused: Bool
 
     private let supportedLanguages: [String] = [
-        "Afrikaans","Arabic","Armenian","Azerbaijani","Belarusian","Bosnian","Bulgarian","Catalan","Chinese","Croatian",
-        "Czech","Danish","Dutch","English","Estonian","Finnish","French","Galician","German","Greek","Hebrew","Hindi",
+        "Afrikaans","Arabic","Armenian","Azerbaijani","Belarusian","Bosnian","Bulgarian","Catalan","Chinese (Simplified)","Chinese (Traditional)","Croatian",
+        "Czech","Danish","Dutch","English","Estonian","Finnish","French", "French (Canada)","Galician","German","Greek","Hebrew","Hindi",
         "Hungarian","Icelandic","Indonesian","Italian","Japanese","Kannada","Kazakh","Korean","Latvian","Lithuanian",
-        "Macedonian","Malay","Marathi","Maori","Nepali","Norwegian","Persian","Polish","Portuguese","Romanian","Russian",
-        "Serbian","Slovak","Slovenian","Spanish","Swahili","Swedish","Tagalog","Tamil","Thai","Turkish","Ukrainian",
+        "Macedonian","Malay","Marathi","Maori","Nepali","Norwegian","Persian","Polish","Portuguese (Portugal)","Portuguese (Brazil)","Romanian","Russian",
+        "Serbian","Slovak","Slovenian","Spanish","Spanish (Latinoamérica)","Spanish (Mexico)","Swahili","Swedish","Tagalog","Tamil","Thai","Turkish","Ukrainian",
         "Urdu","Vietnamese","Welsh"
     ]
 
