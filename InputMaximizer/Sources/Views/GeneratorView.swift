@@ -6,15 +6,19 @@
 //
 
 import SwiftUI
+import Foundation
+
+// MARK: - Generator View
 
 struct GeneratorView: View {
     @EnvironmentObject private var lessonStore: LessonStore
     @EnvironmentObject private var generator: GeneratorService
-    @Environment(\.dismiss) private var dismiss   // optional, if you want to auto-close the screen
-    
-    @AppStorage("styleMatrixJSON") private var styleMatrixJSON: Data = Data()
-    @AppStorage("interestMatrixJSON") private var interestMatrixJSON: Data = Data()
-    
+    @Environment(\.dismiss) private var dismiss
+
+    // Persistence for aspect selections
+    @AppStorage("styleTableJSON") private var styleTableJSON: Data = Data()
+    @AppStorage("interestRowJSON") private var interestRowJSON: Data = Data()
+
     // MARK: - Length preset
     enum LengthPreset: Int, CaseIterable, Identifiable {
         case short, medium, long, veryLong
@@ -37,11 +41,9 @@ struct GeneratorView: View {
         }
     }
     @State private var lengthPreset: LengthPreset = .medium
-    
+
     // MARK: - State
     @State private var apiKey: String = "" // store/retrieve from Keychain in real use
-    @State private var isBusy = false
-    @State private var status = ""
 
     // Auto-filled from model output
     @State private var lessonID: String = "Lesson001"
@@ -49,16 +51,16 @@ struct GeneratorView: View {
 
     @State private var genLanguage: String = "Portuguese"
     @State private var transLanguage: String = "English"
-    
+
     @State private var randomTopic: String?
-    
-    @State private var styleMatrix: SelectableMatrix = .defaultStyle()
-    @State private var interestMatrix: SelectableMatrix = .defaultInterests()
+
+    // NEW: aspect states
+    @State private var styleTable: AspectTable = .defaults()
+    @State private var interestRow: AspectRow = AspectTable.defaultInterestsRow()
     @State private var showConfigurator = false
 
-    
     @FocusState private var promptIsFocused: Bool
-    
+
     private let supportedLanguages: [String] = [
         "Afrikaans","Arabic","Armenian","Azerbaijani","Belarusian","Bosnian","Bulgarian","Catalan","Chinese","Croatian",
         "Czech","Danish","Dutch","English","Estonian","Finnish","French","Galician","German","Greek","Hebrew","Hindi",
@@ -67,7 +69,7 @@ struct GeneratorView: View {
         "Serbian","Slovak","Slovenian","Spanish","Swahili","Swedish","Tagalog","Tamil","Thai","Turkish","Ukrainian",
         "Urdu","Vietnamese","Welsh"
     ]
-    
+
     // Modes
     enum GenerationMode: String, CaseIterable, Identifiable {
         case random = "Random"
@@ -84,16 +86,37 @@ struct GeneratorView: View {
         var id: String { rawValue }
     }
     @State private var segmentation: Segmentation = .sentences
-    
+
+    // Build a topic from selected aspects + one interest
     private func buildRandomTopic() -> String {
-        let s = styleMatrix.randomCell()
-        let i = interestMatrix.randomCell()
-        guard let s, let i else { return "capoeira rodas ao amanhecer" }
-        return "\(styleMatrix.label(for: s)) • \(interestMatrix.label(for: i))"
+        let styleSel = styleTable.randomSelection()
+        let styleSeed = styleTable.renderSeed(from: styleSel)
+        let enabledInterests = interestRow.options.filter { $0.enabled }
+        let interestSeed = enabledInterests.randomElement()?.label ?? "capoeira ao amanhecer"
+        return styleSeed.isEmpty ? "Interest: \(interestSeed)"
+                                 : "\(styleSeed) • Interest: \(interestSeed)"
     }
-    
-    
-    
+
+    // MARK: - Persistence helpers
+    private func loadTable(from data: Data, fallback: AspectTable) -> AspectTable {
+        guard !data.isEmpty, let decoded = try? JSONDecoder().decode(AspectTable.self, from: data) else {
+            return fallback
+        }
+        return decoded
+    }
+    private func loadRow(from data: Data, fallback: AspectRow) -> AspectRow {
+        guard !data.isEmpty, let decoded = try? JSONDecoder().decode(AspectRow.self, from: data) else {
+            return fallback
+        }
+        return decoded
+    }
+    private func saveTable(_ table: AspectTable) -> Data {
+        (try? JSONEncoder().encode(table)) ?? Data()
+    }
+    private func saveRow(_ row: AspectRow) -> Data {
+        (try? JSONEncoder().encode(row)) ?? Data()
+    }
+
     // MARK: - UI
     var body: some View {
         Form {
@@ -113,10 +136,10 @@ struct GeneratorView: View {
                 }
                 .pickerStyle(.segmented)
             }
-            
+
             if mode == .random {
                 Section("Random Topic") {
-                    Text(randomTopic ?? "Tap Randomize to pick a topic from your matrices")
+                    Text(randomTopic ?? "Tap Randomize to pick from your aspect table")
                         .font(.callout).foregroundStyle(.secondary)
 
                     HStack {
@@ -197,7 +220,6 @@ struct GeneratorView: View {
             // Action
             Section {
                 Button {
-                    // ensure we always have a topic when random mode is active
                     if mode == .random && (randomTopic ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         randomTopic = buildRandomTopic()
                     }
@@ -211,7 +233,7 @@ struct GeneratorView: View {
                         segmentation: (segmentation == .paragraphs ? .paragraphs : .sentences),
                         lengthWords: lengthPreset.words,
                         userChosenTopic: randomTopic,
-                        topicPool: nil   // <- no longer used
+                        topicPool: nil
                     )
                     generator.start(req, lessonStore: lessonStore)
                 } label: {
@@ -229,7 +251,6 @@ struct GeneratorView: View {
                 }
             }
         }
-        
         .background(
             TapToDismissKeyboard {
                 if mode == .prompt { promptIsFocused = false }
@@ -245,11 +266,62 @@ struct GeneratorView: View {
         .onChange(of: mode) { newValue in
             promptIsFocused = (newValue == .prompt)
         }
+        .onAppear {
+            // hydrate from persistence (or seed defaults)
+            let loadedTable = loadTable(from: styleTableJSON, fallback: styleTable)
+            let loadedRow = loadRow(from: interestRowJSON, fallback: interestRow)
+            styleTable = loadedTable
+            interestRow = loadedRow
+            if styleTableJSON.isEmpty { styleTableJSON = saveTable(styleTable) }
+            if interestRowJSON.isEmpty { interestRowJSON = saveRow(interestRow) }
+        }
+        .onChange(of: styleTable) { newValue in
+            styleTableJSON = saveTable(newValue)
+        }
+        .onChange(of: interestRow) { newValue in
+            interestRowJSON = saveRow(newValue)
+        }
         .navigationTitle("Generator")
         .listStyle(.insetGrouped)
         .sheet(isPresented: $showConfigurator) {
-            MatrixConfiguratorView(styleMatrix: $styleMatrix, interestMatrix: $interestMatrix)
+            AspectConfiguratorView(styleTable: $styleTable, interestRow: $interestRow)
+                .onDisappear {
+                    styleTableJSON = saveTable(styleTable)
+                    interestRowJSON = saveRow(interestRow)
+                }
         }
-
     }
 }
+
+/// Simple wrap layout for chips using alignment guides
+private struct WrapLayout<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        GeometryReader { geo in
+            self.generateContent(in: geo.size)
+        }
+        .frame(minHeight: 10)
+    }
+
+    private func generateContent(in size: CGSize) -> some View {
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+        return ZStack(alignment: .topLeading) {
+            content
+                .alignmentGuide(.leading) { d in
+                    if (width + d.width) > size.width {
+                        width = 0
+                        height -= d.height
+                    }
+                    let result = width
+                    width += d.width
+                    return result
+                }
+                .alignmentGuide(.top) { d in
+                    let result = height
+                    return result
+                }
+        }
+    }
+}
+

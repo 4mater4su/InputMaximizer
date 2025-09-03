@@ -1,0 +1,89 @@
+//
+//  AspectConfiguratorView.swift
+//  InputMaximizer
+//
+//  Created by Robin Geske on 03.09.25.
+//
+
+import SwiftUI
+
+struct AspectConfiguratorView: View {
+    @Binding var styleTable: AspectTable
+    @Binding var interestRow: AspectRow
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(styleTable.title) {
+                    ForEach(styleTable.rows.indices, id: \.self) { i in
+                        AspectRowEditor(row: $styleTable.rows[i])
+                    }
+                    HStack {
+                        Button("Enable All") { styleTable.enableAll() }
+                        Button("Disable All") { styleTable.disableAll() }
+                        Spacer()
+                        Text("\(enabledCount(in: styleTable)) enabled")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+
+                Section(interestRow.title) {
+                    AspectRowEditor(row: $interestRow)
+                    HStack {
+                        Button("Enable All") { toggleAll(true, in: &interestRow) }
+                        Button("Disable All") { toggleAll(false, in: &interestRow) }
+                        Spacer()
+                        Text("\(interestRow.options.filter{$0.enabled}.count) enabled")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("Configure Aspects")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+
+    private func enabledCount(in table: AspectTable) -> Int {
+        table.rows.reduce(0) { $0 + $1.options.filter { $0.enabled }.count }
+    }
+    private func toggleAll(_ on: Bool, in row: inout AspectRow) {
+        for i in row.options.indices { row.options[i].enabled = on }
+    }
+}
+
+struct AspectRowEditor: View {
+    @Binding var row: AspectRow
+    private let columns = [GridItem(.adaptive(minimum: 120), spacing: 8)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(row.title).font(.headline)
+                Spacer()
+                Toggle("Pick one", isOn: $row.pickOne).labelsHidden()
+            }
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                ForEach(row.options.indices, id: \.self) { idx in
+                    let enabled = row.options[idx].enabled
+                    Button {
+                        row.options[idx].enabled.toggle()
+                    } label: {
+                        Text(row.options[idx].label)
+                            .lineLimit(1)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(enabled ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(enabled ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: 1)
+                            )
+                            .cornerRadius(10)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 2)
+        }
+        .padding(.vertical, 4)
+    }
+}
