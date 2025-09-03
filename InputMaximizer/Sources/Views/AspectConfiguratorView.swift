@@ -65,7 +65,7 @@ struct AspectConfiguratorView: View {
 
 struct AspectRowEditor: View {
     @Binding var row: AspectRow
-    private let columns = [GridItem(.adaptive(minimum: 120), spacing: 8)]
+    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 8)]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -83,7 +83,11 @@ struct AspectRowEditor: View {
                         row.options[idx].enabled.toggle()
                     } label: {
                         Text(row.options[idx].label)
-                            .lineLimit(1)
+                            .font(.subheadline)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(3)                 // show up to 3 lines (or nil)
+                            .minimumScaleFactor(0.9)
+                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, 10).padding(.vertical, 6)
                             .background(enabled ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.12))
                             .overlay(
@@ -95,6 +99,14 @@ struct AspectRowEditor: View {
                     .buttonStyle(.plain)
                     .disabled(!row.isActive)
                     .opacity(row.isActive ? 1.0 : 0.35)
+                    .contextMenu {
+                        Text(row.options[idx].label)
+                        Button("Copy") {
+                            #if canImport(UIKit)
+                            UIPasteboard.general.string = row.options[idx].label
+                            #endif
+                        }
+                    }
                 }
             }
             .padding(.top, 2)
