@@ -118,7 +118,7 @@ extension AspectTable {
                     AspectOption(label: "Reflective"),
                     AspectOption(label: "Exploratory"),
                     AspectOption(label: "Instructional"),
-                    AspectOption(label: "Poetic")
+                    AspectOption(label: "Playful")
                 ]),
                 AspectRow(title: "Register", options: [
                     AspectOption(label: "Casual"),
@@ -126,33 +126,31 @@ extension AspectTable {
                     AspectOption(label: "Formal")
                 ]),
                 AspectRow(title: "Form", options: [
-                    AspectOption(label: "Field notes"),
                     AspectOption(label: "Essay"),
-                    AspectOption(label: "Vignette"),
-                    AspectOption(label: "How-to")
+                    AspectOption(label: "Story"),
+                    AspectOption(label: "Guide"),
+                    AspectOption(label: "Notes")
                 ]),
                 AspectRow(title: "Tense", options: [
                     AspectOption(label: "Present"),
-                    AspectOption(label: "Past")
+                    AspectOption(label: "Past"),
+                    AspectOption(label: "Future")
                 ])
             ]
         )
     }
 
     static func defaultInterestsRow() -> AspectRow {
-        AspectRow(title: "Interest", options: [
-            AspectOption(label: "capoeira ao amanhecer"),
-            AspectOption(label: "kuzushi no cotidiano"),
-            AspectOption(label: "parkour meditativo"),
-            AspectOption(label: "songlines como mapas"),
-            AspectOption(label: "auroras boreais"),
-            AspectOption(label: "tradições ama"),
-            AspectOption(label: "corvídeos e trocas"),
-            AspectOption(label: "migração de renas"),
-            AspectOption(label: "danças de baleias"),
-            AspectOption(label: "faróis e guardiões"),
-            AspectOption(label: "cerimônias do chá"),
-            AspectOption(label: "bibliotecas vivas")
+        AspectRow(title: "Interests", options: [
+            AspectOption(label: "Morning capoeira"),
+            AspectOption(label: "Everyday balance"),
+            AspectOption(label: "Meditative parkour"),
+            AspectOption(label: "Living maps"),
+            AspectOption(label: "Northern lights"),
+            AspectOption(label: "Tea rituals"),
+            AspectOption(label: "Whale songs"),
+            AspectOption(label: "Ancient libraries")
         ])
     }
 }
+
