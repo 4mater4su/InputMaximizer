@@ -62,15 +62,25 @@ struct AspectTable: Equatable, Codable {
     var rows: [AspectRow] = []
 
     mutating func enableAll() {
-        for i in rows.indices {
-            rows[i].isActive = true
-            for j in rows[i].options.indices { rows[i].options[j].enabled = true }
+        // Reassign rows so SwiftUI sees a new value
+        rows = rows.map { row in
+            var r = row
+            r.isActive = true
+            r.options = r.options.map { opt in
+                var o = opt; o.enabled = true; return o
+            }
+            return r
         }
     }
+
     mutating func disableAll() {
-        for i in rows.indices {
-            rows[i].isActive = false
-            for j in rows[i].options.indices { rows[i].options[j].enabled = false }
+        rows = rows.map { row in
+            var r = row
+            r.isActive = false
+            r.options = r.options.map { opt in
+                var o = opt; o.enabled = false; return o
+            }
+            return r
         }
     }
 

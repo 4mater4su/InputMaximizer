@@ -16,28 +16,42 @@ struct AspectConfiguratorView: View {
         NavigationView {
             Form {
                 Section(styleTable.title) {
-                    ForEach(styleTable.rows.indices, id: \.self) { i in
-                        AspectRowEditor(row: $styleTable.rows[i])
+                    ForEach($styleTable.rows) { $row in
+                        AspectRowEditor(row: $row)
                     }
                     HStack {
-                        Button("Enable All") { styleTable.enableAll() }
-                        Button("Disable All") { styleTable.disableAll() }
+                        Menu("Bulk Actions") {
+                            Button("Enable All") { styleTable.enableAll() }
+                            Button("Disable All", role: .destructive) { styleTable.disableAll() }
+                        }
                         Spacer()
                         Text("\(enabledCount(in: styleTable)) enabled")
-                            .font(.footnote).foregroundStyle(.secondary)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
                 Section(interestRow.title) {
                     AspectRowEditor(row: $interestRow)
+
                     HStack {
-                        Button("Enable All") { toggleAll(true, in: &interestRow) }
-                        Button("Disable All") { toggleAll(false, in: &interestRow) }
+                        Menu("Bulk Actions") {
+                            Button("Enable All") {
+                                interestRow.isActive = true
+                                interestRow.options = interestRow.options.map { var o = $0; o.enabled = true; return o }
+                            }
+                            Button("Disable All", role: .destructive) {
+                                interestRow.isActive = false
+                                interestRow.options = interestRow.options.map { var o = $0; o.enabled = false; return o }
+                            }
+                        }
                         Spacer()
-                        Text("\(interestRow.options.filter{$0.enabled}.count) enabled")
-                            .font(.footnote).foregroundStyle(.secondary)
+                        Text("\(interestRow.options.filter { $0.enabled }.count) enabled")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
+
             }
             .navigationTitle("Configure Aspects")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
@@ -46,9 +60,6 @@ struct AspectConfiguratorView: View {
 
     private func enabledCount(in table: AspectTable) -> Int {
         table.rows.reduce(0) { $0 + $1.options.filter { $0.enabled }.count }
-    }
-    private func toggleAll(_ on: Bool, in row: inout AspectRow) {
-        for i in row.options.indices { row.options[i].enabled = on }
     }
 }
 
