@@ -291,6 +291,13 @@ struct FolderDetailView: View {
         } message: { lesson in
             Text("“\(lesson.title)” will be removed from your device.")
         }
+        // Put this modifier on the outer view in FolderDetailView
+        .onChange(of: showMembersSheet) { isShowing in
+            if isShowing {
+                // set the selection before the sheet is built
+                selectedLessonIDs = Set(currentFolder.lessonIDs)
+            }
+        }
     }
 
     // MARK: - Sheets
@@ -322,6 +329,7 @@ struct FolderDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
+            .id(selectedLessonIDs)
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Color.appBackground)
@@ -337,6 +345,10 @@ struct FolderDetailView: View {
                     }
                 }
             }
+        }
+        // The preselected items are visible immediately
+        .onAppear {
+            selectedLessonIDs = Set(currentFolder.lessonIDs)
         }
     }
 

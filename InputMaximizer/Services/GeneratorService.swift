@@ -145,7 +145,7 @@ private extension GeneratorService {
             "voice": "shimmer",
             "input": text,
             "format": "mp3",
-            "instructions": "Speak naturally in \(language)."
+            "instructions": "Speak naturally and slowly in \(language)."
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await URLSession.shared.data(for: req)
