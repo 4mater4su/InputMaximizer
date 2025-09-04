@@ -132,11 +132,6 @@ struct ContentView: View {
 
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 12) {
-                    Rectangle()                 // subtle separator at top of bar
-                        .fill(Color.hairline)
-                        .frame(height: 1)
-                        .opacity(0.7)
-
                     HStack(spacing: 60) {
                         Button {
                             audioManager.togglePlayPause()
@@ -154,25 +149,21 @@ struct ContentView: View {
                         }
                         .buttonStyle(MinimalIconButtonStyle())
                     }
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 14) // a bit more breathing room
                 }
+                .frame(maxWidth: .infinity)
                 .background(
-                    ZStack(alignment: .top) {
-                        // keep the blur
-                        Color.clear.background(.ultraThinMaterial)
-
-                        // NEW: a gentle 20pt fade that sits INSIDE the bar
-                        LinearGradient(
-                            colors: [
-                                Color.appBackground.opacity(0.0),
-                                Color.appBackground.opacity(0.55)
-                            ],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                        .frame(height: 12)
-                    }
+                    LinearGradient(
+                        colors: [
+                            Color.appBackground.opacity(0.0), // fully transparent above
+                            Color.appBackground.opacity(0.95) // nearly opaque behind controls
+                        ],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                    .background(.ultraThinMaterial) // keep blur effect
                 )
             }
+
         }
         .onAppear {
             displaySegments = audioManager.previewSegments(for: currentLesson.folderName)
