@@ -17,6 +17,9 @@ private struct ParaGroup: Identifiable {
 struct ContentView: View {
     @EnvironmentObject private var audioManager: AudioManager
 
+    @State private var showDelaySheet = false
+    private let delayPresets: [Double] = [0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
+    
     let lessons: [Lesson]
     @State private var currentLessonIndex: Int
     let selectedLesson: Lesson
@@ -128,20 +131,6 @@ struct ContentView: View {
                 }
             }
 
-            Divider()
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Pause Between Segments: \(storedDelay, specifier: "%.1f")s")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-                Slider(value: $storedDelay, in: 0...20, step: 0.5)
-                    .tint(.accentColor)
-                    .accessibilityLabel("Pause Between Segments")
-                    .accessibilityValue("\(storedDelay, specifier: "%.1f") seconds")
-            }
-            .padding(.horizontal)
-
             HStack(spacing: 60) {
                 Button {
                     audioManager.togglePlayPause()
@@ -202,6 +191,21 @@ struct ContentView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    // quick picks
+                    Picker("Pause Between Segments", selection: $storedDelay) {
+                        ForEach(delayPresets, id: \.self) { v in
+                            Text("\(v, specifier: "%.1f")s").tag(v)
+                        }
+                    }
+                    // fine-tune
+                    Button("Custom…") { showDelaySheet = true }
+                } label: {
+                    Image(systemName: "metronome.fill") // or "timer"
+                }
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     showTranslation.toggle()
                 } label: {
@@ -244,6 +248,23 @@ struct ContentView: View {
                     }
                 }())
                 .accessibilityHint("Cycles between target, translation, and dual playback modes.")
+            }
+        }
+        .sheet(isPresented: $showDelaySheet) {
+            NavigationStack {
+                Form {
+                    Section {
+                        Text("Pause Between Segments: \(storedDelay, specifier: "%.1f")s")
+                        Slider(value: $storedDelay, in: 0...20, step: 0.5)
+                            .accessibilityLabel("Pause Between Segments")
+                    }
+                }
+                .navigationTitle("Playback Pause")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showDelaySheet = false }
+                    }
+                }
             }
         }
     }
