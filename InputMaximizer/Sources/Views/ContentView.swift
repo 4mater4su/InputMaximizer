@@ -96,7 +96,6 @@ struct ContentView: View {
     // MARK: - View
     var body: some View {
         VStack(spacing: 10) {
-            Divider()
 
             // Transcript with auto-scroll and tap-to-start
             ScrollViewReader { proxy in
@@ -113,12 +112,11 @@ struct ContentView: View {
                             lessonTitle: currentLesson.title
                         )
                     }
-
                     if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.id }) {
-                        // ✅ Play directly in the current continuous lane (no PT-then-EN hop)
                         audioManager.playInContinuousLane(from: idx)
                     }
                 }
+                // keep your existing onChange handlers:
                 .onChange(of: audioManager.currentIndex) { _ in
                     guard let id = playingScrollID else { return }
                     DispatchQueue.main.async {
@@ -130,38 +128,51 @@ struct ContentView: View {
                     DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
                 }
             }
+            .scrollIndicators(.hidden)
 
-            HStack(spacing: 60) {
-                Button {
-                    audioManager.togglePlayPause()
-                } label: {
-                    Image(systemName: audioManager.isPlaying ? "pause.fill" : "play.fill")
-                        .imageScale(.large)
-                }
-                .buttonStyle(MinimalIconButtonStyle())
-                .accessibilityLabel(audioManager.isPlayingPT ? "Pause Portuguese" : "Play Portuguese")
-                .accessibilityHint("Toggles Portuguese playback.")
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 12) {
+                    Rectangle()                 // subtle separator at top of bar
+                        .fill(Color.hairline)
+                        .frame(height: 1)
+                        .opacity(0.7)
 
-                // One-off opposite lane (unchanged)
-                Button {
-                    audioManager.playOppositeOnce()
-                } label: {
-                    Image(systemName: "globe")
-                        .imageScale(.large)
+                    HStack(spacing: 60) {
+                        Button {
+                            audioManager.togglePlayPause()
+                        } label: {
+                            Image(systemName: audioManager.isPlaying ? "pause.fill" : "play.fill")
+                                .imageScale(.large)
+                        }
+                        .buttonStyle(MinimalIconButtonStyle())
+                        .accessibilityLabel(audioManager.isPlayingPT ? "Pause Portuguese" : "Play Portuguese")
+
+                        Button {
+                            audioManager.playOppositeOnce()
+                        } label: {
+                            Image(systemName: "globe").imageScale(.large)
+                        }
+                        .buttonStyle(MinimalIconButtonStyle())
+                    }
+                    .padding(.vertical, 10)
                 }
-                .buttonStyle(MinimalIconButtonStyle())
-                .accessibilityLabel(
-                    audioManager.playbackMode == .target
-                    ? "Play translation once"
-                    : "Play target once"
-                )
-                .accessibilityHint(
-                    audioManager.playbackMode == .target
-                    ? "Plays the translated line once, then resumes target language."
-                    : "Plays the target line once, then resumes translation."
+                .background(
+                    ZStack(alignment: .top) {
+                        // keep the blur
+                        Color.clear.background(.ultraThinMaterial)
+
+                        // NEW: a gentle 20pt fade that sits INSIDE the bar
+                        LinearGradient(
+                            colors: [
+                                Color.appBackground.opacity(0.0),
+                                Color.appBackground.opacity(0.55)
+                            ],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                        .frame(height: 12)
+                    }
                 )
             }
-            .padding(.bottom, 20)
         }
         .onAppear {
             displaySegments = audioManager.previewSegments(for: currentLesson.folderName)
@@ -351,7 +362,7 @@ private struct TranscriptList: View {
                     Text(headerTitle)
                         .font(.largeTitle.bold())
                         .padding(.horizontal)
-                        .padding(.top, 8)
+                        .padding(.top, 6)
                 }
 
                 ForEach(groups, id: \.id) { group in
@@ -364,10 +375,11 @@ private struct TranscriptList: View {
                     )
                 }
             }
-            .id(folderName)          // reset layout identity on lesson change
-            .padding()
+            .id(folderName)           // reset layout identity on lesson change
+            .padding(.horizontal)     // only horizontal padding
+            .padding(.bottom, 26)     // leave air above bottom bar
         }
+        .scrollIndicators(.hidden)
         .background(Color.appBackground)
     }
 }
-
