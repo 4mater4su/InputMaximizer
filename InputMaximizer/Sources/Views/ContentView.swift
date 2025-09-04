@@ -299,6 +299,7 @@ private struct SegmentRow: View {
             }
         }
         .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)   // 👈 stretch row inside card
         .background(isPlaying ? Color.selectionAccent : Color.surface)
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -330,6 +331,7 @@ private struct ParagraphBox: View {
             }
         }
         .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)   // 👈 force full width
         .cardBackground() // unified card look
     }
 }
