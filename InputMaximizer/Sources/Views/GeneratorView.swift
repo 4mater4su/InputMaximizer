@@ -20,6 +20,40 @@ extension GeneratorService.Request.LanguageLevel: Identifiable {
     public var id: String { rawValue }
 }
 
+// MARK: - Persisted settings
+
+private struct GeneratorSettings: Codable, Equatable {
+    var mode: String
+    var segmentation: String
+    var lengthPresetRaw: Int
+    var genLanguage: String
+    var transLanguage: String
+    var languageLevel: String
+    var speechSpeed: String
+}
+
+private extension GeneratorSettings {
+    static func fromViewState(
+        mode: GeneratorView.GenerationMode,
+        segmentation: GeneratorView.Segmentation,
+        lengthPreset: GeneratorView.LengthPreset,
+        genLanguage: String,
+        transLanguage: String,
+        languageLevel: LanguageLevel,
+        speechSpeed: GeneratorView.SpeechSpeed
+    ) -> GeneratorSettings {
+        .init(
+            mode: mode.rawValue,
+            segmentation: segmentation.rawValue,
+            lengthPresetRaw: lengthPreset.rawValue,
+            genLanguage: genLanguage,
+            transLanguage: transLanguage,
+            languageLevel: languageLevel.rawValue,
+            speechSpeed: speechSpeed.rawValue
+        )
+    }
+}
+
 struct GeneratorView: View {
     @EnvironmentObject private var lessonStore: LessonStore
     @EnvironmentObject private var generator: GeneratorService
@@ -28,6 +62,13 @@ struct GeneratorView: View {
     // Persistence for aspect selections
     @AppStorage("styleTableJSON") private var styleTableJSON: Data = Data()
     @AppStorage("interestRowJSON") private var interestRowJSON: Data = Data()
+    
+    // Persist all generator knobs in one blob
+    @AppStorage("generatorSettingsV1") private var generatorSettingsData: Data = Data()
+
+    // Optional: persist API key (use Keychain in production)
+    @AppStorage("openai.apiKey") private var storedApiKey: String = ""
+
 
     // MARK: - Length preset
     enum LengthPreset: Int, CaseIterable, Identifiable {
@@ -59,7 +100,7 @@ struct GeneratorView: View {
     @State private var lengthPreset: LengthPreset = .medium
 
     // MARK: - State
-    @State private var apiKey: String = "" // store/retrieve from Keychain in real use
+    @State private var apiKey: String = "" // bound to storedApiKey on appear + on change
 
     // Auto-filled from model output
     @State private var lessonID: String = "Lesson001"
@@ -136,6 +177,44 @@ struct GeneratorView: View {
     }
 
     // MARK: - Persistence helpers
+    private func saveGeneratorSettings() {
+        let payload = GeneratorSettings.fromViewState(
+            mode: mode,
+            segmentation: segmentation,
+            lengthPreset: lengthPreset,
+            genLanguage: genLanguage,
+            transLanguage: transLanguage,
+            languageLevel: languageLevel,
+            speechSpeed: speechSpeed
+        )
+        if let data = try? JSONEncoder().encode(payload) {
+            generatorSettingsData = data
+        }
+    }
+
+    private func loadGeneratorSettings() {
+        guard !generatorSettingsData.isEmpty,
+              let payload = try? JSONDecoder().decode(GeneratorSettings.self, from: generatorSettingsData)
+        else { return }
+
+        // Mode
+        if let m = GenerationMode(rawValue: payload.mode) { mode = m }
+
+        // Segmentation
+        if let s = Segmentation(rawValue: payload.segmentation) { segmentation = s }
+
+        // Length preset (clamp to valid range)
+        if let preset = LengthPreset(rawValue: payload.lengthPresetRaw) { lengthPreset = preset }
+
+        // Languages (fallback to defaults if not supported)
+        if supportedLanguages.contains(payload.genLanguage) { genLanguage = payload.genLanguage }
+        if supportedLanguages.contains(payload.transLanguage) { transLanguage = payload.transLanguage }
+
+        // CEFR & speech speed
+        if let lvl = LanguageLevel(rawValue: payload.languageLevel) { languageLevel = lvl }
+        if let spd = SpeechSpeed(rawValue: payload.speechSpeed) { speechSpeed = spd }
+    }
+    
     private func loadTable(from data: Data, fallback: AspectTable) -> AspectTable {
         guard !data.isEmpty, let decoded = try? JSONDecoder().decode(AspectTable.self, from: data) else {
             return fallback
@@ -386,7 +465,26 @@ struct GeneratorView: View {
             
             // Snapshot current lesson IDs so we can detect new ones later
             knownLessonIDs = Set(lessonStore.lessons.map { $0.id })
+            
+            // Load generator settings
+            loadGeneratorSettings()
+
+            // Sync API key state with persisted storage
+            if !storedApiKey.isEmpty { apiKey = storedApiKey }
         }
+        .onChange(of: mode)            { _ in saveGeneratorSettings() }
+        .onChange(of: segmentation)    { _ in saveGeneratorSettings() }
+        .onChange(of: lengthPreset)    { _ in saveGeneratorSettings() }
+        .onChange(of: genLanguage)     { _ in saveGeneratorSettings() }
+        .onChange(of: transLanguage)   { _ in saveGeneratorSettings() }
+        .onChange(of: languageLevel)   { _ in saveGeneratorSettings() }
+        .onChange(of: speechSpeed)     { _ in saveGeneratorSettings() }
+
+        // Optional: persist API key (use Keychain in production instead)
+        .onChange(of: apiKey) { newValue in
+            storedApiKey = newValue
+        }
+
         .onChange(of: styleTable) { newValue in
             styleTableJSON = saveTable(newValue)
         }
