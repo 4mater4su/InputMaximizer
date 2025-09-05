@@ -25,25 +25,31 @@ struct GeneratorView: View {
 
     // MARK: - Length preset
     enum LengthPreset: Int, CaseIterable, Identifiable {
-        case short, medium, long, veryLong
+        case veryShort, short, medium, long, veryLong
+        
         var id: Int { rawValue }
+        
         var label: String {
             switch self {
-            case .short: return "Short"
-            case .medium: return "Medium"
-            case .long: return "Long"
-            case .veryLong: return "Very Long"
+            case .veryShort: return "Very Short"
+            case .short:     return "Short"
+            case .medium:    return "Medium"
+            case .long:      return "Long"
+            case .veryLong:  return "Very Long"
             }
         }
+        
         var words: Int {
             switch self {
-            case .short: return 100
-            case .medium: return 300
-            case .long: return 600
-            case .veryLong: return 1000
+            case .veryShort: return 100   // ~100 words
+            case .short:     return 200   // ~200 words
+            case .medium:    return 300   // ~300 words
+            case .long:      return 600   // ~600 words
+            case .veryLong:  return 1000  // ~1000 words
             }
         }
     }
+
     @State private var lengthPreset: LengthPreset = .medium
 
     // MARK: - State
