@@ -14,6 +14,12 @@ extension GeneratorService.Request.SpeechSpeed: Identifiable {
     public var id: String { rawValue }
 }
 
+typealias LanguageLevel = GeneratorService.Request.LanguageLevel
+
+extension GeneratorService.Request.LanguageLevel: Identifiable {
+    public var id: String { rawValue }
+}
+
 struct GeneratorView: View {
     @EnvironmentObject private var lessonStore: LessonStore
     @EnvironmentObject private var generator: GeneratorService
@@ -62,6 +68,8 @@ struct GeneratorView: View {
     @State private var genLanguage: String = "Portuguese (Brazil)"
     @State private var transLanguage: String = "English"
 
+    @State private var languageLevel: LanguageLevel = .B1
+    
     @State private var randomTopic: String?
 
     // NEW: aspect states
@@ -147,148 +155,206 @@ struct GeneratorView: View {
         (try? JSONEncoder().encode(row)) ?? Data()
     }
 
+    private var lengthIndexBinding: Binding<Double> {
+        Binding<Double>(
+            get: { Double(lengthPreset.rawValue) },
+            set: { newValue in
+                if let v = LengthPreset(rawValue: Int(newValue.rounded())) {
+                    lengthPreset = v
+                }
+            }
+        )
+    }
+    
+    private var lengthMaxIndex: Double {
+        Double(LengthPreset.allCases.count - 1)
+    }
+
+    private var lengthTitleText: String {
+        let label = lengthPreset.label
+        let words = lengthPreset.words
+        return "\(label) · ~\(words) words"
+    }
+    
+    private var allSupportedLanguages: [String] { supportedLanguages }
+    
+    @ViewBuilder private func modeSection() -> some View {
+        Section("Mode") {
+            let allModes: [GenerationMode] = Array(GenerationMode.allCases)
+            Picker("Generation Mode", selection: $mode) {
+                ForEach(allModes, id: \.self) { m in
+                    Text(m.rawValue).tag(m)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    @ViewBuilder private func randomTopicSection() -> some View {
+        if mode == .random {
+            Section("Random Topic") {
+                Text(randomTopic ?? "Tap Randomize to pick from your aspect table")
+                    .font(.callout).foregroundStyle(.secondary)
+
+                HStack {
+                    Button("Randomize") { randomTopic = buildRandomTopic() }
+                    Spacer(minLength: 12)
+                    Button { showConfigurator = true } label: {
+                        Label("Configure", systemImage: "slider.horizontal.3")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func promptSection() -> some View {
+        if mode == .prompt {
+            Section("Prompt") {
+                TextEditor(text: $userPrompt)
+                    .frame(minHeight: 120)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
+                    .padding(.vertical, 2)
+                    .focused($promptIsFocused)
+                Text("Describe instructions, a theme, or paste a source text.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder private func segmentationSection() -> some View {
+        Section("Segmentation") {
+            let allSegs: [Segmentation] = Array(Segmentation.allCases)
+            Picker("Segment by", selection: $segmentation) {
+                ForEach(allSegs, id: \.self) { s in
+                    Text(s.rawValue).tag(s)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    @ViewBuilder private func lengthSection() -> some View {
+        Section("Length") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Length")
+                    Spacer()
+                    Text(lengthTitleText)
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: lengthIndexBinding, in: 0...lengthMaxIndex, step: 1)
+                HStack {
+                    Text("Short")
+                    Spacer()
+                    Text("Very Long")
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder private func speechSpeedSection() -> some View {
+        Section("Speech Speed") {
+            Picker("Speech Speed", selection: $speechSpeed) {
+                Text("Regular").tag(SpeechSpeed.regular)
+                Text("Slow").tag(SpeechSpeed.slow)
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    @ViewBuilder private func levelSection() -> some View {
+        Section("Language Level (CEFR)") {
+            let levels: [LanguageLevel] = Array(LanguageLevel.allCases)
+            Picker("Level", selection: $languageLevel) {
+                ForEach(levels, id: \.self) { level in
+                    Text(level.rawValue).tag(level)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    @ViewBuilder private func languagesSection() -> some View {
+        Section("Languages") {
+            Picker("Generate in", selection: $genLanguage) {
+                ForEach(allSupportedLanguages, id: \.self) { Text($0).tag($0) }
+            }
+            .pickerStyle(.menu)
+
+            Picker("Translate to", selection: $transLanguage) {
+                ForEach(allSupportedLanguages, id: \.self) { Text($0).tag($0) }
+            }
+            .pickerStyle(.menu)
+        }
+    }
+
+    @ViewBuilder private func actionSection() -> some View {
+        Section {
+            Button {
+                if mode == .random && (randomTopic ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    randomTopic = buildRandomTopic()
+                }
+
+                let reqMode: GeneratorService.Request.GenerationMode =
+                    (mode == .prompt) ? .prompt : .random
+
+                let reqSeg: GeneratorService.Request.Segmentation =
+                    (segmentation == .paragraphs) ? .paragraphs : .sentences
+
+                let chosenTopic = randomTopic
+
+                let req = GeneratorService.Request(
+                    languageLevel: languageLevel,
+                    apiKey: apiKey,
+                    mode: reqMode,
+                    userPrompt: userPrompt,
+                    genLanguage: genLanguage,
+                    transLanguage: transLanguage,
+                    segmentation: reqSeg,
+                    lengthWords: lengthPreset.words,
+                    speechSpeed: speechSpeed,
+                    userChosenTopic: chosenTopic,
+                    topicPool: nil
+                )
+                generator.start(req, lessonStore: lessonStore)
+            } label: {
+                HStack {
+                    if generator.isBusy { ProgressView() }
+                    Text(generator.isBusy ? "Generating..." : "Generate Lesson")
+                }
+            }
+            .disabled(apiKey.isEmpty || generator.isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+
+            if !generator.status.isEmpty {
+                Text(generator.status)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    
     // MARK: - UI
     var body: some View {
         Form {
-            // OpenAI
             Section("OpenAI") {
-                SecureField("API Key", text: $apiKey)
-                    .textInputAutocapitalization(.never)
-                    .disableAutocorrection(true)
-            }
-
-            // Mode
-            Section("Mode") {
-                Picker("Generation Mode", selection: $mode) {
-                    ForEach(GenerationMode.allCases) { m in
-                        Text(m.rawValue).tag(m)
-                    }
+                    SecureField("API Key", text: $apiKey)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
                 }
-                .pickerStyle(.segmented)
-            }
 
-            if mode == .random {
-                Section("Random Topic") {
-                    Text(randomTopic ?? "Tap Randomize to pick from your aspect table")
-                        .font(.callout).foregroundStyle(.secondary)
-
-                    HStack {
-                        Button("Randomize") { randomTopic = buildRandomTopic() }
-                        Spacer(minLength: 12)
-                        Button { showConfigurator = true } label: {
-                            Label("Configure", systemImage: "slider.horizontal.3")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
-            }
-
-            if mode == .prompt {
-                Section("Prompt") {
-                    TextEditor(text: $userPrompt)
-                        .frame(minHeight: 120)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
-                        .padding(.vertical, 2)
-                        .focused($promptIsFocused)
-                    Text("Describe instructions, a theme, or paste a source text.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-            }
-
-            // === Options split into three separate cards ===
-
-            // 1) Segmentation card
-            Section("Segmentation") {
-                Picker("Segment by", selection: $segmentation) {
-                    ForEach(Segmentation.allCases) { s in
-                        Text(s.rawValue).tag(s)
-                    }
-                }
-                .pickerStyle(.segmented)
-            }
-
-            // 2) Length card
-            Section("Length") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Length")
-                        Spacer()
-                        Text("\(lengthPreset.label) · ~\(lengthPreset.words) words")
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(
-                        value: Binding(
-                            get: { Double(lengthPreset.rawValue) },
-                            set: { lengthPreset = LengthPreset(rawValue: Int($0.rounded())) ?? .medium }
-                        ),
-                        in: 0...Double(LengthPreset.allCases.count - 1),
-                        step: 1
-                    )
-                    HStack {
-                        Text("Short")
-                        Spacer()
-                        Text("Very Long")
-                    }
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                }
-            }
-            
-            Section("Speech Speed") {
-                Picker("Speech Speed", selection: $speechSpeed) {
-                    Text("Regular").tag(SpeechSpeed.regular)
-                    Text("Slow").tag(SpeechSpeed.slow)
-                }
-                .pickerStyle(.segmented)
-            }
-
-            // 3) Languages card
-            Section("Languages") {
-                Picker("Generate in", selection: $genLanguage) {
-                    ForEach(supportedLanguages, id: \.self) { Text($0).tag($0) }
-                }
-                .pickerStyle(.menu)
-
-                Picker("Translate to", selection: $transLanguage) {
-                    ForEach(supportedLanguages, id: \.self) { Text($0).tag($0) }
-                }
-                .pickerStyle(.menu)
-            }
-
-            // Action
-            Section {
-                Button {
-                    if mode == .random && (randomTopic ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        randomTopic = buildRandomTopic()
-                    }
-
-                    let req = GeneratorService.Request(
-                        apiKey: apiKey,
-                        mode: (mode == .prompt ? .prompt : .random),
-                        userPrompt: userPrompt,
-                        genLanguage: genLanguage,
-                        transLanguage: transLanguage,
-                        segmentation: (segmentation == .paragraphs ? .paragraphs : .sentences),
-                        lengthWords: lengthPreset.words,
-                        speechSpeed: (speechSpeed == .slow ? .slow : .regular),
-                        userChosenTopic: randomTopic,
-                        topicPool: nil
-                    )
-                    generator.start(req, lessonStore: lessonStore)
-                } label: {
-                    HStack {
-                        if generator.isBusy { ProgressView() }
-                        Text(generator.isBusy ? "Generating..." : "Generate Lesson")
-                    }
-                }
-                .disabled(apiKey.isEmpty || generator.isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
-
-                if !generator.status.isEmpty {
-                    Text(generator.status)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
+                modeSection()
+                randomTopicSection()
+                promptSection()
+                segmentationSection()
+                lengthSection()
+                speechSpeedSection()
+                levelSection()
+                languagesSection()
+                actionSection()
         }
         .scrollContentBackground(.hidden)
         .background(Color.appBackground)
