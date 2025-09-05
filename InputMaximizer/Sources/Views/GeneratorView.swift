@@ -59,6 +59,13 @@ struct GeneratorView: View {
     @State private var interestRow: AspectRow = AspectTable.defaultInterestsRow()
     @State private var showConfigurator = false
 
+    // --- Add to GeneratorView state ---
+    @State private var knownLessonIDs = Set<String>()
+    @State private var newlyCreatedLesson: Lesson?     // lesson to show in the toast
+    @State private var showToast: Bool = false
+    @State private var navTargetLesson: Lesson?        // drives navigationDestination
+    @State private var toastHideWork: DispatchWorkItem?
+    
     @FocusState private var promptIsFocused: Bool
 
     private let supportedLanguages: [String] = [
@@ -286,6 +293,9 @@ struct GeneratorView: View {
             interestRow = loadedRow
             if styleTableJSON.isEmpty { styleTableJSON = saveTable(styleTable) }
             if interestRowJSON.isEmpty { interestRowJSON = saveRow(interestRow) }
+            
+            // Snapshot current lesson IDs so we can detect new ones later
+            knownLessonIDs = Set(lessonStore.lessons.map { $0.id })
         }
         .onChange(of: styleTable) { newValue in
             styleTableJSON = saveTable(newValue)
@@ -293,6 +303,36 @@ struct GeneratorView: View {
         .onChange(of: interestRow) { newValue in
             interestRowJSON = saveRow(newValue)
         }
+        // Detect when a new lesson is appended to the LessonStore
+        .onChange(of: lessonStore.lessons) { newLessons in
+            // Find lessons that are truly new (by id)
+            let added = newLessons.filter { !knownLessonIDs.contains($0.id) }
+
+            // Prefer the last added (typical "append" behavior)
+            if let lesson = added.last {
+                newlyCreatedLesson = lesson
+
+                // Cancel any existing hide task before showing a new toast
+                toastHideWork?.cancel()
+
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+                    showToast = true
+                }
+
+                // Schedule a cancelable auto-hide
+                let work = DispatchWorkItem { [weak _ = self] in
+                    withAnimation(.easeInOut) {
+                        showToast = false
+                    }
+                }
+                toastHideWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
+            }
+
+            // Update the snapshot of known IDs
+            knownLessonIDs = Set(newLessons.map { $0.id })
+        }
+
         .navigationTitle("Generator")
         .listStyle(.insetGrouped)
         .sheet(isPresented: $showConfigurator) {
@@ -301,6 +341,27 @@ struct GeneratorView: View {
                     styleTableJSON = saveTable(styleTable)
                     interestRowJSON = saveRow(interestRow)
                 }
+        }
+        // Destination for programmatic navigation from toast tap
+        .navigationDestination(item: $navTargetLesson) { lesson in
+            ContentView(selectedLesson: lesson, lessons: lessonStore.lessons)
+        }
+        // Overlay toast banner at top of GeneratorView
+        .overlay(alignment: .top) {
+            if showToast, let lesson = newlyCreatedLesson {
+                ToastBanner(
+                    message: "New lesson ready: \(lesson.title)",
+                    isSuccess: true,
+                    onTap: {
+                        // Hide toast and navigate
+                        toastHideWork?.cancel()
+                        withAnimation(.easeInOut) { showToast = false }
+                        navTargetLesson = lesson
+                    }
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .padding(.top, 6)
+            }
         }
     }
 }

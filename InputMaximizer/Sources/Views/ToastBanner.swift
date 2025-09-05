@@ -27,7 +27,7 @@ struct ToastBanner: View {
             .padding(.vertical, 12)
             .background((isSuccess ? Color.green : Color.red).opacity(0.95))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .shadow(radius: 10, y: 4)
+            .shadow(color: .black.opacity(0.25), radius: 10, x: 0, y: 4)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
