@@ -25,7 +25,7 @@ struct ContentView: View {
     let selectedLesson: Lesson
 
     @AppStorage("showTranslation") private var showTranslation: Bool = true
-    @AppStorage("segmentDelay") private var storedDelay: Double = 1.2
+    @AppStorage("segmentDelay") private var storedDelay: Double = 0.5
 
     // Local, non-playing transcript for whatever is *selected* in UI
     @State private var displaySegments: [Segment] = []
