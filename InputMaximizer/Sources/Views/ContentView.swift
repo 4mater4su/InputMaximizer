@@ -203,7 +203,7 @@ struct ContentView: View {
                     // fine-tune
                     Button("Custom…") { showDelaySheet = true }
                 } label: {
-                    Image(systemName: "metronome.fill") // or "timer"
+                    Image(systemName: "hourglass") // or "timer"
                 }
             }
 
