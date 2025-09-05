@@ -10,6 +10,10 @@ import Foundation
 
 // MARK: - Generator View
 
+extension GeneratorService.Request.SpeechSpeed: Identifiable {
+    public var id: String { rawValue }
+}
+
 struct GeneratorView: View {
     @EnvironmentObject private var lessonStore: LessonStore
     @EnvironmentObject private var generator: GeneratorService
@@ -93,6 +97,11 @@ struct GeneratorView: View {
         var id: String { rawValue }
     }
     @State private var segmentation: Segmentation = .sentences
+
+    // Reuse the same enum so there’s no mismatch.
+    typealias SpeechSpeed = GeneratorService.Request.SpeechSpeed
+
+    @State private var speechSpeed: SpeechSpeed = .regular
 
     // Build a topic from selected aspects + one interest
     private func buildRandomTopic() -> String {
@@ -218,6 +227,14 @@ struct GeneratorView: View {
                     .foregroundStyle(.secondary)
                 }
             }
+            
+            Section("Speech Speed") {
+                Picker("Speech Speed", selection: $speechSpeed) {
+                    Text("Regular").tag(SpeechSpeed.regular)
+                    Text("Slow").tag(SpeechSpeed.slow)
+                }
+                .pickerStyle(.segmented)
+            }
 
             // 3) Languages card
             Section("Languages") {
@@ -247,6 +264,7 @@ struct GeneratorView: View {
                         transLanguage: transLanguage,
                         segmentation: (segmentation == .paragraphs ? .paragraphs : .sentences),
                         lengthWords: lengthPreset.words,
+                        speechSpeed: (speechSpeed == .slow ? .slow : .regular),
                         userChosenTopic: randomTopic,
                         topicPool: nil
                     )
@@ -320,11 +338,12 @@ struct GeneratorView: View {
                 }
 
                 // Schedule a cancelable auto-hide
-                let work = DispatchWorkItem { [weak _ = self] in
+                let work = DispatchWorkItem {
                     withAnimation(.easeInOut) {
                         showToast = false
                     }
                 }
+
                 toastHideWork = work
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
             }

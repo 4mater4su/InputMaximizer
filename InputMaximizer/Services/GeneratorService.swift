@@ -24,6 +24,7 @@ final class GeneratorService: ObservableObject {
     struct Request: Equatable, Sendable {
         enum GenerationMode: String { case random, prompt }
         enum Segmentation: String { case sentences, paragraphs }
+        enum SpeechSpeed: String { case regular, slow }
 
         var apiKey: String
         var mode: GenerationMode
@@ -34,6 +35,7 @@ final class GeneratorService: ObservableObject {
 
         var segmentation: Segmentation
         var lengthWords: Int
+        var speechSpeed: SpeechSpeed = .regular
         
         // Random topic inputs from the UI
         var userChosenTopic: String? = nil         // if user pressed “Randomize” we pass it here
@@ -135,19 +137,36 @@ private extension GeneratorService {
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func tts(apiKey: String, text: String, filename: String, folder: URL, language: String) async throws -> URL {
+    static func tts(
+        apiKey: String,
+        text: String,
+        filename: String,
+        folder: URL,
+        language: String,
+        speed: Request.SpeechSpeed
+    ) async throws -> URL {
         var req = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/speech")!)
         req.httpMethod = "POST"
         req.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let instruction: String
+        switch speed {
+        case .regular:
+            instruction = "Speak naturally in \(language)."
+        case .slow:
+            instruction = "Speak naturally and slowly in \(language)."
+        }
+
         let body: [String:Any] = [
             "model": "gpt-4o-mini-tts",
             "voice": "shimmer",
             "input": text,
             "format": "mp3",
-            "instructions": "Speak naturally and slowly in \(language)."
+            "instructions": instruction
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
         let (data, _) = try await URLSession.shared.data(for: req)
         let out = folder.appendingPathComponent(filename)
         try save(data, to: out)
@@ -380,7 +399,8 @@ private extension GeneratorService {
                 text: ptSegs[i],
                 filename: ptFile,
                 folder: base,
-                language: req.genLanguage
+                language: req.genLanguage,
+                speed: req.speechSpeed
             )
 
             try Task.checkCancellation()
@@ -391,7 +411,8 @@ private extension GeneratorService {
                 text: enSegs[i],
                 filename: enFile,
                 folder: base,
-                language: req.transLanguage
+                language: req.transLanguage,
+                speed: req.speechSpeed
             )
 
             rows.append(.init(
