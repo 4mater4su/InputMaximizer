@@ -454,6 +454,15 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 guard let self else { return .commandFailed }
                 allowNextDoubleUntil = nil
 
+                // Translation mode → play PT (same segment), then EN, then advance.
+                if playbackMode == .translation {
+                    cancelPendingAdvance()
+                    didFinishLesson = false
+                    resumeENAfterPT = true                 // after PT finishes, play EN once
+                    play(.pt, from: currentIndex, resumeAfter: false)
+                    return .success
+                }
+                
                 if didFinishLesson {
                     requestNextLesson?()
                     return .success
@@ -471,11 +480,27 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             },
             onPrev: { [weak self] in
                 guard let self else { return .commandFailed }
-                if currentIndex > 0 {
+                allowNextDoubleUntil = nil
+
+                guard currentIndex > 0 else { return .noSuchContent }
+
+                switch playbackMode {
+                case .both:
+                    // Go to previous segment, start with TRANSLATION then PT.
+                    lastSingleMode = .translation            // makes firstLaneForPair == .en
+                    play(.en, from: currentIndex - 1, resumeAfter: false)
+                    return .success
+
+                case .translation:
+                    // Single-lane translation mode: previous in EN only.
+                    play(.en, from: currentIndex - 1, resumeAfter: false)
+                    return .success
+
+                case .target:
+                    // Single-lane target mode: previous in PT only.
                     play(.pt, from: currentIndex - 1, resumeAfter: false)
                     return .success
                 }
-                return .noSuchContent
             }
         )
     }
