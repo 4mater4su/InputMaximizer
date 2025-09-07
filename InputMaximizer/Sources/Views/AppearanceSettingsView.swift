@@ -9,6 +9,7 @@ import SwiftUI
 
 struct AppearanceSettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var purchases: PurchaseManager
     @AppStorage("appearancePreference") private var appearanceRaw: String = AppearancePreference.system.rawValue
 
     var body: some View {
@@ -20,6 +21,23 @@ struct AppearanceSettingsView: View {
                     }
                 }
                 .pickerStyle(.inline)
+                
+                Section("Billing & Credits") {
+                    HStack {
+                        Text("Credits")
+                        Spacer()
+                        Text("\(purchases.creditBalance)")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("Buy Credits") { /* present BuyCreditsView via a sheet */ }
+                    Button("Restore One-Time Unlock") {
+                        Task { await purchases.restore() }
+                    }
+                    Text("Credits are stored on this device only. Deleting the app removes unused credits.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             .scrollContentBackground(.hidden)
             .background(Color.appBackground)

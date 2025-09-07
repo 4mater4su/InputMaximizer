@@ -9,12 +9,16 @@
 /* Begin PBXBuildFile section */
 		0C5A8ACD2E568287007E8987 /* silence.caf in Resources */ = {isa = PBXBuildFile; fileRef = 0C5A8ACC2E568287007E8987 /* silence.caf */; };
 		0C5A8BC32E5C34C3007E8987 /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = 0C5A8BC22E5C34B9007E8987 /* .gitignore */; };
+		0C8C3A802E6D57EF0040AED9 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C8C3A7F2E6D57EF0040AED9 /* StoreKit.framework */; };
+		0C8C3A822E6D59900040AED9 /* InputMaximizer.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 0C8C3A812E6D59900040AED9 /* InputMaximizer.storekit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0C38E3072E51D405002F7723 /* InputMaximizer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = InputMaximizer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0C5A8ACC2E568287007E8987 /* silence.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = silence.caf; sourceTree = "<group>"; };
 		0C5A8BC22E5C34B9007E8987 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
+		0C8C3A7F2E6D57EF0040AED9 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
+		0C8C3A812E6D59900040AED9 /* InputMaximizer.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; name = InputMaximizer.storekit; path = InputMaximizer/Sources/Views/InputMaximizer.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -48,6 +52,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0C8C3A802E6D57EF0040AED9 /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -57,10 +62,12 @@
 		0C38E2FE2E51D405002F7723 = {
 			isa = PBXGroup;
 			children = (
+				0C8C3A812E6D59900040AED9 /* InputMaximizer.storekit */,
 				0C5A8BC22E5C34B9007E8987 /* .gitignore */,
 				0C5A8ACC2E568287007E8987 /* silence.caf */,
 				0CBDF4022E530A0200668B6D /* Lessons */,
 				0C38E3092E51D405002F7723 /* InputMaximizer */,
+				0C8C3A7E2E6D57EF0040AED9 /* Frameworks */,
 				0C38E3082E51D405002F7723 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -71,6 +78,14 @@
 				0C38E3072E51D405002F7723 /* InputMaximizer.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		0C8C3A7E2E6D57EF0040AED9 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				0C8C3A7F2E6D57EF0040AED9 /* StoreKit.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -138,6 +153,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0C8C3A822E6D59900040AED9 /* InputMaximizer.storekit in Resources */,
 				0C5A8BC32E5C34C3007E8987 /* .gitignore in Resources */,
 				0C5A8ACD2E568287007E8987 /* silence.caf in Resources */,
 			);

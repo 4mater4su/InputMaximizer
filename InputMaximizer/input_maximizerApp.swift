@@ -13,6 +13,7 @@ struct input_maximizerApp: App {
     @StateObject private var lessonStore = LessonStore()
     @StateObject private var folderStore = FolderStore()
     @StateObject private var generator = GeneratorService()
+    @StateObject private var purchases = PurchaseManager()
 
     // Saved appearance choice (defaults to System)
     @AppStorage("appearancePreference") private var appearanceRaw: String = AppearancePreference.system.rawValue
@@ -27,7 +28,7 @@ struct input_maximizerApp: App {
                 .environmentObject(lessonStore)
                 .environmentObject(folderStore)
                 .environmentObject(generator)
-                // Apply chosen color scheme globally
+                .environmentObject(purchases)
                 .preferredColorScheme(appearance.colorScheme)
         }
     }

@@ -55,6 +55,10 @@ private extension GeneratorSettings {
 }
 
 struct GeneratorView: View {
+    @EnvironmentObject private var purchases: PurchaseManager
+    @State private var showUnlock = false
+    @State private var showBuyCredits = false
+    
     @EnvironmentObject private var lessonStore: LessonStore
     @EnvironmentObject private var generator: GeneratorService
     @Environment(\.dismiss) private var dismiss
@@ -373,16 +377,26 @@ struct GeneratorView: View {
     @ViewBuilder private func actionSection() -> some View {
         Section {
             Button {
+                if !purchases.hasProUnlock {
+                    showUnlock = true
+                    return
+                }
+                guard purchases.creditBalance > 0 else {
+                    showBuyCredits = true
+                    return
+                }
+
+                // Spend a credit up front (so users see immediate deduction).
+                let spent = purchases.spendOneCredit()
+                guard spent else { return }
+
+                // --- proceed with your existing request building ---
                 if mode == .random && (randomTopic ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     randomTopic = buildRandomTopic()
                 }
 
-                let reqMode: GeneratorService.Request.GenerationMode =
-                    (mode == .prompt) ? .prompt : .random
-
-                let reqSeg: GeneratorService.Request.Segmentation =
-                    (segmentation == .paragraphs) ? .paragraphs : .sentences
-
+                let reqMode: GeneratorService.Request.GenerationMode = (mode == .prompt) ? .prompt : .random
+                let reqSeg: GeneratorService.Request.Segmentation = (segmentation == .paragraphs) ? .paragraphs : .sentences
                 let chosenTopic = randomTopic
 
                 let req = GeneratorService.Request(
@@ -398,6 +412,9 @@ struct GeneratorView: View {
                     userChosenTopic: chosenTopic,
                     topicPool: nil
                 )
+
+                // If your generator has a completion/callback, consider refunding on failure:
+                // e.g., generator.start(req, lessonStore: lessonStore) { success in if !success { purchases.refundOneCreditIfNeeded() } }
                 generator.start(req, lessonStore: lessonStore)
             } label: {
                 HStack {
@@ -405,8 +422,16 @@ struct GeneratorView: View {
                     Text(generator.isBusy ? "Generating..." : "Generate Lesson")
                 }
             }
-            .disabled(apiKey.isEmpty || generator.isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+            .disabled(generator.isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+            .sheet(isPresented: $showUnlock) { UnlockPaywallView().environmentObject(purchases) }
+            .sheet(isPresented: $showBuyCredits) { BuyCreditsView().environmentObject(purchases) }
 
+            if purchases.hasProUnlock {
+                Text("Credits: \(purchases.creditBalance)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            
             if !generator.status.isEmpty {
                 Text(generator.status)
                     .font(.footnote)
