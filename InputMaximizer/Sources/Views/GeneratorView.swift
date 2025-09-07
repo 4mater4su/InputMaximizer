@@ -56,6 +56,7 @@ private extension GeneratorSettings {
 
 struct GeneratorView: View {
     @EnvironmentObject private var purchases: PurchaseManager
+    @State private var showBuyCredits = false
     
     @EnvironmentObject private var lessonStore: LessonStore
     @EnvironmentObject private var generator: GeneratorService
@@ -106,7 +107,7 @@ struct GeneratorView: View {
 
     // Present one sheet at a time, from the root (not on the Button).
     private enum ActiveSheet: Identifiable {
-        case unlock, buyCredits
+        case buyCredits
         var id: String { String(describing: self) }
     }
 
@@ -384,22 +385,19 @@ struct GeneratorView: View {
     @ViewBuilder private func actionSection() -> some View {
         Section {
             Button {
-                if !purchases.hasProUnlock {
-                    activeSheet = .unlock
-                    return
-                }
                 guard purchases.creditBalance > 0 else {
-                    activeSheet = .buyCredits
+                    showBuyCredits = true
                     return
                 }
 
-                // spend + generate (unchanged)
                 guard purchases.spendOneCredit() else { return }
+
                 if mode == .random && (randomTopic ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     randomTopic = buildRandomTopic()
                 }
                 let reqMode: GeneratorService.Request.GenerationMode = (mode == .prompt) ? .prompt : .random
                 let reqSeg: GeneratorService.Request.Segmentation = (segmentation == .paragraphs) ? .paragraphs : .sentences
+
                 let req = GeneratorService.Request(
                     languageLevel: languageLevel,
                     apiKey: apiKey,
@@ -413,6 +411,8 @@ struct GeneratorView: View {
                     userChosenTopic: randomTopic,
                     topicPool: nil
                 )
+
+                // Consider refund on failure if your generator can report it
                 generator.start(req, lessonStore: lessonStore)
             } label: {
                 HStack {
@@ -422,12 +422,9 @@ struct GeneratorView: View {
             }
             .disabled(generator.isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
 
-
-            if purchases.hasProUnlock {
-                Text("Credits: \(purchases.creditBalance)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+            Text("Credits: \(purchases.creditBalance)")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             
             if !generator.status.isEmpty {
                 Text(generator.status)
@@ -574,17 +571,8 @@ struct GeneratorView: View {
                 .padding(.top, 6)
             }
         }
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .unlock:
-                UnlockPaywallView().environmentObject(purchases)
-            case .buyCredits:
-                BuyCreditsView().environmentObject(purchases)
-            }
-        }
-        .onChange(of: purchases.hasProUnlock) { unlocked in
-            // Belt & suspenders: if unlock flips while the paywall is up, close it from the parent.
-            if unlocked, activeSheet == .unlock { activeSheet = nil }
+        .sheet(isPresented: $showBuyCredits) {
+            BuyCreditsView().environmentObject(purchases)
         }
 
     }

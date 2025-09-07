@@ -15,21 +15,6 @@
   ],
   "products" : [
     {
-      "displayPrice" : "2.99",
-      "familyShareable" : false,
-      "internalID" : "FEAD0FC0",
-      "localizations" : [
-        {
-          "description" : "",
-          "displayName" : "",
-          "locale" : "en_US"
-        }
-      ],
-      "productID" : "com.yourcompany.inputmaximizer.pro_unlock",
-      "referenceName" : "pro_unlock",
-      "type" : "NonConsumable"
-    },
-    {
       "displayPrice" : "0.99",
       "familyShareable" : false,
       "internalID" : "F31A0DFA",

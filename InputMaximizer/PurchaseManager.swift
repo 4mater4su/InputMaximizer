@@ -8,19 +8,17 @@
 import StoreKit
 import SwiftUI
 
-// MARK: - Product IDs (update these in App Store Connect later)
+// MARK: - Product IDs (match your .storekit / App Store Connect)
 enum IAP {
-    static let proUnlock     = "com.yourcompany.inputmaximizer.pro_unlock"
     static let creditsSmall  = "com.yourcompany.inputmaximizer.credits_10"
     static let creditsMedium = "com.yourcompany.inputmaximizer.credits_50"
     static let creditsLarge  = "com.yourcompany.inputmaximizer.credits_200"
 
     static let creditPacks: Set<String> = [creditsSmall, creditsMedium, creditsLarge]
-    static let allIDs: Set<String> = Set([proUnlock]).union(creditPacks)
 }
 
-// Internal mapping: productID -> credits granted
-private let _creditAmounts: [String: Int] = [
+// Map productID -> credits
+private let creditAmounts: [String: Int] = [
     IAP.creditsSmall: 10,
     IAP.creditsMedium: 50,
     IAP.creditsLarge: 200
@@ -28,16 +26,10 @@ private let _creditAmounts: [String: Int] = [
 
 @MainActor
 final class PurchaseManager: ObservableObject {
-
-    // Expose initial unlock credits to UI
-    let initialUnlockCredits: Int = 20
-
     // Products
-    @Published var unlockProduct: Product?
     @Published var creditProducts: [Product] = []
 
-    // Entitlement & credits (device-local for MVP)
-    @Published var hasProUnlock = false
+    // Local credit ledger (MVP)
     @AppStorage("credits.balance") private(set) var creditBalance: Int = 0
 
     // UI state
@@ -50,100 +42,51 @@ final class PurchaseManager: ObservableObject {
         updatesTask = observeTransactionUpdates()
         Task { await refresh() }
     }
-
     deinit { updatesTask?.cancel() }
 
-    // MARK: - Store loading
-
+    // MARK: - Load products
     func refresh() async {
         isLoading = true
         defer { isLoading = false }
         do {
-            let products = try await Product.products(for: Array(IAP.allIDs))
-            unlockProduct = products.first(where: { $0.id == IAP.proUnlock })
-            creditProducts = products
-                .filter { IAP.creditPacks.contains($0.id) }
-                .sorted { $0.price < $1.price }
-
-            await updateEntitlementFromCurrentTransactions()
+            let products = try await Product.products(for: Array(IAP.creditPacks))
+            creditProducts = products.sorted { credits(for: $0) < credits(for: $1) }
         } catch {
             lastError = error.localizedDescription
         }
     }
 
-    // MARK: - Purchase flows
-
-    func buyUnlock() async {
-        guard let product = unlockProduct else { return }
-        do {
-            let result = try await product.purchase()
-            try await handlePurchaseResult(result, isUnlock: true)
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
+    // MARK: - Purchase credits
     func buyCredits(_ product: Product) async {
         do {
             let result = try await product.purchase()
-            try await handlePurchaseResult(result, isUnlock: false, purchasedID: product.id)
+            try await handlePurchaseResult(result, purchasedID: product.id)
         } catch {
             lastError = error.localizedDescription
         }
     }
 
-    func restore() async {
-        do {
-            try await AppStore.sync()
-            await updateEntitlementFromCurrentTransactions()
-            // Note: consumables are not restorable
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
-    // MARK: - Credits helpers
-
+    // MARK: - Credits
     func credits(for product: Product) -> Int {
-        _creditAmounts[product.id] ?? 0
+        creditAmounts[product.id] ?? 0
     }
-
     @discardableResult
     func spendOneCredit() -> Bool {
         guard creditBalance > 0 else { return false }
         creditBalance -= 1
         return true
     }
-
-    func refundOneCreditIfNeeded() {
-        creditBalance += 1
-    }
-
-    func addCredits(_ amount: Int) {
-        guard amount > 0 else { return }
-        creditBalance += amount
-    }
+    func refundOneCreditIfNeeded() { creditBalance += 1 }
+    func addCredits(_ amount: Int) { if amount > 0 { creditBalance += amount } }
 
     // MARK: - Internals
-
     private func handlePurchaseResult(_ result: Product.PurchaseResult,
-                                      isUnlock: Bool,
-                                      purchasedID: String? = nil) async throws {
+                                      purchasedID: String) async throws {
         switch result {
         case .success(let verification):
             let tx = try checkVerified(verification)
             await tx.finish()
-
-            if isUnlock {
-                let wasUnlocked = hasProUnlock
-                await updateEntitlementFromCurrentTransactions()
-                if !wasUnlocked && hasProUnlock {
-                    addCredits(initialUnlockCredits)
-                }
-            } else if let id = purchasedID {
-                addCredits(_creditAmounts[id] ?? 0)
-            }
-
+            addCredits(creditAmounts[purchasedID] ?? 0)
         case .userCancelled, .pending:
             break
         @unknown default:
@@ -160,32 +103,15 @@ final class PurchaseManager: ObservableObject {
 
     private func observeTransactionUpdates() -> Task<Void, Never> {
         Task.detached { [weak self] in
+            guard let self else { return }
             for await update in Transaction.updates {
-                guard let self else { continue }
-                if let tx = try? await self.checkVerified(update) {
+                if let tx = try? await self.checkVerified(update),
+                   IAP.creditPacks.contains(tx.productID),
+                   let amount = creditAmounts[tx.productID] {
                     await tx.finish()
-                    await self.updateEntitlementFromCurrentTransactions()
+                    await MainActor.run { self.addCredits(amount) }
                 }
             }
-        }
-    }
-
-    private func updateEntitlementFromCurrentTransactions() async {
-        var unlocked = false
-
-        for await entitlement in Transaction.currentEntitlements {
-            // entitlement: VerificationResult<Transaction>
-            guard let tx = try? checkVerified(entitlement) else { continue }
-
-            if tx.productID == IAP.proUnlock,
-               tx.productType == .nonConsumable,
-               tx.revocationDate == nil {
-                unlocked = true
-            }
-        }
-
-        await MainActor.run {
-            self.hasProUnlock = unlocked
         }
     }
 }

@@ -63,7 +63,8 @@ struct BuyCreditsView: View {
                 }
             }
             .task {
-                if purchases.creditProducts.isEmpty || purchases.unlockProduct == nil {
+                // Only refresh if we don't have products yet
+                if purchases.creditProducts.isEmpty {
                     await purchases.refresh()
                 }
             }

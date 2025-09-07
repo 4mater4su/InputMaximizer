@@ -33,14 +33,12 @@ struct AppearanceSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    // Push onto the same navigation stack instead of showing a second sheet
                     NavigationLink("Buy Credits…") {
-                        BuyCreditsView()
-                            .environmentObject(purchases)
+                        BuyCreditsView().environmentObject(purchases)
                     }
 
-                    Button("Restore One-Time Unlock") {
-                        Task { await purchases.restore() }
+                    Button("Reload Products") {
+                        Task { await purchases.refresh() }
                     }
 
                     Text("Credits are stored on this device only. Deleting the app removes unused credits.")
