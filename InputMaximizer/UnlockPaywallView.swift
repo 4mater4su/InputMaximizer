@@ -27,8 +27,15 @@ struct UnlockPaywallView: View {
                     ProgressView("Loading…")
                 } else if let p = purchases.unlockProduct {
                     Button {
-                        Task { await purchases.buyUnlock() }
-                    } label: {
+                        Task {
+                            let wasUnlocked = purchases.hasProUnlock
+                            await purchases.buyUnlock()
+                            // Extra safety: close immediately after state flips
+                            if purchases.hasProUnlock && !wasUnlocked {
+                                dismiss()
+                            }
+                        }
+                    }  label: {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(p.displayName).bold()
@@ -62,7 +69,9 @@ struct UnlockPaywallView: View {
                     Button("Close") { dismiss() }
                 }
             }
+            // If entitlement flips while the sheet is up, close it
             .onChange(of: purchases.hasProUnlock) { if $0 { dismiss() } }
-        }
+            // Ensure products are loaded when the sheet opens
+            .task { await purchases.refresh() }        }
     }
 }

@@ -11,6 +11,8 @@ struct AppearanceSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var purchases: PurchaseManager
     @AppStorage("appearancePreference") private var appearanceRaw: String = AppearancePreference.system.rawValue
+    
+    @State private var showBuyCredits = false
 
     var body: some View {
         NavigationStack {
@@ -30,18 +32,29 @@ struct AppearanceSettingsView: View {
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
-                    Button("Buy Credits") { /* present BuyCreditsView via a sheet */ }
+
+                    // Push onto the same navigation stack instead of showing a second sheet
+                    NavigationLink("Buy Credits…") {
+                        BuyCreditsView()
+                            .environmentObject(purchases)
+                    }
+
                     Button("Restore One-Time Unlock") {
                         Task { await purchases.restore() }
                     }
+
                     Text("Credits are stored on this device only. Deleting the app removes unused credits.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+
             }
             .scrollContentBackground(.hidden)
             .background(Color.appBackground)
             .navigationTitle("Appearance")
+            .sheet(isPresented: $showBuyCredits) {   // NEW
+                BuyCreditsView().environmentObject(purchases)
+            }
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbar {

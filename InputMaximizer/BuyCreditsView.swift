@@ -62,6 +62,12 @@ struct BuyCreditsView: View {
                     Button("Close") { dismiss() }
                 }
             }
+            .task {
+                if purchases.creditProducts.isEmpty || purchases.unlockProduct == nil {
+                    await purchases.refresh()
+                }
+            }
+
         }
     }
 }

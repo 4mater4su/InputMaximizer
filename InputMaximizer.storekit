@@ -9,15 +9,15 @@
       }
     ]
   },
-  "identifier" : "A9147CD1",
+  "identifier" : "493195F8",
   "nonRenewingSubscriptions" : [
 
   ],
   "products" : [
     {
-      "displayPrice" : "0.99",
+      "displayPrice" : "2.99",
       "familyShareable" : false,
-      "internalID" : "FEC0599A",
+      "internalID" : "FEAD0FC0",
       "localizations" : [
         {
           "description" : "",
@@ -26,13 +26,13 @@
         }
       ],
       "productID" : "com.yourcompany.inputmaximizer.pro_unlock",
-      "referenceName" : "Pro Unlock",
+      "referenceName" : "pro_unlock",
       "type" : "NonConsumable"
     },
     {
       "displayPrice" : "0.99",
       "familyShareable" : false,
-      "internalID" : "9C4FA7EB",
+      "internalID" : "F31A0DFA",
       "localizations" : [
         {
           "description" : "",
@@ -40,14 +40,14 @@
           "locale" : "en_US"
         }
       ],
-      "productID" : "credits_10",
-      "referenceName" : "10 Credits",
+      "productID" : "com.yourcompany.inputmaximizer.credits_10",
+      "referenceName" : "credits_10",
       "type" : "Consumable"
     },
     {
       "displayPrice" : "3.99",
       "familyShareable" : false,
-      "internalID" : "28A931DC",
+      "internalID" : "B852F99D",
       "localizations" : [
         {
           "description" : "",
@@ -55,14 +55,14 @@
           "locale" : "en_US"
         }
       ],
-      "productID" : "credits_50",
-      "referenceName" : "50 credits",
-      "type" : "Consumable"
+      "productID" : "com.yourcompany.inputmaximizer.credits_50",
+      "referenceName" : "credits_50",
+      "type" : "NonConsumable"
     },
     {
       "displayPrice" : "10.99",
       "familyShareable" : false,
-      "internalID" : "C74EE303",
+      "internalID" : "3ADE37AA",
       "localizations" : [
         {
           "description" : "",
@@ -70,13 +70,12 @@
           "locale" : "en_US"
         }
       ],
-      "productID" : "credits_200",
-      "referenceName" : "200 credits",
-      "type" : "Consumable"
+      "productID" : "com.yourcompany.inputmaximizer.credits_200",
+      "referenceName" : "credits_200",
+      "type" : "NonConsumable"
     }
   ],
   "settings" : {
-    "_askToBuyEnabled" : false,
     "_failTransactionsEnabled" : false,
     "_locale" : "en_US",
     "_storefront" : "USA",

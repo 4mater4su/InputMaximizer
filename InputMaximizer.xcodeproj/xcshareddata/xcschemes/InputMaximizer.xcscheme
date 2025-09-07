@@ -51,7 +51,7 @@
          </BuildableReference>
       </BuildableProductRunnable>
       <StoreKitConfigurationFileReference
-         identifier = "../../InputMaximizer/Sources/Views/InputMaximizer.storekit">
+         identifier = "../../InputMaximizer.storekit">
       </StoreKitConfigurationFileReference>
    </LaunchAction>
    <ProfileAction

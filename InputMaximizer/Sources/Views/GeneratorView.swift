@@ -56,8 +56,6 @@ private extension GeneratorSettings {
 
 struct GeneratorView: View {
     @EnvironmentObject private var purchases: PurchaseManager
-    @State private var showUnlock = false
-    @State private var showBuyCredits = false
     
     @EnvironmentObject private var lessonStore: LessonStore
     @EnvironmentObject private var generator: GeneratorService
@@ -106,6 +104,15 @@ struct GeneratorView: View {
     // MARK: - State
     @State private var apiKey: String = "" // bound to storedApiKey on appear + on change
 
+    // Present one sheet at a time, from the root (not on the Button).
+    private enum ActiveSheet: Identifiable {
+        case unlock, buyCredits
+        var id: String { String(describing: self) }
+    }
+
+    @State private var activeSheet: ActiveSheet?
+
+    
     // Auto-filled from model output
     @State private var lessonID: String = "Lesson001"
     @State private var title: String = ""          // filled from generated PT title
@@ -378,27 +385,21 @@ struct GeneratorView: View {
         Section {
             Button {
                 if !purchases.hasProUnlock {
-                    showUnlock = true
+                    activeSheet = .unlock
                     return
                 }
                 guard purchases.creditBalance > 0 else {
-                    showBuyCredits = true
+                    activeSheet = .buyCredits
                     return
                 }
 
-                // Spend a credit up front (so users see immediate deduction).
-                let spent = purchases.spendOneCredit()
-                guard spent else { return }
-
-                // --- proceed with your existing request building ---
+                // spend + generate (unchanged)
+                guard purchases.spendOneCredit() else { return }
                 if mode == .random && (randomTopic ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     randomTopic = buildRandomTopic()
                 }
-
                 let reqMode: GeneratorService.Request.GenerationMode = (mode == .prompt) ? .prompt : .random
                 let reqSeg: GeneratorService.Request.Segmentation = (segmentation == .paragraphs) ? .paragraphs : .sentences
-                let chosenTopic = randomTopic
-
                 let req = GeneratorService.Request(
                     languageLevel: languageLevel,
                     apiKey: apiKey,
@@ -409,12 +410,9 @@ struct GeneratorView: View {
                     segmentation: reqSeg,
                     lengthWords: lengthPreset.words,
                     speechSpeed: speechSpeed,
-                    userChosenTopic: chosenTopic,
+                    userChosenTopic: randomTopic,
                     topicPool: nil
                 )
-
-                // If your generator has a completion/callback, consider refunding on failure:
-                // e.g., generator.start(req, lessonStore: lessonStore) { success in if !success { purchases.refundOneCreditIfNeeded() } }
                 generator.start(req, lessonStore: lessonStore)
             } label: {
                 HStack {
@@ -423,8 +421,7 @@ struct GeneratorView: View {
                 }
             }
             .disabled(generator.isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
-            .sheet(isPresented: $showUnlock) { UnlockPaywallView().environmentObject(purchases) }
-            .sheet(isPresented: $showBuyCredits) { BuyCreditsView().environmentObject(purchases) }
+
 
             if purchases.hasProUnlock {
                 Text("Credits: \(purchases.creditBalance)")
@@ -577,6 +574,19 @@ struct GeneratorView: View {
                 .padding(.top, 6)
             }
         }
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .unlock:
+                UnlockPaywallView().environmentObject(purchases)
+            case .buyCredits:
+                BuyCreditsView().environmentObject(purchases)
+            }
+        }
+        .onChange(of: purchases.hasProUnlock) { unlocked in
+            // Belt & suspenders: if unlock flips while the paywall is up, close it from the parent.
+            if unlocked, activeSheet == .unlock { activeSheet = nil }
+        }
+
     }
 }
 
