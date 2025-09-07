@@ -572,7 +572,10 @@ struct GeneratorView: View {
             }
         }
         .sheet(isPresented: $showBuyCredits) {
-            BuyCreditsView().environmentObject(purchases)
+            NavigationStack {
+                BuyCreditsView(presentation: .modal)
+                    .environmentObject(purchases)
+            }
         }
 
     }

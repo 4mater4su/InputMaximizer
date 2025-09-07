@@ -34,7 +34,8 @@ struct AppearanceSettingsView: View {
                     }
 
                     NavigationLink("Buy Credits…") {
-                        BuyCreditsView().environmentObject(purchases)
+                        BuyCreditsView(presentation: .push)
+                            .environmentObject(purchases)
                     }
 
                     Button("Reload Products") {
@@ -50,9 +51,6 @@ struct AppearanceSettingsView: View {
             .scrollContentBackground(.hidden)
             .background(Color.appBackground)
             .navigationTitle("Appearance")
-            .sheet(isPresented: $showBuyCredits) {   // NEW
-                BuyCreditsView().environmentObject(purchases)
-            }
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbar {
