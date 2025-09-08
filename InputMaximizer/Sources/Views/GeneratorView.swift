@@ -420,7 +420,7 @@ struct GeneratorView: View {
             .disabled(generator.isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
 
 
-            Text("Credits (server): \(serverBalance)")
+            Text("Credits: \(serverBalance)")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             

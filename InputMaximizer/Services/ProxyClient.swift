@@ -27,6 +27,33 @@ struct ProxyClient {
         }
     }
     
+    func redeemReceipt(deviceId: String, receiptBase64: String) async throws -> (granted: Int, balance: Int) {
+        var req = URLRequest(url: baseURL.appendingPathComponent("/credits/redeem"))
+        req.httpMethod = "POST"
+        req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["receipt": receiptBase64])
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+
+        if http.statusCode == 409 {
+            // already redeemed; still parse to get up-to-date balance
+            let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let balance = (obj?["balance"] as? Int) ?? 0
+            return (granted: 0, balance: balance)
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "Server error"
+            throw NSError(domain: "Proxy", code: http.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (obj?["granted"] as? Int ?? 0, obj?["balance"] as? Int ?? 0)
+    }
+    
     // Balance
     func balance(deviceId: String) async throws -> Int {
         var req = URLRequest(url: baseURL.appendingPathComponent("/credits/balance"))
@@ -39,6 +66,33 @@ struct ProxyClient {
         }
         let j = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         return j?["balance"] as? Int ?? 0
+    }
+    
+    /// Redeem an Apple IAP transaction (signed JWS) → credits on server.
+    /// Returns (granted credits, new server balance)
+    func redeemIAP(deviceId: String, jws: String) async throws -> (granted: Int, balance: Int) {
+        var req = URLRequest(url: baseURL.appendingPathComponent("/credits/redeem-iap"))
+        req.httpMethod = "POST"
+        req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["jws": jws])
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+
+        if http.statusCode == 409 {
+            // already redeemed; still parse response to get balance
+            let obj = try JSONSerialization.jsonObject(with: data) as? [String:Any]
+            let balance = (obj?["balance"] as? Int) ?? 0
+            return (granted: 0, balance: balance)
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "Server error"
+            throw NSError(domain: "Proxy", code: http.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String:Any]
+        return ((obj?["granted"] as? Int) ?? 0, (obj?["balance"] as? Int) ?? 0)
     }
 
     // Ensure 402 bubbles up for chat…

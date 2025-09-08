@@ -26,11 +26,11 @@
         }
       ],
       "productID" : "com.yourcompany.inputmaximizer.credits_10",
-      "referenceName" : "credits_10",
+      "referenceName" : "10 credits",
       "type" : "Consumable"
     },
     {
-      "displayPrice" : "3.99",
+      "displayPrice" : "4.49",
       "familyShareable" : false,
       "internalID" : "B852F99D",
       "localizations" : [
@@ -41,11 +41,11 @@
         }
       ],
       "productID" : "com.yourcompany.inputmaximizer.credits_50",
-      "referenceName" : "credits_50",
+      "referenceName" : "50 credits",
       "type" : "NonConsumable"
     },
     {
-      "displayPrice" : "10.99",
+      "displayPrice" : "14.99",
       "familyShareable" : false,
       "internalID" : "3ADE37AA",
       "localizations" : [
@@ -56,7 +56,7 @@
         }
       ],
       "productID" : "com.yourcompany.inputmaximizer.credits_200",
-      "referenceName" : "credits_200",
+      "referenceName" : "200 credits",
       "type" : "NonConsumable"
     }
   ],

@@ -1,9 +1,6 @@
-//
 //  BuyCreditsView.swift
 //  InputMaximizer
-//
-//  Created by Robin Geske on 07.09.25.
-//
+
 import SwiftUI
 import StoreKit
 
@@ -14,21 +11,48 @@ struct BuyCreditsView: View {
     @EnvironmentObject var purchases: PurchaseManager
     @Environment(\.dismiss) private var dismiss
 
+    @State private var serverBalance: Int = 0
+    @State private var serverError: String?
+
+    private func refreshServerBalance() async {
+        do {
+            serverBalance = try await GeneratorService.fetchServerBalance()
+            serverError = nil
+        } catch {
+            serverError = error.localizedDescription
+        }
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Text("Need more credits?").font(.title2).bold()
             Text("Credits are used each time you generate a lesson.")
                 .foregroundStyle(.secondary)
-            Text("Balance: \(purchases.creditBalance)")
-                .font(.headline)
-                .padding(.top, 4)
+
+            HStack {
+                Text("Credits:")
+                Spacer()
+                Text("\(serverBalance)")
+                    .font(.headline)
+            }
+            .padding(.top, 4)
+
+            if let serverError {
+                Text(serverError)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
 
             if purchases.isLoading {
                 ProgressView("Loading…")
+                    .padding(.top, 12)
             } else if purchases.creditProducts.isEmpty {
-                Text("No credit packs available.").foregroundStyle(.secondary)
-                if let err = purchases.lastError {
-                    Text(err).font(.footnote).foregroundStyle(.secondary)
+                VStack(spacing: 8) {
+                    Text("No credit packs available.")
+                        .foregroundStyle(.secondary)
+                    if let err = purchases.lastError {
+                        Text(err).font(.footnote).foregroundStyle(.secondary)
+                    }
                 }
             } else {
                 VStack(spacing: 12) {
@@ -37,10 +61,12 @@ struct BuyCreditsView: View {
                             Task { await purchases.buyCredits(product) }
                         } label: {
                             HStack {
-                                VStack(alignment: .leading) {
+                                VStack(alignment: .leading, spacing: 2) {
                                     Text(product.displayName).bold()
+                                    // Uses mapping in PurchaseManager
                                     Text("\(purchases.credits(for: product)) credits")
-                                        .font(.footnote).foregroundStyle(.secondary)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 Text(product.displayPrice).font(.headline)
@@ -60,7 +86,6 @@ struct BuyCreditsView: View {
         .navigationTitle("Buy Credits")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // Only show Close when presented modally
             if presentation == .modal {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
@@ -71,6 +96,15 @@ struct BuyCreditsView: View {
             if purchases.creditProducts.isEmpty {
                 await purchases.refresh()
             }
+            await refreshServerBalance()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .didPurchaseCredits)) { _ in
+            Task {
+                await refreshServerBalance()
+                // Optional: auto-close the sheet after a successful purchase
+                if presentation == .modal { dismiss() }
+            }
         }
     }
 }
+

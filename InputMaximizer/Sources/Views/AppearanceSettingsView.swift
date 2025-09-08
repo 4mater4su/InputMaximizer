@@ -37,18 +37,8 @@ struct AppearanceSettingsView: View {
                 .pickerStyle(.inline)
                 
                 Section("Billing & Credits") {
-                    // (A) Local (IAP) credits if you still keep them
                     HStack {
-                        Text("Device Credits")
-                        Spacer()
-                        Text("\(purchases.creditBalance)")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-
-                    // (B) Server credits (source of truth for proxy)
-                    HStack {
-                        Text("Server Credits")
+                        Text("Credits")
                         Spacer()
                         Text("\(serverBalance)")
                             .monospacedDigit()
