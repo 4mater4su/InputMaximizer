@@ -13,6 +13,18 @@ struct AppearanceSettingsView: View {
     @AppStorage("appearancePreference") private var appearanceRaw: String = AppearancePreference.system.rawValue
     
     @State private var showBuyCredits = false
+    
+    @State private var serverBalance: Int = 0
+    @State private var serverError: String?
+    
+    private func refreshServerBalance() async {
+        do {
+            serverBalance = try await GeneratorService.fetchServerBalance()
+            serverError = nil
+        } catch {
+            serverError = error.localizedDescription
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -25,12 +37,28 @@ struct AppearanceSettingsView: View {
                 .pickerStyle(.inline)
                 
                 Section("Billing & Credits") {
+                    // (A) Local (IAP) credits if you still keep them
                     HStack {
-                        Text("Credits")
+                        Text("Device Credits")
                         Spacer()
                         Text("\(purchases.creditBalance)")
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
+                    }
+
+                    // (B) Server credits (source of truth for proxy)
+                    HStack {
+                        Text("Server Credits")
+                        Spacer()
+                        Text("\(serverBalance)")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let serverError {
+                        Text("Server balance error: \(serverError)")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
                     }
 
                     NavigationLink("Buy Credits…") {
@@ -41,10 +69,6 @@ struct AppearanceSettingsView: View {
                     Button("Reload Products") {
                         Task { await purchases.refresh() }
                     }
-
-                    Text("Credits are stored on this device only. Deleting the app removes unused credits.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
 
             }
@@ -58,6 +82,10 @@ struct AppearanceSettingsView: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+        .task { await refreshServerBalance() }
+        .onReceive(NotificationCenter.default.publisher(for: .didPurchaseCredits)) { _ in
+            Task { await refreshServerBalance() }
         }
     }
 }

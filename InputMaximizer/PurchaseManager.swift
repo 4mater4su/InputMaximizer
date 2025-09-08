@@ -77,8 +77,15 @@ final class PurchaseManager: ObservableObject {
         return true
     }
     func refundOneCreditIfNeeded() { creditBalance += 1 }
-    func addCredits(_ amount: Int) { if amount > 0 { creditBalance += amount } }
 
+    // In PurchaseManager.swift
+    func addCredits(_ amount: Int) {
+        if amount > 0 {
+            creditBalance += amount
+            NotificationCenter.default.post(name: .didPurchaseCredits, object: nil)
+        }
+    }
+    
     // MARK: - Internals
     private func handlePurchaseResult(_ result: Product.PurchaseResult,
                                       purchasedID: String) async throws {
@@ -114,4 +121,9 @@ final class PurchaseManager: ObservableObject {
             }
         }
     }
+}
+
+
+extension Notification.Name {
+    static let didPurchaseCredits = Notification.Name("didPurchaseCredits")
 }

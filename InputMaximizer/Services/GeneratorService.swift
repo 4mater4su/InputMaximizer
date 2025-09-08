@@ -13,7 +13,7 @@ import SwiftUI
 final class GeneratorService: ObservableObject {
 
     // Inside GeneratorService (top of the class)
-    private static let proxy = ProxyClient(
+    static let proxy = ProxyClient(
         baseURL: URL(string: "https://inputmax-proxy.inputmax.workers.dev")!
     )
 
@@ -21,7 +21,13 @@ final class GeneratorService: ObservableObject {
     @Published var isBusy = false
     @Published var status = ""
     @Published var lastLessonID: String?
+    
+    @Published var outOfCredits = false
 
+    static func fetchServerBalance() async throws -> Int {
+        try await proxy.balance(deviceId: DeviceID.current)
+    }
+    
     // Current running task
     private var currentTask: Task<Void, Never>?
     private let background = BackgroundActivityManager()
@@ -65,9 +71,12 @@ final class GeneratorService: ObservableObject {
         currentTask = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             do {
-                let lessonID = try await Self.runGeneration(req: req) { [weak self] message in
-                    await MainActor.run { self?.status = message }
-                }
+                let lessonID = try await Self.runGeneration(
+                    req: req,
+                    progress: { [weak self] message in
+                        await MainActor.run { self?.status = message }
+                    }
+                )
 
                 await MainActor.run {
                     self.lastLessonID = lessonID
@@ -81,13 +90,17 @@ final class GeneratorService: ObservableObject {
                     self.isBusy = false
                 }
             } catch {
+                // If we get 402 here (propagated), ensure the flag is set
+                if let ns = error as NSError?, ns.domain == "Credits", ns.code == 402 {
+                    await MainActor.run { self.outOfCredits = true }
+                }
                 await MainActor.run {
                     self.status = "Error: \(error.localizedDescription)"
                     self.isBusy = false
                 }
             }
-
             self.background.end(bgToken)
+
         }
     }
 
@@ -239,19 +252,14 @@ private extension GeneratorService {
     }
 
     // MARK: - Networking (same logic you already have, but parameterized)
-    static func chatViaProxy(_ body: [String: Any]) async throws -> String {
+    static func chatViaProxy(_ body: [String:Any]) async throws -> String {
         let json = try await proxy.chat(deviceId: DeviceID.current, body: body)
-        let content = (((json["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String) ?? ""
+        let content = (((json["choices"] as? [[String:Any]])?.first?["message"] as? [String:Any])?["content"] as? String) ?? ""
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func ttsViaProxy(text: String, language: String, speed: Request.SpeechSpeed) async throws -> Data {
-        try await proxy.tts(
-            deviceId: DeviceID.current,
-            text: text,
-            language: language,
-            speed: speed.rawValue
-        )
+        try await proxy.tts(deviceId: DeviceID.current, text: text, language: language, speed: speed.rawValue)
     }
 
     // MARK: - The whole pipeline, headless
@@ -338,7 +346,7 @@ private extension GeneratorService {
         do {
             try await Self.proxy.spendCredits(deviceId: DeviceID.current, amount: 1)
         } catch {
-            // Bubble up so UI shows “Insufficient credits” if 402 from proxy
+            // No UI work here; `start()` already maps 402 -> outOfCredits
             throw error
         }
         
@@ -492,24 +500,15 @@ private extension GeneratorService {
         for i in 0..<count {
             try Task.checkCancellation()
             await progress("TTS \(i+1)/\(count) \(req.genLanguage)…")
-            
-            // PT audio
             let ptFile = "\(src)_\(lessonID)_\(i+1).mp3"
-            let mp3Data1 = try await ttsViaProxy(
-                text: ptSegs[i],
-                language: req.genLanguage,
-                speed: req.speechSpeed
-            )
-            try save(mp3Data1, to: base.appendingPathComponent(ptFile))
+            let ptData = try await ttsViaProxy(text: ptSegs[i], language: req.genLanguage, speed: req.speechSpeed)
+            try save(ptData, to: base.appendingPathComponent(ptFile))
 
-            // EN audio
+            try Task.checkCancellation()
+            await progress("TTS \(i+1)/\(count) \(req.transLanguage)…")
             let enFile = "\(dst)_\(lessonID)_\(i+1).mp3"
-            let mp3Data2 = try await ttsViaProxy(
-                text: enSegs[i],
-                language: req.transLanguage,
-                speed: req.speechSpeed
-            )
-            try save(mp3Data2, to: base.appendingPathComponent(enFile))
+            let enData = try await ttsViaProxy(text: enSegs[i], language: req.transLanguage, speed: req.speechSpeed)
+            try save(enData, to: base.appendingPathComponent(enFile))
 
             rows.append(.init(
                 id: i+1,

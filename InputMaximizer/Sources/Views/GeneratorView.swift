@@ -107,6 +107,17 @@ struct GeneratorView: View {
 
     @State private var activeSheet: ActiveSheet?
 
+    @State private var serverBalance: Int = 0
+    @State private var balanceError: String?
+
+    private func refreshServerBalance() async {
+        do {
+            serverBalance = try await GeneratorService.fetchServerBalance()
+            balanceError = nil
+        } catch {
+            balanceError = error.localizedDescription
+        }
+    }
     
     // Auto-filled from model output
     @State private var lessonID: String = "Lesson001"
@@ -379,16 +390,11 @@ struct GeneratorView: View {
     @ViewBuilder private func actionSection() -> some View {
         Section {
             Button {
-                guard purchases.creditBalance > 0 else {
-                    showBuyCredits = true
-                    return
-                }
-
-                guard purchases.spendOneCredit() else { return }
-
+                // No local debit here; proxy debits per request.
                 if mode == .random && (randomTopic ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     randomTopic = buildRandomTopic()
                 }
+
                 let reqMode: GeneratorService.Request.GenerationMode = (mode == .prompt) ? .prompt : .random
                 let reqSeg: GeneratorService.Request.Segmentation = (segmentation == .paragraphs) ? .paragraphs : .sentences
 
@@ -405,17 +411,16 @@ struct GeneratorView: View {
                     topicPool: nil
                 )
 
-                // Consider refund on failure if your generator can report it
                 generator.start(req, lessonStore: lessonStore)
             } label: {
-                HStack {
-                    if generator.isBusy { ProgressView() }
+                HStack { if generator.isBusy { ProgressView() }
                     Text(generator.isBusy ? "Generating..." : "Generate Lesson")
                 }
             }
             .disabled(generator.isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
 
-            Text("Credits: \(purchases.creditBalance)")
+
+            Text("Credits (server): \(serverBalance)")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             
@@ -461,6 +466,7 @@ struct GeneratorView: View {
             promptIsFocused = (newValue == .prompt)
         }
         .onAppear {
+            print("DeviceID.current = \(DeviceID.current)")
             // hydrate from persistence (or seed defaults)
             let loadedTable = loadTable(from: styleTableJSON, fallback: styleTable)
             let loadedRow = loadRow(from: interestRowJSON, fallback: interestRow)
@@ -519,6 +525,13 @@ struct GeneratorView: View {
             // Update the snapshot of known IDs
             knownLessonIDs = Set(newLessons.map { $0.id })
         }
+        
+        .onChange(of: generator.outOfCredits) { needs in
+            if needs {
+                showBuyCredits = true
+                generator.outOfCredits = false  // reset latch
+            }
+        }
 
         .navigationTitle("Generator")
         .listStyle(.insetGrouped)
@@ -550,12 +563,34 @@ struct GeneratorView: View {
                 .padding(.top, 6)
             }
         }
-        .sheet(isPresented: $showBuyCredits) {
+        .task {
+            do {
+                serverBalance = try await GeneratorService.fetchServerBalance()
+            } catch {
+                balanceError = error.localizedDescription
+            }
+        }
+
+        .onReceive(NotificationCenter.default.publisher(for: .didPurchaseCredits)) { _ in
+            Task {
+                do { serverBalance = try await GeneratorService.fetchServerBalance() }
+                catch { balanceError = error.localizedDescription }
+            }
+        }
+
+        .sheet(isPresented: $showBuyCredits, onDismiss: {
+            Task { await refreshServerBalance() }
+        }) {
             NavigationStack {
                 BuyCreditsView(presentation: .modal)
                     .environmentObject(purchases)
             }
         }
+
+        .onChange(of: generator.lastLessonID) { _ in
+            Task { await refreshServerBalance() }
+        }
+
 
     }
 }
