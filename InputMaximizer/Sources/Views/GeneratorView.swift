@@ -69,10 +69,6 @@ struct GeneratorView: View {
     // Persist all generator knobs in one blob
     @AppStorage("generatorSettingsV1") private var generatorSettingsData: Data = Data()
 
-    // Optional: persist API key (use Keychain in production)
-    @AppStorage("openai.apiKey") private var storedApiKey: String = ""
-
-
     // MARK: - Length preset
     enum LengthPreset: Int, CaseIterable, Identifiable {
         case veryShort, short, medium, long, veryLong
@@ -103,8 +99,6 @@ struct GeneratorView: View {
     @State private var lengthPreset: LengthPreset = .medium
 
     // MARK: - State
-    @State private var apiKey: String = "" // bound to storedApiKey on appear + on change
-
     // Present one sheet at a time, from the root (not on the Button).
     private enum ActiveSheet: Identifiable {
         case buyCredits
@@ -400,7 +394,6 @@ struct GeneratorView: View {
 
                 let req = GeneratorService.Request(
                     languageLevel: languageLevel,
-                    apiKey: apiKey,
                     mode: reqMode,
                     userPrompt: userPrompt,
                     genLanguage: genLanguage,
@@ -438,12 +431,6 @@ struct GeneratorView: View {
     // MARK: - UI
     var body: some View {
         Form {
-            Section("OpenAI") {
-                    SecureField("API Key", text: $apiKey)
-                        .textInputAutocapitalization(.never)
-                        .disableAutocorrection(true)
-                }
-
                 modeSection()
                 randomTopicSection()
                 promptSection()
@@ -487,9 +474,6 @@ struct GeneratorView: View {
             
             // Load generator settings
             loadGeneratorSettings()
-
-            // Sync API key state with persisted storage
-            if !storedApiKey.isEmpty { apiKey = storedApiKey }
         }
         .onChange(of: mode)            { _ in saveGeneratorSettings() }
         .onChange(of: segmentation)    { _ in saveGeneratorSettings() }
@@ -498,11 +482,6 @@ struct GeneratorView: View {
         .onChange(of: transLanguage)   { _ in saveGeneratorSettings() }
         .onChange(of: languageLevel)   { _ in saveGeneratorSettings() }
         .onChange(of: speechSpeed)     { _ in saveGeneratorSettings() }
-
-        // Optional: persist API key (use Keychain in production instead)
-        .onChange(of: apiKey) { newValue in
-            storedApiKey = newValue
-        }
 
         .onChange(of: styleTable) { newValue in
             styleTableJSON = saveTable(newValue)

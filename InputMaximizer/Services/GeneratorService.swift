@@ -12,6 +12,11 @@ import SwiftUI
 @MainActor
 final class GeneratorService: ObservableObject {
 
+    // Inside GeneratorService (top of the class)
+    private static let proxy = ProxyClient(
+        baseURL: URL(string: "https://inputmax-proxy.inputmax.workers.dev")!
+    )
+
     // Public progress for UI
     @Published var isBusy = false
     @Published var status = ""
@@ -20,7 +25,7 @@ final class GeneratorService: ObservableObject {
     // Current running task
     private var currentTask: Task<Void, Never>?
     private let background = BackgroundActivityManager()
-
+    
     struct Request: Equatable, Sendable {
         enum GenerationMode: String { case random, prompt }
         enum Segmentation: String { case sentences, paragraphs }
@@ -29,7 +34,6 @@ final class GeneratorService: ObservableObject {
         
         var languageLevel: LanguageLevel = .B1   // sensible default
 
-        var apiKey: String
         var mode: GenerationMode
         var userPrompt: String
 
@@ -49,7 +53,6 @@ final class GeneratorService: ObservableObject {
     /// Start a generation job. If one is running, ignore.
     func start(_ req: Request, lessonStore: LessonStore) {
         guard !isBusy else { return }
-        guard !req.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         isBusy = true
         status = "Starting…"
@@ -236,52 +239,19 @@ private extension GeneratorService {
     }
 
     // MARK: - Networking (same logic you already have, but parameterized)
-    static func chat(apiKey: String, body: [String:Any]) async throws -> String {
-        var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
-        req.httpMethod = "POST"
-        req.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: req)
-        let j = try JSONSerialization.jsonObject(with: data) as! [String:Any]
-        let content = (((j["choices"] as? [[String:Any]])?.first?["message"] as? [String:Any])?["content"] as? String) ?? ""
+    static func chatViaProxy(_ body: [String: Any]) async throws -> String {
+        let json = try await proxy.chat(deviceId: DeviceID.current, body: body)
+        let content = (((json["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String) ?? ""
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func tts(
-        apiKey: String,
-        text: String,
-        filename: String,
-        folder: URL,
-        language: String,
-        speed: Request.SpeechSpeed
-    ) async throws -> URL {
-        var req = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/speech")!)
-        req.httpMethod = "POST"
-        req.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let instruction: String
-        switch speed {
-        case .regular:
-            instruction = "Speak naturally in \(language)."
-        case .slow:
-            instruction = "Speak naturally and slowly in \(language)."
-        }
-
-        let body: [String:Any] = [
-            "model": "gpt-4o-mini-tts",
-            "voice": "shimmer",
-            "input": text,
-            "format": "mp3",
-            "instructions": instruction
-        ]
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, _) = try await URLSession.shared.data(for: req)
-        let out = folder.appendingPathComponent(filename)
-        try save(data, to: out)
-        return out
+    static func ttsViaProxy(text: String, language: String, speed: Request.SpeechSpeed) async throws -> Data {
+        try await proxy.tts(
+            deviceId: DeviceID.current,
+            text: text,
+            language: language,
+            speed: speed.rawValue
+        )
     }
 
     // MARK: - The whole pipeline, headless
@@ -324,7 +294,7 @@ private extension GeneratorService {
                     ["role":"user","content": meta]
                 ],
             ]
-            return try await chat(apiKey: req.apiKey, body: body)
+            return try await chatViaProxy(body)
         }
 
 
@@ -350,7 +320,7 @@ private extension GeneratorService {
                     ["role":"user","content": elevated]
                 ],
             ]
-            return try await chat(apiKey: req.apiKey, body: body)
+            return try await chatViaProxy(body)
         }
 
         func translate(_ text: String, to targetLang: String) async throws -> String {
@@ -361,9 +331,17 @@ private extension GeneratorService {
                     ["role":"user","content":"Translate into \(targetLang):\n\n\(text)"]
                 ],
             ]
-            return try await chat(apiKey: req.apiKey, body: body)
+            return try await chatViaProxy(body)
         }
 
+        // Charge 1 credit for this generation (server-side source of truth)
+        do {
+            try await Self.proxy.spendCredits(deviceId: DeviceID.current, amount: 1)
+        } catch {
+            // Bubble up so UI shows “Insufficient credits” if 402 from proxy
+            throw error
+        }
+        
         // ---- Generate text ----
         let fullText: String
         switch req.mode {
@@ -414,13 +392,16 @@ private extension GeneratorService {
         await progress("Translating to \(req.transLanguage)…\nTítulo: \(generatedTitle)")
 
         // Avoid translating into the same language
-        let secondaryText: String
-        if req.genLanguage.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            == req.transLanguage.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
-            secondaryText = bodyPrimary
-        } else {
-            secondaryText = try await translate(bodyPrimary, to: req.transLanguage)
-        }
+        let sameLang =
+            req.genLanguage.lowercased()
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            ==
+            req.transLanguage.lowercased()
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+
+        let secondaryText: String = sameLang
+            ? bodyPrimary
+            : try await translate(bodyPrimary, to: req.transLanguage)
 
         // ---- Segmentation helpers ----
         func paragraphs(_ txt: String) -> [String] {
@@ -511,27 +492,24 @@ private extension GeneratorService {
         for i in 0..<count {
             try Task.checkCancellation()
             await progress("TTS \(i+1)/\(count) \(req.genLanguage)…")
+            
+            // PT audio
             let ptFile = "\(src)_\(lessonID)_\(i+1).mp3"
-            _ = try await tts(
-                apiKey: req.apiKey,
+            let mp3Data1 = try await ttsViaProxy(
                 text: ptSegs[i],
-                filename: ptFile,
-                folder: base,
                 language: req.genLanguage,
                 speed: req.speechSpeed
             )
+            try save(mp3Data1, to: base.appendingPathComponent(ptFile))
 
-            try Task.checkCancellation()
-            await progress("TTS \(i+1)/\(count) \(req.transLanguage)…")
+            // EN audio
             let enFile = "\(dst)_\(lessonID)_\(i+1).mp3"
-            _ = try await tts(
-                apiKey: req.apiKey,
+            let mp3Data2 = try await ttsViaProxy(
                 text: enSegs[i],
-                filename: enFile,
-                folder: base,
                 language: req.transLanguage,
                 speed: req.speechSpeed
             )
+            try save(mp3Data2, to: base.appendingPathComponent(enFile))
 
             rows.append(.init(
                 id: i+1,

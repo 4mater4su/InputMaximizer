@@ -20,7 +20,7 @@ struct input_maximizerApp: App {
     private var appearance: AppearancePreference {
         AppearancePreference(rawValue: appearanceRaw) ?? .system
     }
-    
+        
     var body: some Scene {
         WindowGroup {
             LessonSelectionView()
