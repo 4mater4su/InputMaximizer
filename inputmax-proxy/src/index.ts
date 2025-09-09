@@ -64,9 +64,9 @@ async function verifyReceiptWithApple(
 
 // Map product ids -> credit amounts (match your iOS product IDs)
 const PRODUCT_TO_CREDITS: Record<string, number> = {
-  "com.yourcompany.inputmaximizer.credits_10": 10,
-  "com.yourcompany.inputmaximizer.credits_50": 50,
-  "com.yourcompany.inputmaximizer.credits_200": 200,
+  "io.robinfederico.InputMaximizer.credits_10": 10,
+  "io.robinfederico.InputMaximizer.credits_50": 50,
+  "io.robinfederico.InputMaximizer.credits_200": 200,
 };
 
 // ------- Worker -------
