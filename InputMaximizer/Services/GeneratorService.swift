@@ -221,8 +221,6 @@ private extension GeneratorService {
         }
     }
 
-
-    
     // You can keep these helpers here, or move to a separate utility file.
     static func slugify(_ input: String) -> String {
         var s = input.folding(options: .diacriticInsensitive, locale: .current)
@@ -274,7 +272,6 @@ private extension GeneratorService {
             You are a prompt refiner. Transform the user's instruction, input text, or theme into a clear, actionable writing brief that will produce a high-quality text.
 
             Keep the user's original intent, named entities, facts, references, and requested form (e.g., essay, article, story, poem) intact.
-            Do NOT add new information; only clarify, structure, and make constraints explicit.
 
             Constraints to enforce:
             - Language: \(targetLang)
@@ -296,7 +293,7 @@ private extension GeneratorService {
             """
             
             let body: [String:Any] = [
-                "model": "gpt-5-nano",
+                "model": "gpt-5",
                 "messages": [
                     ["role":"system","content":"Refine prompts faithfully; elevate without drifting from user intent."],
                     ["role":"user","content": meta]
@@ -322,7 +319,7 @@ private extension GeneratorService {
             """
 
             let body: [String:Any] = [
-                "model": "gpt-5-nano",
+                "model": "gpt-5",
                 "messages": [
                     ["role":"system","content": system],
                     ["role":"user","content": elevated]
@@ -333,7 +330,7 @@ private extension GeneratorService {
 
         func translate(_ text: String, to targetLang: String) async throws -> String {
             let body: [String:Any] = [
-                "model":"gpt-5-nano",
+                "model":"gpt-5",
                 "messages":[
                     ["role":"system","content":"Translate naturally and idiomatically."],
                     ["role":"user","content":"Translate into \(targetLang):\n\n\(text)"]
