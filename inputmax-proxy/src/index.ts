@@ -1,23 +1,42 @@
 // src/index.ts
+
 export interface Env {
   OPENAI_API_KEY: string;
   CREDITS: KVNamespace;
 }
 
-// ------- Helpers -------
-function getDeviceId(req: Request): string {
+/* ================================
+   Config
+   ================================ */
+
+// Enforce that receipts come from this exact app
+const APP_BUNDLE_ID = "io.robinfederico.InputMaximizer";
+
+// Map App Store product IDs to how many credits they grant
+const PRODUCT_TO_CREDITS: Record<string, number> = {
+  "io.robinfederico.InputMaximizer.credits_10": 10,
+  "io.robinfederico.InputMaximizer.credits_50": 50,
+  "io.robinfederico.InputMaximizer.credits_200": 200,
+};
+
+/* ================================
+   Helpers
+   ================================ */
+
+function requireDeviceId(req: Request): string {
   const id = req.headers.get("X-Device-Id")?.trim();
-  if (!id)
+  if (!id) {
     throw new Response(JSON.stringify({ error: "missing_device_id" }), {
       status: 400,
       headers: { "content-type": "application/json" },
     });
+  }
   return id;
 }
 
-async function json<T = any>(req: Request): Promise<T> {
+async function parseJSON<T = any>(req: Request): Promise<T> {
   try {
-    // @ts-ignore - generic for developer ergonomics
+    // @ts-ignore – ergonomic generic
     return await req.json<T>();
   } catch {
     throw new Response(JSON.stringify({ error: "invalid_json" }), {
@@ -31,11 +50,18 @@ async function getBalance(env: Env, deviceId: string): Promise<number> {
   const raw = await env.CREDITS.get(`device:${deviceId}`);
   return raw ? parseInt(raw, 10) || 0 : 0;
 }
+
 async function setBalance(env: Env, deviceId: string, v: number) {
   await env.CREDITS.put(`device:${deviceId}`, String(Math.max(0, v)));
 }
 
-// Apple verifyReceipt helper
+async function addCredits(env: Env, deviceId: string, delta: number) {
+  const current = await getBalance(env, deviceId);
+  await setBalance(env, deviceId, current + delta);
+}
+
+// Verify an App Store receipt with Apple.
+// If `useSandbox` is true, hits the sandbox endpoint; otherwise production.
 async function verifyReceiptWithApple(
   receiptBase64: string,
   useSandbox: boolean
@@ -49,51 +75,49 @@ async function verifyReceiptWithApple(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       "receipt-data": receiptBase64,
-      // For subscriptions you'd add "password": <app-shared-secret>
+      // Add "password": <shared secret> for auto-renewable subscriptions.
       "exclude-old-transactions": true,
     }),
   });
-  let data: any;
+
+  let data: any = null;
   try {
     data = await res.json();
   } catch {
-    data = null;
+    // leave null – handled by caller
   }
   return data;
 }
 
-// Map product ids -> credit amounts (match your iOS product IDs)
-const PRODUCT_TO_CREDITS: Record<string, number> = {
-  "io.robinfederico.InputMaximizer.credits_10": 10,
-  "io.robinfederico.InputMaximizer.credits_50": 50,
-  "io.robinfederico.InputMaximizer.credits_200": 200,
-};
+/* ================================
+   Handler
+   ================================ */
 
-// ------- Worker -------
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
 
-    // --- Health ---
+    // --- Health check ---
     if (req.method === "GET" && path === "/health") {
       return new Response(JSON.stringify({ ok: true, ts: Date.now() }), {
         headers: { "content-type": "application/json", "cache-control": "no-store" },
       });
     }
 
-    // --- Balance ---
+    // --- Credits: balance ---
     if (req.method === "GET" && path === "/credits/balance") {
-      const deviceId = getDeviceId(req);
+      const deviceId = requireDeviceId(req);
       const balance = await getBalance(env, deviceId);
       return Response.json({ balance }, { headers: { "cache-control": "no-store" } });
     }
 
-    // --- Spend (server authoritative) ---
+    // --- Credits: spend (server-authoritative) ---
     if (req.method === "POST" && path === "/credits/spend") {
-      const deviceId = getDeviceId(req);
-      const body = await json<{ amount?: number }>(req);
+      const deviceId = requireDeviceId(req);
+      const body = await parseJSON<{ amount?: number }>(req);
       const amount = Math.max(1, Math.floor(body.amount ?? 1));
+
       const bal = await getBalance(env, deviceId);
       if (bal < amount) {
         return new Response(
@@ -101,14 +125,15 @@ export default {
           { status: 402, headers: { "content-type": "application/json" } }
         );
       }
+
       await setBalance(env, deviceId, bal - amount);
       return Response.json({ ok: true, balance: bal - amount });
     }
 
-    // --- Redeem (App Store receipt -> credits) ---
+    // --- Credits: redeem (App Store receipt -> credits) ---
     if (req.method === "POST" && path === "/credits/redeem") {
-      const deviceId = getDeviceId(req);
-      const body = await json<{ receipt?: string }>(req);
+      const deviceId = requireDeviceId(req);
+      const body = await parseJSON<{ receipt?: string }>(req);
       const receipt = (body.receipt || "").trim();
 
       if (!receipt || receipt.length < 100) {
@@ -118,32 +143,42 @@ export default {
         });
       }
 
-      // 1) Try production
+      // 1) Ask Apple (prod first)
       let data = await verifyReceiptWithApple(receipt, false);
 
-      // If Apple says it's a sandbox receipt (21007), retry in sandbox
+      // If Apple says it's sandbox (21007), retry against sandbox
       if (data?.status === 21007) {
         data = await verifyReceiptWithApple(receipt, true);
       }
 
       if (!data || typeof data.status !== "number" || data.status !== 0) {
-        // Pass Apple's status back for debugging
+        // Surface Apple's status for easier debugging in-app
         return new Response(
           JSON.stringify({ error: "verify_failed", status: data?.status ?? -1 }),
           { status: 400, headers: { "content-type": "application/json" } }
         );
       }
 
-      // Where Apple lists purchases:
-      // - consumables/non-consumables: data.receipt.in_app[]
-      // - sometimes latest_receipt_info[] (esp. subscriptions)
+      // 2) Bundle guard – ensure receipt belongs to our app
+      const bundleIdInReceipt: string | undefined = data?.receipt?.bundle_id;
+      if (bundleIdInReceipt !== APP_BUNDLE_ID) {
+        return new Response(
+          JSON.stringify({
+            error: "bundle_mismatch",
+            got: bundleIdInReceipt ?? null,
+            want: APP_BUNDLE_ID,
+          }),
+          { status: 400, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      // 3) Collect in-app purchase line items from receipt payload
       const items: any[] = [
-        ...(Array.isArray(data.latest_receipt_info) ? data.latest_receipt_info : []),
+        ...(Array.isArray(data?.latest_receipt_info) ? data.latest_receipt_info : []),
         ...(Array.isArray(data?.receipt?.in_app) ? data.receipt.in_app : []),
       ];
 
       let granted = 0;
-
       for (const it of items) {
         const txId = String(
           it?.transaction_id ?? it?.original_transaction_id ?? ""
@@ -151,51 +186,51 @@ export default {
         const productId = String(it?.product_id ?? "").trim();
         if (!txId || !productId) continue;
 
-        // Idempotency: only grant once per transaction
-        const seenKey = `iap:${txId}`;
-        const already = await env.CREDITS.get(seenKey);
+        // Idempotency: grant at most once per transaction id
+        const txKey = `iap:${txId}`;
+        const already = await env.CREDITS.get(txKey);
         if (already) continue;
 
         const credits = PRODUCT_TO_CREDITS[productId] ?? 0;
-        if (credits <= 0) {
-          // Unknown product id: record it to avoid reprocessing, but grant nothing
-          await env.CREDITS.put(seenKey, JSON.stringify({ productId, granted: 0 }));
-          continue;
-        }
 
-        granted += credits;
-
-        // Mark redeemed (store some metadata for audit/debug)
+        // Record the transaction as processed (even if product unknown)
         await env.CREDITS.put(
-          seenKey,
+          txKey,
           JSON.stringify({
             productId,
-            credits,
+            creditsGranted: credits,
             ts: Date.now(),
           })
         );
+
+        if (credits > 0) {
+          granted += credits;
+        }
       }
 
-      const balKey = `device:${deviceId}`;
-      const current = Number((await env.CREDITS.get(balKey)) ?? "0");
-      const newBalance = current + granted;
-
+      // 4) Update device balance
       if (granted > 0) {
-        await env.CREDITS.put(balKey, String(newBalance));
+        await addCredits(env, deviceId, granted);
       }
+      const balance = await getBalance(env, deviceId);
 
       return Response.json(
-        { granted, balance: newBalance },
+        {
+          ok: true,
+          granted,
+          balance,
+          environment: data?.environment ?? "Unknown",
+        },
         { headers: { "cache-control": "no-store" } }
       );
     }
 
     // --- Chat proxy -> OpenAI /v1/chat/completions ---
     if (req.method === "POST" && path === "/chat") {
-      // Require a device id (for tracing/rate limiting later)
-      void getDeviceId(req);
+      // Require device id (for tracing/rate limiting later)
+      void requireDeviceId(req);
 
-      const body = await json<any>(req); // e.g. { model: "gpt-5-nano", messages: [...] }
+      const body = await parseJSON<any>(req);
       const r = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -219,9 +254,9 @@ export default {
 
     // --- TTS proxy -> OpenAI /v1/audio/speech (MP3) ---
     if (req.method === "POST" && path === "/tts") {
-      void getDeviceId(req);
+      void requireDeviceId(req);
 
-      const wanted = await json<{
+      const wanted = await parseJSON<{
         text: string;
         language?: string;
         speed?: "regular" | "slow";
