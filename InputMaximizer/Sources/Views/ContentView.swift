@@ -6,11 +6,21 @@
 //
 
 import SwiftUI
+import NaturalLanguage
 
-// Group model for paragraph rendering
+// Display-only segment that can represent a sub-sentence row
+private struct DisplaySegment: Identifiable {
+    let id: Int               // unique, stable for SwiftUI (originalID * 1000 + subIndex)
+    let originalID: Int       // the original Segment.id (used for playback/highlight)
+    let paragraph: Int
+    let pt_text: String
+    let en_text: String
+}
+
+// Group model for paragraph rendering (now uses DisplaySegment)
 private struct ParaGroup: Identifiable {
     let id: Int          // paragraph index
-    let segments: [Segment]
+    let segments: [DisplaySegment]
 }
 
 private enum TextDisplayMode: Int {
@@ -43,7 +53,7 @@ struct ContentView: View {
     @AppStorage("segmentDelay") private var storedDelay: Double = 0.5
 
     // Local, non-playing transcript for whatever is *selected* in UI
-    @State private var displaySegments: [Segment] = []
+    @State private var displaySegments: [DisplaySegment] = []
 
     // MARK: - Init
     init(selectedLesson: Lesson, lessons: [Lesson]) {
@@ -88,6 +98,54 @@ struct ContentView: View {
         let segID = audioManager.segments[audioManager.currentIndex].id
         return scrollID(for: segID, in: folder)
     }
+    
+    private func explodeForDisplay(from baseSegments: [Segment]) -> [DisplaySegment] {
+        var out: [DisplaySegment] = []
+        let ptLocale = Locale(identifier: "pt")
+        let enLocale = Locale(identifier: "en")
+
+        for seg in baseSegments {
+            let ptParts = splitSentences(seg.pt_text, locale: ptLocale)
+            let enParts = splitSentences(seg.en_text, locale: enLocale)
+
+            // If both are already single sentences or counts mismatch, keep as one row
+            guard ptParts.count == enParts.count, ptParts.count > 1 else {
+                out.append(DisplaySegment(
+                    id: seg.id * 1000,              // stable “whole” row id
+                    originalID: seg.id,
+                    paragraph: seg.paragraph,
+                    pt_text: seg.pt_text,
+                    en_text: seg.en_text
+                ))
+                continue
+            }
+
+            // Create one DisplaySegment per sentence pair
+            for (i, (pt, en)) in zip(ptParts, enParts).enumerated() {
+                out.append(DisplaySegment(
+                    id: seg.id * 1000 + i,
+                    originalID: seg.id,
+                    paragraph: seg.paragraph,
+                    pt_text: pt,
+                    en_text: en
+                ))
+            }
+        }
+        return out
+    }
+    
+    private func splitSentences(_ text: String, locale: Locale) -> [String] {
+        let tokenizer = NLTokenizer(unit: .sentence)
+        tokenizer.string = text
+        tokenizer.setLanguage(NLLanguage(locale.identifier))
+        var sentences: [String] = []
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            let sentence = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sentence.isEmpty { sentences.append(sentence) }
+            return true
+        }
+        return sentences
+    }
 
     // MARK: - Actions
     /// Start playback in the lane that matches the current continuous mode
@@ -127,7 +185,7 @@ struct ContentView: View {
                             lessonTitle: currentLesson.title
                         )
                     }
-                    if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.id }) {
+                    if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.originalID }) {
                         audioManager.playInContinuousLane(from: idx)
                     }
                 }
@@ -181,7 +239,9 @@ struct ContentView: View {
 
         }
         .onAppear {
-            displaySegments = audioManager.previewSegments(for: currentLesson.folderName)
+            let base = audioManager.previewSegments(for: currentLesson.folderName)
+            displaySegments = explodeForDisplay(from: base)
+            
             audioManager.segmentDelay = storedDelay
             audioManager.requestNextLesson = { [weak audioManager] in
                 DispatchQueue.main.async {
@@ -191,13 +251,15 @@ struct ContentView: View {
             }
         }
         .onChange(of: currentLessonIndex) { _ in
-            displaySegments = audioManager.previewSegments(for: currentLesson.folderName)
+            let base = audioManager.previewSegments(for: currentLesson.folderName)
+            displaySegments = explodeForDisplay(from: base)
         }
         .onChange(of: audioManager.currentLessonFolderName ?? "") { _ in
             if let folder = audioManager.currentLessonFolderName,
                let idx = lessons.firstIndex(where: { $0.folderName == folder }) {
                 currentLessonIndex = idx
-                displaySegments = audioManager.previewSegments(for: folder)
+                let base = audioManager.previewSegments(for: folder)
+                displaySegments = explodeForDisplay(from: base)
             }
         }
         // keep AudioManager's delay in sync with the slider value
@@ -304,7 +366,7 @@ struct ContentView: View {
 // MARK: - Transcript List & Rows
 
 private struct SegmentRow: View {
-    let segment: Segment
+    let segment: DisplaySegment
     let isPlaying: Bool
     let displayMode: TextDisplayMode
     let rowID: String
@@ -355,16 +417,16 @@ private struct ParagraphBox: View {
     let folderName: String
     let displayMode: TextDisplayMode
     let playingSegmentID: Int?
-    let onTap: (Segment) -> Void
+    let onTap: (DisplaySegment) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(group.segments) { seg in
                 SegmentRow(
                     segment: seg,
-                    isPlaying: playingSegmentID == seg.id,
+                    isPlaying: playingSegmentID == seg.originalID,
                     displayMode: displayMode,
-                    rowID: "\(folderName)#\(seg.id)",
+                    rowID: "\(folderName)#\(seg.originalID)",
                     onTap: { onTap(seg) }
                 )
             }
@@ -381,7 +443,7 @@ private struct TranscriptList: View {
     let displayMode: TextDisplayMode
     let playingSegmentID: Int?
     let headerTitle: String?
-    let onTap: (Segment) -> Void
+    let onTap: (DisplaySegment) -> Void
 
     var body: some View {
         ScrollView {
@@ -409,5 +471,11 @@ private struct TranscriptList: View {
         }
         .scrollIndicators(.hidden)
         .background(Color.appBackground)
+    }
+}
+
+private extension NLLanguage {
+    init(_ identifier: String) {
+        self = NLLanguage(rawValue: identifier)
     }
 }
