@@ -71,27 +71,23 @@ struct GeneratorView: View {
 
     // MARK: - Length preset
     enum LengthPreset: Int, CaseIterable, Identifiable {
-        case veryShort, short, medium, long, veryLong
+        case short, medium, long
         
         var id: Int { rawValue }
         
         var label: String {
             switch self {
-            case .veryShort: return "Very Short"
             case .short:     return "Short"
             case .medium:    return "Medium"
             case .long:      return "Long"
-            case .veryLong:  return "Very Long"
             }
         }
         
         var words: Int {
             switch self {
-            case .veryShort: return 100   // ~100 words
-            case .short:     return 200   // ~200 words
+            case .short:     return 100   // ~100 words
             case .medium:    return 300   // ~300 words
-            case .long:      return 600   // ~600 words
-            case .veryLong:  return 1000  // ~1000 words
+            case .long:      return 500   // ~500 words
             }
         }
     }
@@ -250,27 +246,6 @@ struct GeneratorView: View {
     private func saveRow(_ row: AspectRow) -> Data {
         (try? JSONEncoder().encode(row)) ?? Data()
     }
-
-    private var lengthIndexBinding: Binding<Double> {
-        Binding<Double>(
-            get: { Double(lengthPreset.rawValue) },
-            set: { newValue in
-                if let v = LengthPreset(rawValue: Int(newValue.rounded())) {
-                    lengthPreset = v
-                }
-            }
-        )
-    }
-    
-    private var lengthMaxIndex: Double {
-        Double(LengthPreset.allCases.count - 1)
-    }
-
-    private var lengthTitleText: String {
-        let label = lengthPreset.label
-        let words = lengthPreset.words
-        return "\(label) · ~\(words) words"
-    }
     
     private var allSupportedLanguages: [String] { supportedLanguages }
     
@@ -331,22 +306,22 @@ struct GeneratorView: View {
     }
 
     @ViewBuilder private func lengthSection() -> some View {
-        Section("Length") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Length")
-                    Spacer()
-                    Text(lengthTitleText)
-                        .foregroundStyle(.secondary)
+        Section {
+            Picker("", selection: $lengthPreset) {
+                ForEach(LengthPreset.allCases) { preset in
+                    Text(preset.label).tag(preset)
                 }
-                Slider(value: lengthIndexBinding, in: 0...lengthMaxIndex, step: 1)
-                HStack {
-                    Text("Short")
-                    Spacer()
-                    Text("Very Long")
-                }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        } header: {
+            HStack {
+                Text("Length")
+                Spacer()
+                Text("~\(lengthPreset.words) words")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Approximately \(lengthPreset.words) words")
             }
         }
     }
