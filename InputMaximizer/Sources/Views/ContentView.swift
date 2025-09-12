@@ -13,6 +13,16 @@ private struct ParaGroup: Identifiable {
     let segments: [Segment]
 }
 
+private enum TextDisplayMode: Int {
+    case both = 0
+    case targetOnly = 1
+    case translationOnly = 2
+
+    mutating func cycle() {
+        self = TextDisplayMode(rawValue: (rawValue + 1) % 3) ?? .both
+    }
+}
+
 @MainActor
 struct ContentView: View {
     @EnvironmentObject private var audioManager: AudioManager
@@ -24,7 +34,12 @@ struct ContentView: View {
     @State private var currentLessonIndex: Int
     let selectedLesson: Lesson
 
-    @AppStorage("showTranslation") private var showTranslation: Bool = true
+    @AppStorage("textDisplayMode") private var textDisplayModeRaw: Int = TextDisplayMode.both.rawValue
+    private var textDisplayMode: TextDisplayMode {
+        get { TextDisplayMode(rawValue: textDisplayModeRaw) ?? .both }
+        set { textDisplayModeRaw = newValue.rawValue }
+    }
+
     @AppStorage("segmentDelay") private var storedDelay: Double = 0.5
 
     // Local, non-playing transcript for whatever is *selected* in UI
@@ -102,7 +117,7 @@ struct ContentView: View {
                 TranscriptList(
                     groups: groupedByParagraph,
                     folderName: currentLesson.folderName,
-                    showTranslation: showTranslation,
+                    displayMode: textDisplayMode,
                     playingSegmentID: playingSegmentID,
                     headerTitle: currentLesson.title
                 ) { segment in
@@ -123,7 +138,7 @@ struct ContentView: View {
                         withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
                     }
                 }
-                .onChange(of: showTranslation) { _ in
+                .onChange(of: textDisplayModeRaw) { _ in
                     guard let id = playingScrollID else { return }
                     DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
                 }
@@ -207,13 +222,27 @@ struct ContentView: View {
                 }
             }
 
+            
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    showTranslation.toggle()
+                    textDisplayModeRaw = (textDisplayModeRaw + 1) % 3
                 } label: {
-                    Image(systemName: showTranslation ? "eye" : "eye.slash")
+                    Group {
+                        switch textDisplayMode {
+                        case .both:            Image(systemName: "eye")                       // both
+                        case .targetOnly:      Image(systemName: "character.book.closed")     // target only
+                        case .translationOnly: Image(systemName: "globe")                     // translation only
+                        }
+                    }
                 }
-                .accessibilityLabel(showTranslation ? "Hide translation" : "Show translation")
+                .accessibilityLabel({
+                    switch textDisplayMode {
+                    case .both:            return "Show target only"
+                    case .targetOnly:      return "Show translation only"
+                    case .translationOnly: return "Show target and translation"
+                    }
+                }())
+                .accessibilityHint("Cycles between both, target-only, and translation-only.")
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -277,7 +306,7 @@ struct ContentView: View {
 private struct SegmentRow: View {
     let segment: Segment
     let isPlaying: Bool
-    let showTranslation: Bool
+    let displayMode: TextDisplayMode
     let rowID: String
     let onTap: () -> Void
 
@@ -290,13 +319,21 @@ private struct SegmentRow: View {
                 .cornerRadius(2)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(segment.pt_text)
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                if showTranslation {
+                // Target text
+                if displayMode != .translationOnly {
+                    Text(segment.pt_text)
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                        .lineSpacing(2) // optional readability tweak
+                }
+
+                // Translation text (promote to primary style when shown alone)
+                if displayMode != .targetOnly {
+                    let isPrimaryTranslation = (displayMode == .translationOnly)
                     Text(segment.en_text)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(isPrimaryTranslation ? .headline : .subheadline)
+                        .foregroundStyle(isPrimaryTranslation ? .primary : .secondary)
+                        .lineSpacing(2) // optional readability tweak
                 }
             }
         }
@@ -316,7 +353,7 @@ private struct SegmentRow: View {
 private struct ParagraphBox: View {
     let group: ParaGroup
     let folderName: String
-    let showTranslation: Bool
+    let displayMode: TextDisplayMode
     let playingSegmentID: Int?
     let onTap: (Segment) -> Void
 
@@ -326,7 +363,7 @@ private struct ParagraphBox: View {
                 SegmentRow(
                     segment: seg,
                     isPlaying: playingSegmentID == seg.id,
-                    showTranslation: showTranslation,
+                    displayMode: displayMode,
                     rowID: "\(folderName)#\(seg.id)",
                     onTap: { onTap(seg) }
                 )
@@ -341,7 +378,7 @@ private struct ParagraphBox: View {
 private struct TranscriptList: View {
     let groups: [ParaGroup]
     let folderName: String
-    let showTranslation: Bool
+    let displayMode: TextDisplayMode
     let playingSegmentID: Int?
     let headerTitle: String?
     let onTap: (Segment) -> Void
@@ -360,7 +397,7 @@ private struct TranscriptList: View {
                     ParagraphBox(
                         group: group,
                         folderName: folderName,
-                        showTranslation: showTranslation,
+                        displayMode: displayMode,
                         playingSegmentID: playingSegmentID,
                         onTap: onTap
                     )
