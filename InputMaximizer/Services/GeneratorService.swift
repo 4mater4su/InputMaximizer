@@ -342,7 +342,7 @@ private extension GeneratorService {
             """
 
             let body: [String:Any] = [
-                "model": "gpt-5",
+                "model": "gpt-5-mini",
                 "messages": [
                     ["role":"system","content": system],
                     ["role":"user","content": elevated]
@@ -353,7 +353,7 @@ private extension GeneratorService {
 
         func translate(_ text: String, to targetLang: String) async throws -> String {
             let body: [String:Any] = [
-                "model":"gpt-5",
+                "model":"gpt-5-mini",
                 "messages":[
                     ["role":"system","content":"Translate naturally and idiomatically."],
                     ["role":"user","content":"Translate into \(targetLang):\n\n\(text)"]
