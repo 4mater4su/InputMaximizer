@@ -437,7 +437,8 @@ struct GeneratorView: View {
                 Button("Done") { promptIsFocused = false }
             }
         }
-        .onChange(of: mode) { newValue in
+        // Focus the prompt when switching to .prompt
+        .onChange(of: mode, initial: false) { _, newValue in
             promptIsFocused = (newValue == .prompt)
         }
         .onAppear {
@@ -456,55 +457,46 @@ struct GeneratorView: View {
             // Load generator settings
             loadGeneratorSettings()
         }
-        .onChange(of: mode)            { _ in saveGeneratorSettings() }
-        .onChange(of: segmentation)    { _ in saveGeneratorSettings() }
-        .onChange(of: lengthPreset)    { _ in saveGeneratorSettings() }
-        .onChange(of: genLanguage)     { _ in saveGeneratorSettings() }
-        .onChange(of: transLanguage)   { _ in saveGeneratorSettings() }
-        .onChange(of: languageLevel)   { _ in saveGeneratorSettings() }
-        .onChange(of: speechSpeed)     { _ in saveGeneratorSettings() }
+        // Persist generator settings — keep one-liners
+        .onChange(of: mode, initial: false)            { _, _ in saveGeneratorSettings() }
+        .onChange(of: segmentation, initial: false)    { _, _ in saveGeneratorSettings() }
+        .onChange(of: lengthPreset, initial: false)    { _, _ in saveGeneratorSettings() }
+        .onChange(of: genLanguage, initial: false)     { _, _ in saveGeneratorSettings() }
+        .onChange(of: transLanguage, initial: false)   { _, _ in saveGeneratorSettings() }
+        .onChange(of: languageLevel, initial: false)   { _, _ in saveGeneratorSettings() }
+        .onChange(of: speechSpeed, initial: false)     { _, _ in saveGeneratorSettings() }
 
-        .onChange(of: styleTable) { newValue in
+        // Persist aspect table & interests
+        .onChange(of: styleTable, initial: false) { _, newValue in
             styleTableJSON = saveTable(newValue)
         }
-        .onChange(of: interestRow) { newValue in
+        .onChange(of: interestRow, initial: false) { _, newValue in
             interestRowJSON = saveRow(newValue)
         }
-        // Detect when a new lesson is appended to the LessonStore
-        .onChange(of: lessonStore.lessons) { newLessons in
-            // Find lessons that are truly new (by id)
-            let added = newLessons.filter { !knownLessonIDs.contains($0.id) }
 
-            // Prefer the last added (typical "append" behavior)
+        // Detect newly added lessons to show the toast
+        .onChange(of: lessonStore.lessons, initial: false) { _, newLessons in
+            let added = newLessons.filter { !knownLessonIDs.contains($0.id) }
             if let lesson = added.last {
                 newlyCreatedLesson = lesson
-
-                // Cancel any existing hide task before showing a new toast
                 toastHideWork?.cancel()
-
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
                     showToast = true
                 }
-
-                // Schedule a cancelable auto-hide
                 let work = DispatchWorkItem {
-                    withAnimation(.easeInOut) {
-                        showToast = false
-                    }
+                    withAnimation(.easeInOut) { showToast = false }
                 }
-
                 toastHideWork = work
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
             }
-
-            // Update the snapshot of known IDs
             knownLessonIDs = Set(newLessons.map { $0.id })
         }
         
-        .onChange(of: generator.outOfCredits) { needs in
+        // React to out-of-credits latch
+        .onChange(of: generator.outOfCredits, initial: false) { _, needs in
             if needs {
                 showBuyCredits = true
-                generator.outOfCredits = false  // reset latch
+                generator.outOfCredits = false
             }
         }
 
@@ -562,7 +554,8 @@ struct GeneratorView: View {
             }
         }
 
-        .onChange(of: generator.lastLessonID) { _ in
+        // Refresh balance after a successful generation
+        .onChange(of: generator.lastLessonID, initial: false) { _, _ in
             Task { await refreshServerBalance() }
         }
 

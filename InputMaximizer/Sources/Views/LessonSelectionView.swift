@@ -291,13 +291,12 @@ struct FolderDetailView: View {
         } message: { lesson in
             Text("“\(lesson.title)” will be removed from your device.")
         }
-        // Put this modifier on the outer view in FolderDetailView
-        .onChange(of: showMembersSheet) { isShowing in
+        .onChange(of: showMembersSheet, initial: false) { _, isShowing in
             if isShowing {
-                // set the selection before the sheet is built
                 selectedLessonIDs = Set(currentFolder.lessonIDs)
             }
         }
+        
     }
 
     // MARK: - Sheets
@@ -612,7 +611,7 @@ struct LessonSelectionView: View {
             } message: { lesson in
                 Text("“\(lesson.title)” will be removed from your device.")
             }
-            .onChange(of: generator.isBusy) { isBusy in
+            .onChange(of: generator.isBusy, initial: false) { _, isBusy in
                 guard !isBusy else { return }
                 let status = generator.status.lowercased()
 
@@ -631,6 +630,7 @@ struct LessonSelectionView: View {
                     }
                 }
             }
+
             .overlay(alignment: .top) {
                 if let message = toastMessage {
                     ToastBanner(message: message, isSuccess: toastIsSuccess) {

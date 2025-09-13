@@ -189,14 +189,14 @@ struct ContentView: View {
                         audioManager.playInContinuousLane(from: idx)
                     }
                 }
-                // keep your existing onChange handlers:
-                .onChange(of: audioManager.currentIndex) { _ in
+                .onChange(of: audioManager.currentIndex, initial: false) { _, _ in
                     guard let id = playingScrollID else { return }
                     DispatchQueue.main.async {
                         withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
                     }
                 }
-                .onChange(of: textDisplayModeRaw) { _ in
+
+                .onChange(of: textDisplayModeRaw, initial: false) { _, _ in
                     guard let id = playingScrollID else { return }
                     DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
                 }
@@ -250,22 +250,24 @@ struct ContentView: View {
                 }
             }
         }
-        .onChange(of: currentLessonIndex) { _ in
+        .onChange(of: currentLessonIndex, initial: false) { _, _ in
             let base = audioManager.previewSegments(for: currentLesson.folderName)
             displaySegments = explodeForDisplay(from: base)
         }
-        .onChange(of: audioManager.currentLessonFolderName ?? "") { _ in
-            if let folder = audioManager.currentLessonFolderName,
+
+        .onChange(of: audioManager.currentLessonFolderName, initial: false) { _, newFolder in
+            if let folder = newFolder,
                let idx = lessons.firstIndex(where: { $0.folderName == folder }) {
                 currentLessonIndex = idx
                 let base = audioManager.previewSegments(for: folder)
                 displaySegments = explodeForDisplay(from: base)
             }
         }
-        // keep AudioManager's delay in sync with the slider value
-        .onChange(of: storedDelay) { newValue in
+
+        .onChange(of: storedDelay, initial: false) { _, newValue in
             audioManager.segmentDelay = newValue
         }
+
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

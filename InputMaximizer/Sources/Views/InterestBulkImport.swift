@@ -23,7 +23,7 @@ struct InterestBulkImportView: View {
     }
 
     private var mergedPreview: [AspectOption] {
-        var existing = replaceExisting ? [] : interestRow.options
+        let existing = replaceExisting ? [] : interestRow.options
         let incoming = dedupe
             ? parsed.reduce(into: [String:AspectOption]()) { dict, opt in
                 let key = opt.label.lowercased()
@@ -177,7 +177,7 @@ extension AspectRow {
             for (i, line) in lines.enumerated() {
                 let parts = line.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "," || $0 == "\t" })
                 guard let first = parts.first else { continue }
-                var label = String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+                let label = String(first).trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !label.isEmpty else { continue }
                 // skip header-ish first cell
                 if i == 0, label.lowercased().contains("label") { continue }
