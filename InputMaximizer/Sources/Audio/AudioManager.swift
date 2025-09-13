@@ -233,7 +233,17 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     // MARK: - AVAudioPlayerDelegate
 
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+    // Satisfy the nonisolated protocol requirement in Swift 6.
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.handleDidFinishPlaying(success: flag)
+        }
+    }
+
+    // Keep all the original logic here, still on the MainActor.
+    @MainActor
+    private func handleDidFinishPlaying(success: Bool) {
         isPlaying = false
 
         // keep existing one-off logic
@@ -262,6 +272,7 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             scheduleAdvanceAfterDelay()
         }
     }
+
 
     // MARK: - Private: Unified Play
 
