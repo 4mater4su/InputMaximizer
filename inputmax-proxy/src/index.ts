@@ -3,13 +3,18 @@
 export interface Env {
   OPENAI_API_KEY: string;
   CREDITS: KVNamespace;
+
+  // App Store Server API credentials (App Store Connect → Users and Access → Keys → In-App Purchases)
+  APPSTORE_ISSUER_ID: string;   // e.g. "57246542-96fe-1a63-e053-0824d011072a"
+  APPSTORE_KEY_ID: string;      // 10-char key id
+  APPSTORE_PRIVATE_KEY: string; // contents of the .p8 (BEGIN PRIVATE KEY ... END PRIVATE KEY)
 }
 
 /* ================================
    Config
    ================================ */
 
-// Enforce that receipts come from this exact app
+// Enforce that receipts/transactions come from this exact app
 const APP_BUNDLE_ID = "io.robinfederico.InputMaximizer";
 
 // Map App Store product IDs to how many credits they grant
@@ -20,7 +25,7 @@ const PRODUCT_TO_CREDITS: Record<string, number> = {
 };
 
 /* ================================
-   Helpers
+   Small utilities
    ================================ */
 
 function requireDeviceId(req: Request): string {
@@ -60,6 +65,10 @@ async function addCredits(env: Env, deviceId: string, delta: number) {
   await setBalance(env, deviceId, current + delta);
 }
 
+/* ================================
+   Receipt verification (legacy, < iOS 18)
+   ================================ */
+
 // Verify an App Store receipt with Apple.
 // If `useSandbox` is true, hits the sandbox endpoint; otherwise production.
 async function verifyReceiptWithApple(
@@ -75,7 +84,7 @@ async function verifyReceiptWithApple(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       "receipt-data": receiptBase64,
-      // Add "password": <shared secret> for auto-renewable subscriptions.
+      // Add "password": <shared secret> for auto-renewable subscriptions if needed.
       "exclude-old-transactions": true,
     }),
   });
@@ -88,6 +97,160 @@ async function verifyReceiptWithApple(
   }
   return data;
 }
+
+/* ================================
+   JWS helpers (StoreKit 2 signed tx)
+   ================================ */
+
+function base64urlEncode(buf: Uint8Array): string {
+  let s = btoa(String.fromCharCode(...buf));
+  return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64urlFromString(s: string): string {
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function stringFromBase64url(b64url: string): string {
+  const pad = "=".repeat((4 - (b64url.length % 4)) % 4);
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/") + pad;
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+// Convert DER-encoded ECDSA signature to JOSE (raw r|s, base64url)
+function derToJoseSignature(der: Uint8Array): string {
+  // Minimal ASN.1 DER parser for ECDSA-Sig-Value: SEQUENCE { r INTEGER, s INTEGER }
+  // Returns 64-byte raw signature (r|s), each padded to 32 bytes for P-256.
+  let offset = 0;
+  if (der[offset++] !== 0x30) throw new Error("Invalid DER: no sequence");
+  const seqLen = der[offset++];
+  const rMarker = der[offset++];
+  if (rMarker !== 0x02) throw new Error("Invalid DER: expecting integer for r");
+  let rLen = der[offset++];
+  let r = der.slice(offset, offset + rLen);
+  offset += rLen;
+
+  const sMarker = der[offset++];
+  if (sMarker !== 0x02) throw new Error("Invalid DER: expecting integer for s");
+  let sLen = der[offset++];
+  let s = der.slice(offset, offset + sLen);
+  offset += sLen;
+
+  // Remove any leading 0x00 sign bytes, then left-pad to 32
+  const trim = (x: Uint8Array) => {
+    let i = 0;
+    while (i < x.length - 1 && x[i] === 0) i++;
+    x = x.slice(i);
+    if (x.length > 32) throw new Error("Invalid length for ECDSA component");
+    if (x.length < 32) {
+      const pad = new Uint8Array(32 - x.length);
+      x = new Uint8Array([...pad, ...x]);
+    }
+    return x;
+  };
+
+  r = trim(r);
+  s = trim(s);
+
+  const raw = new Uint8Array(64);
+  raw.set(r, 0);
+  raw.set(s, 32);
+  return base64urlEncode(raw);
+}
+
+/* ================================
+   App Store Server API auth (ES256 JWT)
+   ================================ */
+
+// Import EC private key (PKCS8 from .p8 PEM) into WebCrypto
+async function importAppleECPrivateKey(pem: string): Promise<CryptoKey> {
+  const clean = pem
+    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+    .replace(/-----END PRIVATE KEY-----/g, "")
+    .replace(/\r?\n|\r/g, "")
+    .trim();
+
+  const binary = Uint8Array.from(atob(clean), (c) => c.charCodeAt(0));
+  return crypto.subtle.importKey(
+    "pkcs8",
+    binary.buffer,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"]
+  );
+}
+
+async function signES256JWT(env: Env): Promise<string> {
+  const header = {
+    alg: "ES256",
+    kid: env.APPSTORE_KEY_ID,
+    typ: "JWT",
+  };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: env.APPSTORE_ISSUER_ID,
+    iat: now,
+    exp: now + 180, // short-lived
+    aud: "appstoreconnect-v1",
+  };
+
+  const encHeader = base64urlFromString(JSON.stringify(header));
+  const encPayload = base64urlFromString(JSON.stringify(payload));
+  const signingInput = `${encHeader}.${encPayload}`;
+
+  const key = await importAppleECPrivateKey(env.APPSTORE_PRIVATE_KEY);
+  const sigDER = new Uint8Array(
+    await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      key,
+      new TextEncoder().encode(signingInput)
+    )
+  );
+
+  const sigJOSE = derToJoseSignature(sigDER);
+  return `${signingInput}.${sigJOSE}`;
+}
+
+// Call App Store Server API: Get Transaction Info
+async function getTransactionInfoFromApple(env: Env, transactionId: string): Promise<any | null> {
+  const jwt = await signES256JWT(env);
+  const r = await fetch(
+    `https://api.storekit.itunes.apple.com/inApps/v1/transactions/${encodeURIComponent(
+      transactionId
+    )}`,
+    {
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+  if (!r.ok) {
+    return null;
+  }
+  return await r.json();
+}
+
+/* ================================
+   Types for JWS payloads (client + Apple)
+   ================================ */
+
+// Minimal fields we care about from the client-sent JWS payload
+type ClientSignedTransactionPayload = {
+  transactionId: string;
+  productId: string;
+  bundleId: string;
+  // also contains environment, purchaseDate, etc., but we don't rely on them here
+};
+
+// From Apple response, we'll parse `signedTransactionInfo` JWS payload to confirm product/bundle.
+type AppleSignedTransactionPayload = {
+  transactionId: string;
+  bundleId: string;
+  productId: string;
+  // plus many others…
+};
 
 /* ================================
    Handler
@@ -130,7 +293,96 @@ export default {
       return Response.json({ ok: true, balance: bal - amount });
     }
 
-    // --- Credits: redeem (App Store receipt -> credits) ---
+    // --- New (iOS 18+): Credits: redeem via signed transactions (StoreKit 2 JWS) ---
+    if (req.method === "POST" && path === "/credits/redeem-signed") {
+      const deviceId = requireDeviceId(req);
+      const body = await parseJSON<{ signedTransactions?: string[] }>(req);
+      const signed = Array.isArray(body.signedTransactions) ? body.signedTransactions : [];
+      if (signed.length === 0) {
+        return new Response(JSON.stringify({ error: "missing_signed_transactions" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      let granted = 0;
+
+      for (const jws of signed) {
+        const parts = jws.split(".");
+        if (parts.length !== 3) continue;
+
+        // Extract client payload (untrusted) to read tx id + product id
+        let clientPayload: ClientSignedTransactionPayload | null = null;
+        try {
+          clientPayload = JSON.parse(stringFromBase64url(parts[1]));
+        } catch {
+          continue;
+        }
+        const txId = (clientPayload?.transactionId || "").trim();
+        const claimedProductId = (clientPayload?.productId || "").trim();
+        const claimedBundleId = (clientPayload?.bundleId || "").trim();
+        if (!txId || !claimedProductId || !claimedBundleId) continue;
+
+        // Authoritative verification with Apple
+        const info = await getTransactionInfoFromApple(env, txId);
+        if (!info || typeof info.signedTransactionInfo !== "string") {
+          continue; // Could not verify
+        }
+
+        // Parse Apple's signedTransactionInfo (JWS) payload (trusted source)
+        const appleParts = info.signedTransactionInfo.split(".");
+        if (appleParts.length !== 3) continue;
+        let applePayload: AppleSignedTransactionPayload | null = null;
+        try {
+          applePayload = JSON.parse(stringFromBase64url(appleParts[1]));
+        } catch {
+          continue;
+        }
+
+        const appleTxId = (applePayload?.transactionId || "").trim();
+        const appleProductId = (applePayload?.productId || "").trim();
+        const appleBundleId = (applePayload?.bundleId || "").trim();
+        if (!appleTxId || !appleProductId || !appleBundleId) continue;
+
+        // Hard gates
+        if (appleBundleId !== APP_BUNDLE_ID) continue;
+        if (appleTxId !== txId) continue;
+
+        // Idempotency: process each transaction once
+        const txKey = `iap:${appleTxId}`;
+        const already = await env.CREDITS.get(txKey);
+        if (already) continue;
+
+        const credits = PRODUCT_TO_CREDITS[appleProductId] ?? 0;
+
+        // Record the transaction as processed (even if product unknown)
+        await env.CREDITS.put(
+          txKey,
+          JSON.stringify({
+            productId: appleProductId,
+            creditsGranted: credits,
+            ts: Date.now(),
+          })
+        );
+
+        if (credits > 0) {
+          granted += credits;
+        }
+      }
+
+      // Update device balance
+      if (granted > 0) {
+        await addCredits(env, deviceId, granted);
+      }
+      const balance = await getBalance(env, deviceId);
+
+      return Response.json(
+        { ok: true, granted, balance },
+        { headers: { "cache-control": "no-store" } }
+      );
+    }
+
+    // --- Legacy (< iOS 18): Credits: redeem via App Store receipt (base64) ---
     if (req.method === "POST" && path === "/credits/redeem") {
       const deviceId = requireDeviceId(req);
       const body = await parseJSON<{ receipt?: string }>(req);

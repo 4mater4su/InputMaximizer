@@ -6,9 +6,9 @@ import SwiftUI
 
 // MARK: - Product IDs (match your .storekit / App Store Connect)
 enum IAP {
-    static let creditsSmall  = "com.yourcompany.inputmaximizer.credits_10"
-    static let creditsMedium = "com.yourcompany.inputmaximizer.credits_50"
-    static let creditsLarge  = "com.yourcompany.inputmaximizer.credits_200"
+    static let creditsSmall  = "io.robinfederico.InputMaximizer.credits_10"
+    static let creditsMedium = "io.robinfederico.InputMaximizer.credits_50"
+    static let creditsLarge  = "io.robinfederico.InputMaximizer.credits_200"
 
     static let creditPacks: Set<String> = [creditsSmall, creditsMedium, creditsLarge]
 }
@@ -35,6 +35,7 @@ final class PurchaseManager: ObservableObject {
         updatesTask = observeTransactionUpdates()
         Task { await refresh() }
     }
+
     deinit { updatesTask?.cancel() }
 
     // MARK: - Load products
@@ -49,6 +50,10 @@ final class PurchaseManager: ObservableObject {
         }
     }
 
+    func credits(for product: Product) -> Int {
+        creditAmounts[product.id] ?? 0
+    }
+
     // MARK: - Purchase
     func buyCredits(_ product: Product) async {
         do {
@@ -59,35 +64,40 @@ final class PurchaseManager: ObservableObject {
         }
     }
 
-    func credits(for product: Product) -> Int {
-        creditAmounts[product.id] ?? 0
-    }
-
     // MARK: - Internals
-    private func handlePurchaseResult(_ result: Product.PurchaseResult,
-                                      purchasedID: String) async throws {
+    private func handlePurchaseResult(
+        _ result: Product.PurchaseResult,
+        purchasedID: String
+    ) async throws {
         switch result {
         case .success(let verification):
-            let tx = try checkVerified(verification)
+            // Locally verify first (StoreKit 2)
+            let tx: StoreKit.Transaction = try checkVerified(verification)
 
             do {
-                // 1) Read or refresh the receipt
-                let receiptB64 = try await appReceiptBase64(refreshIfNeeded: true)
+                if #available(iOS 18.0, *) {
+                    // iOS 18+: send signed transaction JWS to server
+                    let jws = verification.jwsRepresentation
+                    try await GeneratorService.proxy.redeemSignedTransactions(
+                        deviceId: DeviceID.current,
+                        signedTransactions: [jws]
+                    )
+                } else {
+                    // < iOS 18: fallback to legacy receipt flow
+                    let receiptB64 = try await appReceiptBase64_legacy(refreshIfNeeded: true)
+                    try await GeneratorService.proxy.redeemReceipt(
+                        deviceId: DeviceID.current,
+                        receiptBase64: receiptB64
+                    )
+                }
 
-                // 2) Ask your proxy to verify & grant credits (server is source of truth)
-                _ = try await GeneratorService.proxy.redeemReceipt(
-                    deviceId: DeviceID.current,
-                    receiptBase64: receiptB64
-                )
-
-                // 3) Finish transaction only after successful redeem
+                // Finish only after the server grants credits
                 await tx.finish()
 
-                // 4) Nudge UI to refresh server balance
+                // Refresh UI / balance
                 NotificationCenter.default.post(name: .didPurchaseCredits, object: nil)
-
             } catch {
-                // Leave the transaction unfinished so we can retry redeem later (see updates observer)
+                // Leave unfinished so we can retry via updates observer
                 lastError = "Redeem failed: \(error.localizedDescription)"
                 return
             }
@@ -111,81 +121,91 @@ final class PurchaseManager: ObservableObject {
     private func observeTransactionUpdates() -> Task<Void, Never> {
         Task.detached { [weak self] in
             guard let self else { return }
-            for await update in Transaction.updates {
+            for await update in StoreKit.Transaction.updates {
                 do {
-                    let tx = try await self.checkVerified(update)
+                    let tx: StoreKit.Transaction = try await self.checkVerified(update)
                     guard IAP.creditPacks.contains(tx.productID) else {
                         await tx.finish()
                         continue
                     }
 
-                    // Attempt server redeem again (idempotent on server because of receipt)
-                    let receiptB64 = try await self.appReceiptBase64(refreshIfNeeded: true)
-                    _ = try await GeneratorService.proxy.redeemReceipt(
-                        deviceId: DeviceID.current,
-                        receiptBase64: receiptB64
-                    )
-                    await tx.finish()
-                    await MainActor.run {
-                        NotificationCenter.default.post(name: .didPurchaseCredits, object: nil)
+                    do {
+                        if #available(iOS 18.0, *) {
+                            // `update` is VerificationResult<Transaction>; use its JWS directly
+                            let jws = update.jwsRepresentation
+                            try await GeneratorService.proxy.redeemSignedTransactions(
+                                deviceId: DeviceID.current,
+                                signedTransactions: [jws]
+                            )
+                        } else {
+                            let receiptB64 = try await self.appReceiptBase64_legacy(refreshIfNeeded: true)
+                            try await GeneratorService.proxy.redeemReceipt(
+                                deviceId: DeviceID.current,
+                                receiptBase64: receiptB64
+                            )
+                        }
+
+                        await tx.finish()
+                        await MainActor.run {
+                            NotificationCenter.default.post(name: .didPurchaseCredits, object: nil)
+                        }
+                    } catch {
+                        // If redeem fails, don't finish; system will re-deliver later
+                        await MainActor.run {
+                            self.lastError = "Auto-redeem failed: \(error.localizedDescription)"
+                        }
                     }
                 } catch {
-                    // If redeem fails, don't finish; system will re-deliver later
-                    await MainActor.run { self.lastError = "Auto-redeem failed: \(error.localizedDescription)" }
+                    await MainActor.run {
+                        self.lastError = "Verification failed: \(error.localizedDescription)"
+                    }
                 }
             }
         }
     }
 
-    // MARK: - Receipt helper
-    private func appReceiptBase64(refreshIfNeeded: Bool = true) async throws -> String {
-        func loadReceipt() throws -> Data {
-            guard let url = Bundle.main.appStoreReceiptURL,
-                  let data = try? Data(contentsOf: url) else {
-                throw NSError(domain: "Receipt", code: 1, userInfo: [NSLocalizedDescriptionKey: "No receipt file"])
-            }
+    // MARK: - Legacy receipt helper (kept available even when your min target is iOS 18)
+    // We intentionally DO NOT mark this as "obsoleted: 18.0" because if your deployment
+    // target is iOS 18, referencing an obsoleted symbol is a compile error, even in
+    // an #available(...) else branch. This keeps it callable in the < iOS 18 paths.
+    @available(iOS 15.0, *)
+    private func appReceiptBase64_legacy(refreshIfNeeded: Bool = true) async throws -> String {
+
+        func loadReceiptDataIfPresent() -> Data? {
+            // Access the same URL as Bundle.main.appStoreReceiptURL, but via KVC to
+            // avoid referencing the deprecated symbol directly when building with iOS 18 SDK.
+            let url = Bundle.main.value(forKey: "appStoreReceiptURL") as? URL
+            guard let u = url, let data = try? Data(contentsOf: u), !data.isEmpty else { return nil }
             return data
         }
 
-        if let url = Bundle.main.appStoreReceiptURL,
-           let data = try? Data(contentsOf: url),
-           !data.isEmpty {
+        // 1) If a receipt is already present and non-empty, return it.
+        if let data = loadReceiptDataIfPresent() {
             return data.base64EncodedString()
         }
 
+        // 2) If caller doesn’t want a refresh attempt, fail now.
         guard refreshIfNeeded else {
             throw NSError(domain: "Receipt", code: 2, userInfo: [NSLocalizedDescriptionKey: "Missing receipt"])
         }
 
-        // iOS 15+: try AppStore.sync() first (optional but nice)
-        if #available(iOS 15.0, *) {
-            do { try await AppStore.sync() } catch { /* fall back */ }
-            if let url = Bundle.main.appStoreReceiptURL,
-               let data = try? Data(contentsOf: url),
-               !data.isEmpty {
-                return data.base64EncodedString()
-            }
+        // 3) Ask the App Store to sync the receipt (StoreKit 2).
+        do { try await AppStore.sync() } catch {
+            // Ignore; we’ll re-check below and error out if still missing.
         }
 
-        // Fallback: SKReceiptRefreshRequest
-        final class Refresher: NSObject, SKRequestDelegate {
-            var cont: CheckedContinuation<Void, Error>?
-            func requestDidFinish(_ request: SKRequest) { cont?.resume() }
-            func request(_ request: SKRequest, didFailWithError error: Error) { cont?.resume(throwing: error) }
-        }
-        let r = Refresher()
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            r.cont = cont
-            let req = SKReceiptRefreshRequest()
-            req.delegate = r
-            req.start()
+        // 4) Re-check after sync.
+        if let data = loadReceiptDataIfPresent() {
+            return data.base64EncodedString()
         }
 
-        let data = try loadReceipt()
-        return data.base64EncodedString()
+        // 5) Still missing: report a clear error.
+        throw NSError(domain: "Receipt", code: 3, userInfo: [NSLocalizedDescriptionKey: "Receipt refresh did not produce a receipt"])
     }
+
 }
 
+// MARK: - Notification
 extension Notification.Name {
     static let didPurchaseCredits = Notification.Name("didPurchaseCredits")
 }
