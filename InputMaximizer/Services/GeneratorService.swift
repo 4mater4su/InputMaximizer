@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 /// A long-lived service that performs lesson generation even if views change.
 /// Owns the async Task so navigation doesn't cancel it.
@@ -53,7 +56,6 @@ final class GeneratorService: ObservableObject {
         // Random topic inputs from the UI
         var userChosenTopic: String? = nil         // if user pressed “Randomize” we pass it here
         var topicPool: [String]? = nil             // the interests array to sample from
-
     }
 
     /// Start a generation job. If one is running, ignore.
@@ -67,40 +69,31 @@ final class GeneratorService: ObservableObject {
         // Hold a background task token so iOS gives us time if the app goes to background.
         let bgToken = background.begin()
 
-        // Detach so it outlives the view that triggered it.
-        currentTask = Task.detached(priority: .userInitiated) { [weak self] in
+        // Inherit @MainActor so capturing `self` is legal in Swift 6.
+        currentTask = Task(priority: .userInitiated) { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let lessonID = try await Self.runGeneration(
                     req: req,
-                    progress: { [weak self] message in
-                        await MainActor.run { self?.status = message }
+                    progress: { [weak self] message in   // ← async by signature
+                        self?.status = message           // safe on @MainActor
                     }
                 )
-
-                await MainActor.run {
-                    self.lastLessonID = lessonID
-                    self.status = "Done. Open the lesson list and pull to refresh."
-                    self.isBusy = false
-                    lessonStore.load() // refresh visible lists anywhere
-                }
+                self.lastLessonID = lessonID
+                self.status = "Done. Open the lesson list and pull to refresh."
+                self.isBusy = false
+                lessonStore.load()
             } catch is CancellationError {
-                await MainActor.run {
-                    self.status = "Cancelled."
-                    self.isBusy = false
-                }
+                self.status = "Cancelled."
+                self.isBusy = false
             } catch {
-                // If we get 402 here (propagated), ensure the flag is set
                 if let ns = error as NSError?, ns.domain == "Credits", ns.code == 402 {
-                    await MainActor.run { self.outOfCredits = true }
+                    self.outOfCredits = true
                 }
-                await MainActor.run {
-                    self.status = "Error: \(error.localizedDescription)"
-                    self.isBusy = false
-                }
+                self.status = "Error: \(error.localizedDescription)"
+                self.isBusy = false
             }
             self.background.end(bgToken)
-
         }
     }
 
@@ -264,7 +257,7 @@ private extension GeneratorService {
     /// Returns the `lessonID` written to disk.
     static func runGeneration(
         req: GeneratorService.Request,
-        progress: @escaping @Sendable (String) async -> Void
+        progress: @MainActor @Sendable (String) async -> Void   // main-actor, non-async
     ) async throws -> String {
 
         func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
@@ -301,7 +294,6 @@ private extension GeneratorService {
             ]
             return try await chatViaProxy(body)
         }
-
 
         func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int) async throws -> String {
             let system = """
@@ -458,7 +450,7 @@ private extension GeneratorService {
             var running = 0
             for (pIdx, c) in perPara.enumerated() {
                 for s in running ..< running + c { sentToPara[s] = pIdx }
-                    running += c
+                running += c
             }
             segmentParagraphIndex = (0..<count).map { sentToPara[$0] ?? 0 }
             
@@ -557,3 +549,4 @@ private final class BackgroundActivityManager {
         #endif
     }
 }
+
