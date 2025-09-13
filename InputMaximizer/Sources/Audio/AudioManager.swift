@@ -450,58 +450,86 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 self?.togglePlayPause()
                 return .success
             },
+            // Inside setupRemoteControls()
             onNext: { [weak self] in
                 guard let self else { return .commandFailed }
                 allowNextDoubleUntil = nil
 
-                // Translation mode → play PT (same segment), then EN, then advance.
+                // ✅ Mirrored "double-press" behavior for Translation-only mode
                 if playbackMode == .translation {
                     cancelPendingAdvance()
                     didFinishLesson = false
-                    resumeENAfterPT = true                 // after PT finishes, play EN once
-                    play(.pt, from: currentIndex, resumeAfter: false)
-                    return .success
-                }
-                
-                if didFinishLesson {
-                    requestNextLesson?()
-                    return .success
+
+                    if !isPlayingPT || isInDelay {
+                        // EN (or delay) → PT of SAME segment
+                        play(.pt, from: currentIndex, resumeAfter: false)
+                        return .success
+                    } else {
+                        // PT is playing (second press) → EN of NEXT segment
+                        guard currentIndex < segments.count - 1 else { return .noSuchContent }
+                        play(.en, from: currentIndex + 1, resumeAfter: false)
+                        return .success
+                    }
                 }
 
-                if isPlayingPT || isInDelay {
-                    playEnglish()
-                    return .success
-                } else if currentIndex < segments.count - 1 {
-                    play(.pt, from: currentIndex + 1, resumeAfter: false)
-                    return .success
+                // ✅ Dual (both) mode – corrected "Next" behavior
+                if playbackMode == .both {
+                    cancelPendingAdvance()
+                    didFinishLesson = false
+
+                    if isPlayingPT {
+                        // PT → EN of NEXT segment
+                        guard currentIndex < segments.count - 1 else { return .noSuchContent }
+                        play(.en, from: currentIndex + 1, resumeAfter: false)
+                        return .success
+                    } else {
+                        // EN (or delay) → PT of SAME segment
+                        play(.pt, from: currentIndex, resumeAfter: false)
+                        return .success
+                    }
                 }
 
+                // (unchanged fallbacks for single-lane modes / end-of-lesson)
+                if didFinishLesson { requestNextLesson?(); return .success }
+                if isPlayingPT || isInDelay { playEnglish(); return .success }
+                else if currentIndex < segments.count - 1 { play(.pt, from: currentIndex + 1, resumeAfter: false); return .success }
                 return .noSuchContent
             },
             onPrev: { [weak self] in
                 guard let self else { return .commandFailed }
                 allowNextDoubleUntil = nil
 
+                // ✅ Dual (both) mode – corrected "Back" behavior
+                if playbackMode == .both {
+                    cancelPendingAdvance()
+                    didFinishLesson = false
+
+                    if isPlayingPT {
+                        // PT → EN of SAME segment
+                        play(.en, from: currentIndex, resumeAfter: false)
+                        return .success
+                    } else {
+                        // EN (or delay) → PT of PREVIOUS segment
+                        guard currentIndex > 0 else { return .noSuchContent }
+                        play(.pt, from: currentIndex - 1, resumeAfter: false)
+                        return .success
+                    }
+                }
+
+                // (unchanged for other modes)
                 guard currentIndex > 0 else { return .noSuchContent }
-
                 switch playbackMode {
-                case .both:
-                    // Go to previous segment, start with TRANSLATION then PT.
-                    lastSingleMode = .translation            // makes firstLaneForPair == .en
-                    play(.en, from: currentIndex - 1, resumeAfter: false)
-                    return .success
-
                 case .translation:
-                    // Single-lane translation mode: previous in EN only.
                     play(.en, from: currentIndex - 1, resumeAfter: false)
                     return .success
-
                 case .target:
-                    // Single-lane target mode: previous in PT only.
                     play(.pt, from: currentIndex - 1, resumeAfter: false)
                     return .success
+                case .both:
+                    return .success // handled above
                 }
             }
+
         )
     }
 }
