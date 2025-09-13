@@ -38,6 +38,14 @@ struct AppearanceSettingsView: View {
                 
                 Section("Billing & Credits") {
                     HStack {
+                        Text("Device ID")
+                        Spacer()
+                        Text(DeviceID.current)
+                            .textSelection(.enabled) // lets you copy the ID
+                            .foregroundStyle(.secondary)
+                            .font(.footnote)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                         Text("Credits")
                         Spacer()
                         Text("\(serverBalance)")
