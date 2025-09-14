@@ -253,6 +253,35 @@ private extension GeneratorService {
         try await proxy.tts(deviceId: DeviceID.current, text: text, language: language, speed: speed.rawValue)
     }
 
+    // ---- Segmentation helpers ----
+    static func paragraphs(_ txt: String) -> [String] {
+        var s = txt.replacingOccurrences(of: "\r\n", with: "\n")
+                   .replacingOccurrences(of: "\r", with: "\n")
+        while s.contains("\n\n\n") { s = s.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
+        return s.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { p in
+                if let last = p.last, ".!?".contains(last) { return p }
+                return p + "."
+            }
+    }
+
+    static func sentences(_ txt: String) -> [String] {
+        txt.split(whereSeparator: { ".!?".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { s in
+                if s.hasSuffix(".") || s.hasSuffix("!") || s.hasSuffix("?") { return s }
+                return s + "."
+            }
+    }
+
+    static func sentencesPerParagraph(_ txt: String) -> [Int] {
+        let ps = Self.paragraphs(txt)
+        return ps.map { sentences($0).count }
+    }
+    
     // MARK: - The whole pipeline, headless
     /// Returns the `lessonID` written to disk.
     static func runGeneration(
@@ -320,6 +349,25 @@ private extension GeneratorService {
             return try await chatViaProxy(body)
         }
 
+        func translateParagraphs(_ text: String, to targetLang: String) async throws -> String {
+            let ps = Self.paragraphs(text)
+            if ps.isEmpty { return "" }
+
+            var results = Array(repeating: "", count: ps.count)
+            try await withThrowingTaskGroup(of: (Int, String).self) { group in
+                for (i, p) in ps.enumerated() {
+                    group.addTask {
+                        let t = try await translate(p, to: targetLang)
+                        return (i, t.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
+                }
+                for try await (i, t) in group {
+                    results[i] = t
+                }
+            }
+            return results.joined(separator: "\n\n")
+        }
+        
         func translate(_ text: String, to targetLang: String) async throws -> String {
             let body: [String:Any] = [
                 "model":"gpt-5",
@@ -398,37 +446,9 @@ private extension GeneratorService {
 
         let secondaryText: String = sameLang
             ? bodyPrimary
-            : try await translate(bodyPrimary, to: req.transLanguage)
+            : try await translateParagraphs(bodyPrimary, to: req.transLanguage)
 
-        // ---- Segmentation helpers ----
-        func paragraphs(_ txt: String) -> [String] {
-            var s = txt.replacingOccurrences(of: "\r\n", with: "\n")
-                       .replacingOccurrences(of: "\r", with: "\n")
-            while s.contains("\n\n\n") { s = s.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
-            return s.components(separatedBy: "\n\n")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .map { p in
-                    if let last = p.last, ".!?".contains(last) { return p }
-                    return p + "."
-                }
-        }
-
-        func sentences(_ txt: String) -> [String] {
-            txt.split(whereSeparator: { ".!?".contains($0) })
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .map { s in
-                    if s.hasSuffix(".") || s.hasSuffix("!") || s.hasSuffix("?") { return s }
-                    return s + "."
-                }
-        }
-
-        func sentencesPerParagraph(_ txt: String) -> [Int] {
-            let ps = paragraphs(txt)
-            return ps.map { sentences($0).count }
-        }
-
+    
         // ---- Build segments ----
         var segsPrimary: [String] = []
         var segsSecondary: [String] = []
@@ -437,15 +457,15 @@ private extension GeneratorService {
         switch req.segmentation {
         case .sentences:
             // 1 sentence = 1 segment
-            let sentPrimary = sentences(bodyPrimary)
-            let sentSecondary = sentences(secondaryText)
+            let sentPrimary = Self.sentences(bodyPrimary)
+            let sentSecondary = Self.sentences(secondaryText)
             let count = min(sentPrimary.count, sentSecondary.count)
             
             segsPrimary = Array(sentPrimary.prefix(count))
             segsSecondary = Array(sentSecondary.prefix(count))
             
             // Map each sentence index to its paragraph index
-            let perPara = sentencesPerParagraph(bodyPrimary)
+            let perPara = Self.sentencesPerParagraph(bodyPrimary)
             var sentToPara: [Int:Int] = [:]
             var running = 0
             for (pIdx, c) in perPara.enumerated() {
@@ -456,8 +476,8 @@ private extension GeneratorService {
             
             await progress("Preparing audio… \(segsPrimary.count) sentence segments")
         case .paragraphs:
-            let pParas = paragraphs(bodyPrimary)
-            let sParas = paragraphs(secondaryText)
+            let pParas = Self.paragraphs(bodyPrimary)
+            let sParas = Self.paragraphs(secondaryText)
             let count = min(pParas.count, sParas.count)
             segsPrimary = Array(pParas.prefix(count))
             segsSecondary = Array(sParas.prefix(count))
