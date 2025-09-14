@@ -342,8 +342,9 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             isPlayingPT = false
             isPaused = false
             isInDelay = false
+            isPlaying = false
             didFinishLesson = true
-            allowNextDoubleUntil = nil
+            // keep any in-flight double-tap window alive; the tap handler will consume/expire it
 
             // ⬅️ Make sure we move the cursor back to the first segment
             currentIndex = 0
@@ -376,7 +377,7 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         // Delay phase
         isPlayingPT = false
         isInDelay = true
-        allowNextDoubleUntil = nil
+        // Do not touch allowNextDoubleUntil here
 
         keepalive.start(nowPlayingTitle: segments[currentIndex].pt_text,
                         artist: currentLessonTitle.isEmpty ? NowPlayingBuilder.defaultArtist : currentLessonTitle,
@@ -435,15 +436,27 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 // End-of-lesson gestures
                 if didFinishLesson || allowNextDoubleUntil != nil {
                     if let until = allowNextDoubleUntil, now < until {
+                        // SECOND TAP → next lesson
+                        // Stop anything we just (re)started to avoid overlap/state bleed
                         allowNextDoubleUntil = nil
+                        stop()                    // avoid overlap/state bleed
                         requestNextLesson?()
                         didFinishLesson = false
                         return .success
                     } else {
+                        // FIRST TAP → restart current lesson from segment 0 in the active continuous lane
                         allowNextDoubleUntil = now.addingTimeInterval(doubleTapWindow)
-                        // Restart according to the current continuous mode (not hard-coded PT)
-                        playInContinuousLane(from: 0)
+
+                        // 🔧 Make the restart deterministic
+                        cancelPendingAdvance()
+                        keepalive.stop()
+                        resumePTAfterENG = false
+                        resumeENAfterPT = false
                         didFinishLesson = false
+                        currentIndex = 0
+
+                        // Respect .target / .translation / .both (Dual starts from firstLaneForPair)
+                        playInContinuousLane(from: 0)
                         return .success
                     }
                 }
@@ -464,9 +477,27 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             // Inside setupRemoteControls()
             onNext: { [weak self] in
                 guard let self else { return .commandFailed }
-                allowNextDoubleUntil = nil
+                let now = Date()
 
-                // ✅ Mirrored "double-press" behavior for Translation-only mode
+                // ✅ End-of-lesson: a Next command should go straight to the NEXT LESSON (all modes).
+                if didFinishLesson {
+                    allowNextDoubleUntil = nil
+                    stop()                    // avoid overlap/state bleed (stops keepalive too)
+                    requestNextLesson?()
+                    didFinishLesson = false
+                    return .success
+                }
+
+                // ✅ If a Next arrives within the play/pause double-tap window, treat it as "second tap" → next lesson.
+                if let until = allowNextDoubleUntil, now < until {
+                    allowNextDoubleUntil = nil
+                    stop()
+                    requestNextLesson?()
+                    didFinishLesson = false
+                    return .success
+                }
+
+                // Otherwise, normal "Next" behavior by mode
                 if playbackMode == .translation {
                     cancelPendingAdvance()
                     didFinishLesson = false
@@ -483,7 +514,6 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                     }
                 }
 
-                // ✅ Dual (both) mode – corrected "Next" behavior
                 if playbackMode == .both {
                     cancelPendingAdvance()
                     didFinishLesson = false
@@ -500,12 +530,16 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                     }
                 }
 
-                // (unchanged fallbacks for single-lane modes / end-of-lesson)
-                if didFinishLesson { requestNextLesson?(); return .success }
-                if isPlayingPT || isInDelay { playEnglish(); return .success }
-                else if currentIndex < segments.count - 1 { play(.pt, from: currentIndex + 1, resumeAfter: false); return .success }
+                // Single-lane fallbacks (.target or generic)
+                if isPlayingPT || isInDelay {
+                    playEnglish(); return .success
+                } else if currentIndex < segments.count - 1 {
+                    play(.pt, from: currentIndex + 1, resumeAfter: false); return .success
+                }
                 return .noSuchContent
             },
+
+
             onPrev: { [weak self] in
                 guard let self else { return .commandFailed }
                 allowNextDoubleUntil = nil
