@@ -328,7 +328,6 @@ struct FolderDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             }
-            .id(selectedLessonIDs)
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Color.appBackground)
