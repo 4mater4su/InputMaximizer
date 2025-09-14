@@ -163,5 +163,62 @@ struct ProxyClient {
         }
         return data
     }
+    
 }
+
+// MARK: - Job hold APIs (start/commit/cancel)
+private struct JobStartResponse: Decodable {
+    let ok: Bool
+    let jobId: String
+    let reserved: Int
+    let balance: Int
+}
+private struct JobOKResponse: Decodable { let ok: Bool; let balance: Int }
+
+extension ProxyClient {
+    func jobStart(deviceId: String, amount: Int = 1, ttlSeconds: Int = 1800) async throws -> String {
+        var req = URLRequest(url: baseURL.appendingPathComponent("/jobs/start"))
+        req.httpMethod = "POST"
+        req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["amount": amount, "ttlSeconds": ttlSeconds])
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        if http.statusCode == 402 {
+            let msg = String(data: data, encoding: .utf8) ?? "Insufficient credits"
+            throw NSError(domain: "Credits", code: 402, userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "Server error"
+            throw NSError(domain: "Proxy", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        let obj = try JSONDecoder().decode(JobStartResponse.self, from: data)
+        return obj.jobId
+    }
+
+    func jobCommit(deviceId: String, jobId: String) async throws {
+        var req = URLRequest(url: baseURL.appendingPathComponent("/jobs/commit"))
+        req.httpMethod = "POST"
+        req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["jobId": jobId])
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "Server error"
+            throw NSError(domain: "Proxy", code: (resp as? HTTPURLResponse)?.statusCode ?? -1,
+                          userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        _ = try? JSONDecoder().decode(JobOKResponse.self, from: data)
+    }
+
+    func jobCancel(deviceId: String, jobId: String) async {
+        var req = URLRequest(url: baseURL.appendingPathComponent("/jobs/cancel"))
+        req.httpMethod = "POST"
+        req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["jobId": jobId])
+        _ = try? await URLSession.shared.data(for: req) // best-effort
+    }
+}
+
 

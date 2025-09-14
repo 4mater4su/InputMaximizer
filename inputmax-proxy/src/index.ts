@@ -125,6 +125,8 @@ function derToJoseSignature(der: Uint8Array): string {
   let offset = 0;
   if (der[offset++] !== 0x30) throw new Error("Invalid DER: no sequence");
   const seqLen = der[offset++];
+  void seqLen; // not used further in this minimal parser
+
   const rMarker = der[offset++];
   if (rMarker !== 0x02) throw new Error("Invalid DER: expecting integer for r");
   let rLen = der[offset++];
@@ -272,10 +274,16 @@ export default {
     if (req.method === "GET" && path === "/credits/balance") {
       const deviceId = requireDeviceId(req);
       const balance = await getBalance(env, deviceId);
-      return Response.json({ balance }, { headers: { "cache-control": "no-store" } });
+      const reservedRaw = await env.CREDITS.get(`device:${deviceId}:reserved`);
+      const reserved = reservedRaw ? parseInt(reservedRaw, 10) || 0 : 0;
+      return Response.json(
+        { balance, reserved, available: Math.max(0, balance - reserved) },
+        { headers: { "cache-control": "no-store" } }
+      );
     }
 
     // --- Credits: spend (server-authoritative) ---
+    // Retained for backward compatibility with older clients.
     if (req.method === "POST" && path === "/credits/spend") {
       const deviceId = requireDeviceId(req);
       const body = await parseJSON<{ amount?: number }>(req);
@@ -291,6 +299,137 @@ export default {
 
       await setBalance(env, deviceId, bal - amount);
       return Response.json({ ok: true, balance: bal - amount });
+    }
+
+    // --- Jobs: start (place a hold) ---
+    if (req.method === "POST" && path === "/jobs/start") {
+      const deviceId = requireDeviceId(req);
+      const body = await parseJSON<{ amount?: number; jobId?: string; ttlSeconds?: number }>(req);
+      const amount = Math.max(1, Math.floor(body.amount ?? 1));
+      const jobId = (body.jobId || crypto.randomUUID()).trim();
+      const ttl = Math.min(Math.max(300, body.ttlSeconds ?? 1800), 86400); // 5 min .. 24h
+
+      const bal = await getBalance(env, deviceId);
+      const reservedRaw = await env.CREDITS.get(`device:${deviceId}:reserved`);
+      const reserved = reservedRaw ? parseInt(reservedRaw, 10) || 0 : 0;
+
+      if (bal - reserved < amount) {
+        return new Response(
+          JSON.stringify({ error: "insufficient_credits", balance: bal, reserved }),
+          { status: 402, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      // Reserve
+      await env.CREDITS.put(`device:${deviceId}:reserved`, String(reserved + amount));
+      const holdKey = `hold:${jobId}`;
+      const expiresAt = Date.now() + ttl * 1000;
+      await env.CREDITS.put(
+        holdKey,
+        JSON.stringify({ deviceId, amount, state: "pending", expiresAt }),
+        { expirationTtl: ttl }
+      );
+
+      return Response.json({ ok: true, jobId, reserved: reserved + amount, balance: bal });
+    }
+
+    // --- Jobs: commit (convert hold → debit) ---
+    if (req.method === "POST" && path === "/jobs/commit") {
+      const deviceId = requireDeviceId(req);
+      const body = await parseJSON<{ jobId?: string }>(req);
+      const jobId = (body.jobId || "").trim();
+      if (!jobId)
+        return new Response(JSON.stringify({ error: "missing_job_id" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+
+      const holdKey = `hold:${jobId}`;
+      const raw = await env.CREDITS.get(holdKey);
+      if (!raw) return Response.json({ ok: true, already: true }); // expired or already handled
+
+      let hold: any;
+      try {
+        hold = JSON.parse(raw);
+      } catch {
+        return new Response(JSON.stringify({ error: "bad_hold" }), {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (hold.state !== "pending") return Response.json({ ok: true, already: true });
+
+      if (hold.deviceId !== deviceId) {
+        return new Response(JSON.stringify({ error: "device_mismatch" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const amount = Math.max(1, Math.floor(hold.amount || 1));
+
+      // Adjust reserved ↓ and balance ↓
+      const bal = await getBalance(env, deviceId);
+      const reservedRaw = await env.CREDITS.get(`device:${deviceId}:reserved`);
+      const reserved = reservedRaw ? parseInt(reservedRaw, 10) || 0 : 0;
+
+      await setBalance(env, deviceId, Math.max(0, bal - amount));
+      await env.CREDITS.put(`device:${deviceId}:reserved`, String(Math.max(0, reserved - amount)));
+
+      // Mark committed (keep a short record)
+      hold.state = "committed";
+      hold.committedAt = Date.now();
+      await env.CREDITS.put(holdKey, JSON.stringify(hold), { expirationTtl: 3600 });
+
+      const newBal = await getBalance(env, deviceId);
+      return Response.json({ ok: true, balance: newBal });
+    }
+
+    // --- Jobs: cancel (release hold) ---
+    if (req.method === "POST" && path === "/jobs/cancel") {
+      const deviceId = requireDeviceId(req);
+      const body = await parseJSON<{ jobId?: string }>(req);
+      const jobId = (body.jobId || "").trim();
+      if (!jobId)
+        return new Response(JSON.stringify({ error: "missing_job_id" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+
+      const holdKey = `hold:${jobId}`;
+      const raw = await env.CREDITS.get(holdKey);
+      if (!raw) return Response.json({ ok: true, already: true });
+
+      let hold: any;
+      try {
+        hold = JSON.parse(raw);
+      } catch {
+        return new Response(JSON.stringify({ error: "bad_hold" }), {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (hold.state !== "pending") return Response.json({ ok: true, already: true });
+
+      if (hold.deviceId !== deviceId) {
+        return new Response(JSON.stringify({ error: "device_mismatch" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const amount = Math.max(1, Math.floor(hold.amount || 1));
+
+      // reserved ↓
+      const reservedRaw = await env.CREDITS.get(`device:${deviceId}:reserved`);
+      const reserved = reservedRaw ? parseInt(reservedRaw, 10) || 0 : 0;
+      await env.CREDITS.put(`device:${deviceId}:reserved`, String(Math.max(0, reserved - amount)));
+
+      // Mark cancelled (or delete)
+      hold.state = "cancelled";
+      hold.cancelledAt = Date.now();
+      await env.CREDITS.put(holdKey, JSON.stringify(hold), { expirationTtl: 900 });
+
+      const bal = await getBalance(env, deviceId);
+      return Response.json({ ok: true, balance: bal });
     }
 
     // --- New (iOS 18+): Credits: redeem via signed transactions (StoreKit 2 JWS) ---

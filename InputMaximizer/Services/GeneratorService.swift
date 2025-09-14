@@ -289,6 +289,7 @@ private extension GeneratorService {
         progress: @MainActor @Sendable (String) async -> Void   // main-actor, non-async
     ) async throws -> String {
 
+        // ---------- Local helpers ----------
         func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
             let meta = """
             You are a prompt refiner. Transform the user's instruction, input text, or theme into a clear, actionable writing brief that will produce a high-quality text.
@@ -313,7 +314,7 @@ private extension GeneratorService {
             User instruction or material:
             \(raw)
             """
-            
+
             let body: [String:Any] = [
                 "model": "gpt-5",
                 "messages": [
@@ -367,7 +368,7 @@ private extension GeneratorService {
             }
             return results.joined(separator: "\n\n")
         }
-        
+
         func translate(_ text: String, to targetLang: String) async throws -> String {
             let body: [String:Any] = [
                 "model":"gpt-5",
@@ -379,176 +380,182 @@ private extension GeneratorService {
             return try await chatViaProxy(body)
         }
 
-        // Charge 1 credit for this generation (server-side source of truth)
+        // ---------- Two-phase credit hold (reserve → commit/cancel) ----------
+        let deviceId = DeviceID.current
+        let jobId = try await Self.proxy.jobStart(deviceId: deviceId, amount: 1, ttlSeconds: 1800)
+
         do {
-            try await Self.proxy.spendCredits(deviceId: DeviceID.current, amount: 1)
+            // ---- Generate text ----
+            let fullText: String
+            switch req.mode {
+            case .random:
+                // Pick a topic:
+                // 1) use userChosenTopic if provided and non-empty
+                // 2) else pick from topicPool if available
+                // 3) else use a safe default
+                let topic: String = {
+                    if let t = req.userChosenTopic?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+                        return t
+                    }
+                    if let pool = req.topicPool, let pick = pool.randomElement() {
+                        return pick
+                    }
+                    return "capoeira rodas ao amanhecer"
+                }()
+
+                await progress("Elevating prompt… (Random)\nTopic: \(topic)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
+                let elevated = try await refinePrompt(topic, targetLang: req.genLanguage, wordCount: req.lengthWords)
+                await progress("Generating… \(elevated)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
+                fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords)
+
+            case .prompt:
+                let cleaned = req.userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cleaned.isEmpty else { throw NSError(domain: "Generator", code: 1, userInfo: [NSLocalizedDescriptionKey: "Empty prompt"]) }
+                await progress("Elevating prompt…")
+                let elevated = try await refinePrompt(cleaned, targetLang: req.genLanguage, wordCount: req.lengthWords)
+                await progress("Generating… \(elevated)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
+                fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords)
+            }
+
+            // ---- Parse title/body ----
+            let lines = fullText.split(separator: "\n", omittingEmptySubsequences: false)
+            let rawTitle = lines.first.map(String.init)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Sem Título"
+            let generatedTitle = normalizeTitleCaseIfAllCaps(rawTitle)
+            let bodyPrimary = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+
+            var folder = slugify(generatedTitle)
+            let baseRoot = FileManager.docsLessonsDir
+            var base = baseRoot.appendingPathComponent(folder, isDirectory: true)
+            if (try? base.checkResourceIsReachable()) == true {
+                folder += "_" + String(Int(Date().timeIntervalSince1970))
+                base = baseRoot.appendingPathComponent(folder, isDirectory: true)
+            }
+            let lessonID = folder
+
+            await progress("Translating to \(req.transLanguage)…\nTítulo: \(generatedTitle)")
+
+            // Avoid translating into the same language
+            let sameLang =
+                req.genLanguage.lowercased()
+                    .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                ==
+                req.transLanguage.lowercased()
+                    .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+
+            let secondaryText: String = sameLang
+                ? bodyPrimary
+                : try await translateParagraphs(bodyPrimary, to: req.transLanguage)
+
+            // ---- Build segments ----
+            var segsPrimary: [String] = []
+            var segsSecondary: [String] = []
+            var segmentParagraphIndex: [Int] = []
+
+            switch req.segmentation {
+            case .sentences:
+                // 1 sentence = 1 segment
+                let sentPrimary = Self.sentences(bodyPrimary)
+                let sentSecondary = Self.sentences(secondaryText)
+                let count = min(sentPrimary.count, sentSecondary.count)
+
+                segsPrimary = Array(sentPrimary.prefix(count))
+                segsSecondary = Array(sentSecondary.prefix(count))
+
+                // Map each sentence index to its paragraph index
+                let perPara = Self.sentencesPerParagraph(bodyPrimary)
+                var sentToPara: [Int:Int] = [:]
+                var running = 0
+                for (pIdx, c) in perPara.enumerated() {
+                    for s in running ..< running + c { sentToPara[s] = pIdx }
+                    running += c
+                }
+                segmentParagraphIndex = (0..<count).map { sentToPara[$0] ?? 0 }
+
+                await progress("Preparing audio… \(segsPrimary.count) sentence segments")
+            case .paragraphs:
+                let pParas = Self.paragraphs(bodyPrimary)
+                let sParas = Self.paragraphs(secondaryText)
+                let count = min(pParas.count, sParas.count)
+                segsPrimary = Array(pParas.prefix(count))
+                segsSecondary = Array(sParas.prefix(count))
+                segmentParagraphIndex = Array(0..<count)
+                await progress("Preparing audio… \(segsPrimary.count) paragraph segments")
+            }
+
+            let count = min(segsPrimary.count, segsSecondary.count)
+            let ptSegs = Array(segsPrimary.prefix(count))
+            let enSegs = Array(segsSecondary.prefix(count))
+
+            // ---- Create folder & TTS ----
+            try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+
+            struct Seg: Codable {
+                let id: Int
+                let pt_text: String
+                let en_text: String
+                let pt_file: String
+                let en_file: String
+                let paragraph: Int?
+            }
+
+            var rows: [Seg] = []
+
+            let src = languageSlug(req.genLanguage)
+            let dst = languageSlug(req.transLanguage)
+
+            for i in 0..<count {
+                try Task.checkCancellation()
+                await progress("TTS \(i+1)/\(count) \(req.genLanguage)…")
+                let ptFile = "\(src)_\(lessonID)_\(i+1).mp3"
+                let ptData = try await ttsViaProxy(text: ptSegs[i], language: req.genLanguage, speed: req.speechSpeed)
+                try save(ptData, to: base.appendingPathComponent(ptFile))
+
+                try Task.checkCancellation()
+                await progress("TTS \(i+1)/\(count) \(req.transLanguage)…")
+                let enFile = "\(dst)_\(lessonID)_\(i+1).mp3"
+                let enData = try await ttsViaProxy(text: enSegs[i], language: req.transLanguage, speed: req.speechSpeed)
+                try save(enData, to: base.appendingPathComponent(enFile))
+
+                rows.append(.init(
+                    id: i+1,
+                    pt_text: segsPrimary[i],
+                    en_text: segsSecondary[i],
+                    pt_file: ptFile,
+                    en_file: enFile,
+                    paragraph: segmentParagraphIndex[i]
+                ))
+            }
+
+            // segments_<lesson>.json
+            let segJSON = base.appendingPathComponent("segments_\(lessonID).json")
+            let segData = try JSONEncoder().encode(rows)
+            try save(segData, to: segJSON)
+
+            // update lessons.json in Documents
+            struct Manifest: Codable { var id:String; var title:String; var folderName:String }
+            let manifestURL = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
+            var list: [Manifest] = []
+            if let d = try? Data(contentsOf: manifestURL) {
+                list = (try? JSONDecoder().decode([Manifest].self, from: d)) ?? []
+                list.removeAll { $0.id == lessonID }
+            }
+            let title = generatedTitle
+            list.append(.init(id: lessonID, title: title, folderName: lessonID))
+            let out = try JSONEncoder().encode(list)
+            try save(out, to: manifestURL)
+
+            // ---- Commit the credit hold only after success ----
+            try await Self.proxy.jobCommit(deviceId: deviceId, jobId: jobId)
+
+            return lessonID
+
         } catch {
-            // No UI work here; `start()` already maps 402 -> outOfCredits
+            // On *any* failure or cancellation, release the hold (best-effort)
+            await Self.proxy.jobCancel(deviceId: deviceId, jobId: jobId)
             throw error
         }
-        
-        // ---- Generate text ----
-        let fullText: String
-        switch req.mode {
-        case .random:
-            // Pick a topic:
-            // 1) use userChosenTopic if provided and non-empty
-            // 2) else pick from topicPool if available
-            // 3) else use a safe default
-            let topic: String = {
-                if let t = req.userChosenTopic?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
-                    return t
-                }
-                if let pool = req.topicPool, let pick = pool.randomElement() {
-                    return pick
-                }
-                return "capoeira rodas ao amanhecer"
-            }()
-
-            await progress("Elevating prompt… (Random)\nTopic: \(topic)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
-            let elevated = try await refinePrompt(topic, targetLang: req.genLanguage, wordCount: req.lengthWords)
-            await progress("Generating… \(elevated)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
-            fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords)
-
-        case .prompt:
-            let cleaned = req.userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !cleaned.isEmpty else { throw NSError(domain: "Generator", code: 1, userInfo: [NSLocalizedDescriptionKey: "Empty prompt"]) }
-            await progress("Elevating prompt…")
-            let elevated = try await refinePrompt(cleaned, targetLang: req.genLanguage, wordCount: req.lengthWords)
-            await progress("Generating… \(elevated)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
-            fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords)
-        }
-
-        // ---- Parse title/body ----
-        let lines = fullText.split(separator: "\n", omittingEmptySubsequences: false)
-        let rawTitle = lines.first.map(String.init)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Sem Título"
-        let generatedTitle = normalizeTitleCaseIfAllCaps(rawTitle)
-        let bodyPrimary = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-
-        var folder = slugify(generatedTitle)
-        let baseRoot = FileManager.docsLessonsDir
-        var base = baseRoot.appendingPathComponent(folder, isDirectory: true)
-        if (try? base.checkResourceIsReachable()) == true {
-            folder += "_" + String(Int(Date().timeIntervalSince1970))
-            base = baseRoot.appendingPathComponent(folder, isDirectory: true)
-        }
-        let lessonID = folder
-
-        await progress("Translating to \(req.transLanguage)…\nTítulo: \(generatedTitle)")
-
-        // Avoid translating into the same language
-        let sameLang =
-            req.genLanguage.lowercased()
-                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-            ==
-            req.transLanguage.lowercased()
-                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-
-        let secondaryText: String = sameLang
-            ? bodyPrimary
-            : try await translateParagraphs(bodyPrimary, to: req.transLanguage)
-
-    
-        // ---- Build segments ----
-        var segsPrimary: [String] = []
-        var segsSecondary: [String] = []
-        var segmentParagraphIndex: [Int] = []
-
-        switch req.segmentation {
-        case .sentences:
-            // 1 sentence = 1 segment
-            let sentPrimary = Self.sentences(bodyPrimary)
-            let sentSecondary = Self.sentences(secondaryText)
-            let count = min(sentPrimary.count, sentSecondary.count)
-            
-            segsPrimary = Array(sentPrimary.prefix(count))
-            segsSecondary = Array(sentSecondary.prefix(count))
-            
-            // Map each sentence index to its paragraph index
-            let perPara = Self.sentencesPerParagraph(bodyPrimary)
-            var sentToPara: [Int:Int] = [:]
-            var running = 0
-            for (pIdx, c) in perPara.enumerated() {
-                for s in running ..< running + c { sentToPara[s] = pIdx }
-                running += c
-            }
-            segmentParagraphIndex = (0..<count).map { sentToPara[$0] ?? 0 }
-            
-            await progress("Preparing audio… \(segsPrimary.count) sentence segments")
-        case .paragraphs:
-            let pParas = Self.paragraphs(bodyPrimary)
-            let sParas = Self.paragraphs(secondaryText)
-            let count = min(pParas.count, sParas.count)
-            segsPrimary = Array(pParas.prefix(count))
-            segsSecondary = Array(sParas.prefix(count))
-            segmentParagraphIndex = Array(0..<count)
-            await progress("Preparing audio… \(segsPrimary.count) paragraph segments")
-        }
-
-        let count = min(segsPrimary.count, segsSecondary.count)
-        let ptSegs = Array(segsPrimary.prefix(count))
-        let enSegs = Array(segsSecondary.prefix(count))
-
-        // ---- Create folder & TTS ----
-        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-
-        struct Seg: Codable {
-            let id: Int
-            let pt_text: String
-            let en_text: String
-            let pt_file: String
-            let en_file: String
-            let paragraph: Int?
-        }
-
-        var rows: [Seg] = []
-
-        let src = languageSlug(req.genLanguage)
-        let dst = languageSlug(req.transLanguage)
-
-        for i in 0..<count {
-            try Task.checkCancellation()
-            await progress("TTS \(i+1)/\(count) \(req.genLanguage)…")
-            let ptFile = "\(src)_\(lessonID)_\(i+1).mp3"
-            let ptData = try await ttsViaProxy(text: ptSegs[i], language: req.genLanguage, speed: req.speechSpeed)
-            try save(ptData, to: base.appendingPathComponent(ptFile))
-
-            try Task.checkCancellation()
-            await progress("TTS \(i+1)/\(count) \(req.transLanguage)…")
-            let enFile = "\(dst)_\(lessonID)_\(i+1).mp3"
-            let enData = try await ttsViaProxy(text: enSegs[i], language: req.transLanguage, speed: req.speechSpeed)
-            try save(enData, to: base.appendingPathComponent(enFile))
-
-            rows.append(.init(
-                id: i+1,
-                pt_text: segsPrimary[i],
-                en_text: segsSecondary[i],
-                pt_file: ptFile,
-                en_file: enFile,
-                paragraph: segmentParagraphIndex[i]
-            ))
-        }
-
-        // segments_<lesson>.json
-        let segJSON = base.appendingPathComponent("segments_\(lessonID).json")
-        let segData = try JSONEncoder().encode(rows)
-        try save(segData, to: segJSON)
-
-        // update lessons.json in Documents
-        struct Manifest: Codable { var id:String; var title:String; var folderName:String }
-        let manifestURL = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
-        var list: [Manifest] = []
-        if let d = try? Data(contentsOf: manifestURL) {
-            list = (try? JSONDecoder().decode([Manifest].self, from: d)) ?? []
-            list.removeAll { $0.id == lessonID }
-        }
-        let title = generatedTitle
-        list.append(.init(id: lessonID, title: title, folderName: lessonID))
-        let out = try JSONEncoder().encode(list)
-        try save(out, to: manifestURL)
-
-        return lessonID
     }
+
 }
 
 // MARK: - Simple background activity manager
