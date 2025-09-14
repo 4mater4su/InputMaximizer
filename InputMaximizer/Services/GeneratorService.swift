@@ -316,7 +316,7 @@ private extension GeneratorService {
             """
 
             let body: [String:Any] = [
-                "model": "gpt-5",
+                "model": "gpt-5-mini",
                 "messages": [
                     ["role":"system","content":"Refine prompts faithfully; elevate without drifting from user intent."],
                     ["role":"user","content": meta]
@@ -341,7 +341,7 @@ private extension GeneratorService {
             """
 
             let body: [String:Any] = [
-                "model": "gpt-5",
+                "model": "gpt-5-mini",
                 "messages": [
                     ["role":"system","content": system],
                     ["role":"user","content": elevated]
