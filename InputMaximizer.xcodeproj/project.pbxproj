@@ -40,11 +40,6 @@
 			path = InputMaximizer;
 			sourceTree = "<group>";
 		};
-		0CBDF4022E530A0200668B6D /* Lessons */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Lessons;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,7 +60,6 @@
 				0C8C3A862E6D78290040AED9 /* InputMaximizer.storekit */,
 				0C5A8BC22E5C34B9007E8987 /* .gitignore */,
 				0C5A8ACC2E568287007E8987 /* silence.caf */,
-				0CBDF4022E530A0200668B6D /* Lessons */,
 				0C38E3092E51D405002F7723 /* InputMaximizer */,
 				0C8C3A7E2E6D57EF0040AED9 /* Frameworks */,
 				0C38E3082E51D405002F7723 /* Products */,
@@ -105,7 +99,6 @@
 			);
 			fileSystemSynchronizedGroups = (
 				0C38E3092E51D405002F7723 /* InputMaximizer */,
-				0CBDF4022E530A0200668B6D /* Lessons */,
 			);
 			name = InputMaximizer;
 			packageProductDependencies = (
@@ -297,7 +290,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_ASSET_PATHS = "\"InputMaximizer/Preview Content\"";
 				DEVELOPMENT_TEAM = 8V6LBF8S5D;
 				ENABLE_PREVIEWS = YES;
@@ -313,7 +306,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.01;
+				MARKETING_VERSION = 1.02;
 				PRODUCT_BUNDLE_IDENTIFIER = io.robinfederico.InputMaximizer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -328,7 +321,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_ASSET_PATHS = "\"InputMaximizer/Preview Content\"";
 				DEVELOPMENT_TEAM = 8V6LBF8S5D;
 				ENABLE_PREVIEWS = YES;
@@ -344,7 +337,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.01;
+				MARKETING_VERSION = 1.02;
 				PRODUCT_BUNDLE_IDENTIFIER = io.robinfederico.InputMaximizer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
