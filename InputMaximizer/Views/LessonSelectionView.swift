@@ -17,30 +17,51 @@ final class LessonStore: ObservableObject {
 
     func load() {
         FileManager.ensureLessonsDir()
-        let docsJSON = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
+        let docsURL = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
 
-        let candidateURLs: [URL?] = [
-            FileManager.default.fileExists(atPath: docsJSON.path) ? docsJSON : nil,
-            Bundle.main.url(forResource: "lessons", withExtension: "json", subdirectory: "Lessons"),
-            (Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? [])
-                .first(where: { $0.lastPathComponent == "lessons.json" })
-        ]
+        // 1) Read existing user manifest (if any)
+        let decoder = JSONDecoder()
+        let docList: [Lesson] = (try? Data(contentsOf: docsURL))
+            .flatMap { try? decoder.decode([Lesson].self, from: $0) } ?? []
 
-        guard let url = candidateURLs.compactMap({ $0 }).first else {
-            print("lessons.json not found.")
-            lessons = []
-            return
+        // 2) Read bundled defaults (Lessons/lessons.json), with a loose fallback
+        let bundleURL =
+            Bundle.main.url(forResource: "lessons", withExtension: "json", subdirectory: "Lessons")
+            ?? (Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? [])
+                .first { $0.lastPathComponent == "lessons.json" }
+
+        let bundleList: [Lesson] = bundleURL
+            .flatMap { try? Data(contentsOf: $0) }
+            .flatMap { try? decoder.decode([Lesson].self, from: $0) } ?? []
+
+        // 3) Merge: keep user order, append bundled items not already present
+        var merged = docList
+        var seenIDs = Set(docList.map(\.id))
+        var seenFolders = Set(docList.map(\.folderName))
+        for item in bundleList {
+            if !seenIDs.contains(item.id) && !seenFolders.contains(item.folderName) {
+                merged.append(item)
+                seenIDs.insert(item.id)
+                seenFolders.insert(item.folderName)
+            }
         }
 
-        do {
-            let data = try Data(contentsOf: url)
-            lessons = try JSONDecoder().decode([Lesson].self, from: data)
-        } catch {
-            print("Failed to decode lessons.json: \(error)")
-            lessons = []
+        // 4) Publish
+        lessons = merged
+
+        // 5) Persist merged manifest to Documents so it “sticks” on existing installs
+        if merged != docList {
+            do {
+                try FileManager.default.createDirectory(at: FileManager.docsLessonsDir, withIntermediateDirectories: true)
+                let data = try JSONEncoder().encode(merged)
+                try data.write(to: docsURL, options: .atomic)
+            } catch {
+                print("Failed to persist merged lessons.json: \(error)")
+            }
         }
     }
 }
+
 
 // MARK: - Deletion / Persistence helpers
 extension LessonStore {

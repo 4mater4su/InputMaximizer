@@ -1,0 +1,138 @@
+[
+  {
+    "id": 1,
+    "pt_text": "Ana: Oi Pedro!",
+    "en_text": "Ana: Hi Pedro!",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_1.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_1.mp3",
+    "paragraph": 0
+  },
+  {
+    "id": 2,
+    "pt_text": "Quanto tempo.",
+    "en_text": "Long time no see.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_2.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_2.mp3",
+    "paragraph": 0
+  },
+  {
+    "id": 3,
+    "pt_text": "Pedro: Oi Ana!",
+    "en_text": "Pedro: Hi Ana!",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_3.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_3.mp3",
+    "paragraph": 0
+  },
+  {
+    "id": 4,
+    "pt_text": "Que bom te ver.",
+    "en_text": "Great to see you.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_4.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_4.mp3",
+    "paragraph": 0
+  },
+  {
+    "id": 5,
+    "pt_text": "Ana: Nós somos amigos desde a faculdade e vamos planejar uma viagem.",
+    "en_text": "Ana: We've been friends since college and we're planning a trip.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_5.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_5.mp3",
+    "paragraph": 0
+  },
+  {
+    "id": 6,
+    "pt_text": "Pedro: Vou pedir um café com leite.",
+    "en_text": "Pedro: I'll get a coffee with milk.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_6.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_6.mp3",
+    "paragraph": 0
+  },
+  {
+    "id": 7,
+    "pt_text": "Este café é calmo e tem música baixa.",
+    "en_text": "This café is quiet and the music's playing softly.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_7.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_7.mp3",
+    "paragraph": 0
+  },
+  {
+    "id": 8,
+    "pt_text": "Ana: Para onde vamos Pedro?",
+    "en_text": "Ana: Where are we going, Pedro?",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_8.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_8.mp3",
+    "paragraph": 1
+  },
+  {
+    "id": 9,
+    "pt_text": "Pedro: Pensei no Porto em agosto por cinco dias.",
+    "en_text": "Pedro: I was thinking of Porto in August for five days.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_9.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_9.mp3",
+    "paragraph": 1
+  },
+  {
+    "id": 10,
+    "pt_text": "Ana: Vamos de comboio e o orçamento fica em cerca de 600 euros por pessoa.",
+    "en_text": "Ana: We'll go by train, and the budget will be about €600 per person.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_10.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_10.mp3",
+    "paragraph": 1
+  },
+  {
+    "id": 11,
+    "pt_text": "Pedro: Podemos ficar num apartamento ou num hostel e visitar museus, a praia e restaurantes.",
+    "en_text": "Pedro: We can stay in an apartment or a hostel and visit museums, the beach, and restaurants.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_11.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_11.mp3",
+    "paragraph": 1
+  },
+  {
+    "id": 12,
+    "pt_text": "Ana: Me preocupa o trabalho e também o tempo instável.",
+    "en_text": "Ana: I'm worried about work and the unpredictable weather.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_12.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_12.mp3",
+    "paragraph": 2
+  },
+  {
+    "id": 13,
+    "pt_text": "Pedro: Eu me preocupo com a segurança e com os custos extras.",
+    "en_text": "Pedro: I'm concerned about safety and the extra costs.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_13.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_13.mp3",
+    "paragraph": 2
+  },
+  {
+    "id": 14,
+    "pt_text": "Ana: Então reservamos as datas e cada um fala com o chefe amanhã.",
+    "en_text": "Ana: So let's book the dates and each of us will talk to our boss tomorrow.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_14.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_14.mp3",
+    "paragraph": 2
+  },
+  {
+    "id": 15,
+    "pt_text": "Pedro: Combinado!",
+    "en_text": "Pedro: Sounds good!",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_15.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_15.mp3",
+    "paragraph": 2
+  },
+  {
+    "id": 16,
+    "pt_text": "Vou reservar os bilhetes e te aviso.",
+    "en_text": "I'll book the tickets and let you know.",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_16.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_16.mp3",
+    "paragraph": 2
+  },
+  {
+    "id": 17,
+    "pt_text": "Até breve!",
+    "en_text": "See you soon!",
+    "pt_file": "portug_Plano_de_viagem_no_cafe_17.mp3",
+    "en_file": "englis_Plano_de_viagem_no_cafe_17.mp3",
+    "paragraph": 2
+  }
+]
