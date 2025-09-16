@@ -10,6 +10,14 @@ import Foundation
 struct ProxyClient {
     let baseURL: URL
 
+    private static let session: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 45     // per-request inactivity timeout
+        cfg.timeoutIntervalForResource = 120   // total time per request
+        cfg.waitsForConnectivity = true        // handles transient offline cases
+        return URLSession(configuration: cfg)
+    }()
+    
     // MARK: - Credits: spend
     func spendCredits(deviceId: String, amount: Int = 1) async throws {
         var req = URLRequest(url: baseURL.appendingPathComponent("/credits/spend"))
@@ -18,7 +26,7 @@ struct ProxyClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["amount": amount])
 
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await ProxyClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
 
         if http.statusCode == 402 {
@@ -43,7 +51,7 @@ struct ProxyClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["receipt": receiptBase64])
 
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await ProxyClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
 
         if http.statusCode == 409 {
@@ -75,7 +83,7 @@ struct ProxyClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["signedTransactions": signedTransactions])
 
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await ProxyClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
 
         if http.statusCode == 409 {
@@ -101,7 +109,7 @@ struct ProxyClient {
         req.httpMethod = "GET"
         req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
 
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await ProxyClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
@@ -118,7 +126,7 @@ struct ProxyClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await ProxyClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
 
         if http.statusCode == 402 {
@@ -148,7 +156,7 @@ struct ProxyClient {
             "voice": "shimmer"
         ])
 
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await ProxyClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
 
         if http.statusCode == 402 {
@@ -182,7 +190,7 @@ extension ProxyClient {
         req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["amount": amount, "ttlSeconds": ttlSeconds])
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await ProxyClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         if http.statusCode == 402 {
             let msg = String(data: data, encoding: .utf8) ?? "Insufficient credits"
@@ -202,7 +210,7 @@ extension ProxyClient {
         req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["jobId": jobId])
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await ProxyClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let msg = String(data: data, encoding: .utf8) ?? "Server error"
             throw NSError(domain: "Proxy", code: (resp as? HTTPURLResponse)?.statusCode ?? -1,

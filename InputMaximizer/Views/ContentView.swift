@@ -331,7 +331,8 @@ struct ContentView: View {
                         case .translation:
                             Image(systemName: "globe")                           // Translation-only
                         case .both:
-                            Image(systemName: "arrow.left.and.right.circle")     // Dual (both languages)
+                            Image(systemName: "eye")
+                            //Image(systemName: "arrow.left.and.right.circle")     // Dual (both languages)
                         }
                     }
                 }

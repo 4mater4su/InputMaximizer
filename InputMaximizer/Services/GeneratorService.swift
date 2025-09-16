@@ -68,9 +68,6 @@ final class GeneratorService: ObservableObject {
         status = "Starting…"
         lastLessonID = nil
 
-        // Hold a background task token so iOS gives us time if the app goes to background.
-        let bgToken = background.begin()
-
         background.end(currentBgTaskId)
         currentBgTaskId = background.begin(name: "LessonGeneration")
         
@@ -119,6 +116,46 @@ final class GeneratorService: ObservableObject {
 // MARK: - The worker (non-UI code)
 
 private extension GeneratorService {
+    
+    // Timeout Handler
+    enum NetError: Error { case timedOut }
+
+    static func withTimeout<T>(_ seconds: Double, _ op: @escaping () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await op() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw NetError.timedOut
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+
+    static func retry<T>(
+        attempts: Int = 3,
+        initialDelay: Double = 0.8,
+        factor: Double = 2.0,
+        _ op: @escaping () async throws -> T
+    ) async throws -> T {
+        var lastError: Error?
+        var delay = initialDelay
+        for i in 0..<attempts {
+            do { return try await op() }
+            catch is CancellationError { throw NetError.timedOut } // respect cancellation
+            catch {
+                lastError = error
+                if i < attempts - 1 {
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    delay *= factor
+                    continue
+                }
+            }
+        }
+        throw lastError ?? NetError.timedOut
+    }
+
     
     /// Very lightweight language check. You can expand this list anytime.
     static func isCJKLanguage(_ name: String) -> Bool {
@@ -255,13 +292,21 @@ private extension GeneratorService {
 
     // MARK: - Networking (same logic you already have, but parameterized)
     static func chatViaProxy(_ body: [String:Any]) async throws -> String {
-        let json = try await proxy.chat(deviceId: DeviceID.current, body: body)
+        let json = try await retry {
+            try await withTimeout(60) {
+                try await proxy.chat(deviceId: DeviceID.current, body: body)
+            }
+        }
         let content = (((json["choices"] as? [[String:Any]])?.first?["message"] as? [String:Any])?["content"] as? String) ?? ""
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func ttsViaProxy(text: String, language: String, speed: Request.SpeechSpeed) async throws -> Data {
-        try await proxy.tts(deviceId: DeviceID.current, text: text, language: language, speed: speed.rawValue)
+        try await retry {
+            try await withTimeout(90) {   // TTS can be slower than chat
+                try await proxy.tts(deviceId: DeviceID.current, text: text, language: language, speed: speed.rawValue)
+            }
+        }
     }
 
     // ---- Segmentation helpers ----
@@ -327,7 +372,7 @@ private extension GeneratorService {
             """
 
             let body: [String:Any] = [
-                "model": "gpt-5-mini",
+                "model": "gpt-5",
                 "messages": [
                     ["role":"system","content":"Refine prompts faithfully; elevate without drifting from user intent."],
                     ["role":"user","content": meta]
@@ -352,7 +397,7 @@ private extension GeneratorService {
             """
 
             let body: [String:Any] = [
-                "model": "gpt-5-nano",
+                "model": "gpt-5",
                 "messages": [
                     ["role":"system","content": system],
                     ["role":"user","content": elevated]
@@ -382,7 +427,7 @@ private extension GeneratorService {
 
         func translate(_ text: String, to targetLang: String) async throws -> String {
             let body: [String:Any] = [
-                "model":"gpt-5-mini",
+                "model":"gpt-5",
                 "messages":[
                     ["role":"system","content":"Translate naturally and idiomatically."],
                     ["role":"user","content":"Translate into \(targetLang):\n\n\(text)"]
@@ -571,31 +616,39 @@ private extension GeneratorService {
 
 // MARK: - Simple background activity manager
 
+@MainActor
 private final class BackgroundActivityManager {
-    /// Begin a background task. The expiration handler will ALWAYS end the task,
-    /// preventing "task created >30s ago" warnings when iOS expires it.
+    private var currentId: UIBackgroundTaskIdentifier = .invalid
+
+    /// Begin a background task. The expiration handler ends whatever task id
+    /// is currently tracked, avoiding capture-before-declare & mutation-after-capture issues.
     func begin(name: String = "LessonGeneration") -> UIBackgroundTaskIdentifier {
         #if os(iOS)
-        var id: UIBackgroundTaskIdentifier = .invalid
-        id = UIApplication.shared.beginBackgroundTask(withName: name) {
-            // If the OS expires us, end immediately to avoid termination.
-            if id != .invalid {
-                UIApplication.shared.endBackgroundTask(id)
-                // DO NOT mutate id here; the caller holds the identifier and can zero it.
+        let id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            guard let self else { return }
+            let toEnd = self.currentId
+            if toEnd != .invalid {
+                UIApplication.shared.endBackgroundTask(toEnd)
             }
+            self.currentId = .invalid
         }
+        currentId = id
         return id
         #else
         return .invalid
         #endif
     }
 
-    /// End a background task if valid.
+    /// End a background task if valid. Also clears the tracked id when it matches.
     func end(_ id: UIBackgroundTaskIdentifier) {
         #if os(iOS)
-        if id != .invalid { UIApplication.shared.endBackgroundTask(id) }
+        if id != .invalid {
+            UIApplication.shared.endBackgroundTask(id)
+        }
+        if currentId == id { currentId = .invalid }
         #endif
     }
 }
+
 
 
