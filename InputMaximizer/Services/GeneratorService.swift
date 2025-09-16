@@ -35,6 +35,8 @@ final class GeneratorService: ObservableObject {
     private var currentTask: Task<Void, Never>?
     private let background = BackgroundActivityManager()
     
+    private var currentBgTaskId: UIBackgroundTaskIdentifier = .invalid
+    
     struct Request: Equatable, Sendable {
         enum GenerationMode: String { case random, prompt }
         enum Segmentation: String { case sentences, paragraphs }
@@ -69,6 +71,9 @@ final class GeneratorService: ObservableObject {
         // Hold a background task token so iOS gives us time if the app goes to background.
         let bgToken = background.begin()
 
+        background.end(currentBgTaskId)
+        currentBgTaskId = background.begin(name: "LessonGeneration")
+        
         // Inherit @MainActor so capturing `self` is legal in Swift 6.
         currentTask = Task(priority: .userInitiated) { @MainActor [weak self] in
             guard let self else { return }
@@ -93,7 +98,9 @@ final class GeneratorService: ObservableObject {
                 self.status = "Error: \(error.localizedDescription)"
                 self.isBusy = false
             }
-            self.background.end(bgToken)
+            // ALWAYS end the background task on completion/exit.
+            self.background.end(self.currentBgTaskId)
+            self.currentBgTaskId = .invalid
         }
     }
 
@@ -102,6 +109,10 @@ final class GeneratorService: ObservableObject {
         currentTask = nil
         isBusy = false
         status = "Cancelled."
+        
+        // Also end the background task if it’s still active.
+        background.end(currentBgTaskId)
+        currentBgTaskId = .invalid
     }
 }
 
@@ -561,19 +572,30 @@ private extension GeneratorService {
 // MARK: - Simple background activity manager
 
 private final class BackgroundActivityManager {
-    func begin() -> UIBackgroundTaskIdentifier {
+    /// Begin a background task. The expiration handler will ALWAYS end the task,
+    /// preventing "task created >30s ago" warnings when iOS expires it.
+    func begin(name: String = "LessonGeneration") -> UIBackgroundTaskIdentifier {
         #if os(iOS)
-        let id = UIApplication.shared.beginBackgroundTask(withName: "LessonGeneration") { }
+        var id: UIBackgroundTaskIdentifier = .invalid
+        id = UIApplication.shared.beginBackgroundTask(withName: name) {
+            // If the OS expires us, end immediately to avoid termination.
+            if id != .invalid {
+                UIApplication.shared.endBackgroundTask(id)
+                // DO NOT mutate id here; the caller holds the identifier and can zero it.
+            }
+        }
         return id
         #else
         return .invalid
         #endif
     }
 
+    /// End a background task if valid.
     func end(_ id: UIBackgroundTaskIdentifier) {
         #if os(iOS)
         if id != .invalid { UIApplication.shared.endBackgroundTask(id) }
         #endif
     }
 }
+
 
