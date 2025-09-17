@@ -55,6 +55,10 @@ struct ContentView: View {
     // Local, non-playing transcript for whatever is *selected* in UI
     @State private var displaySegments: [DisplaySegment] = []
 
+    // Turn sentence explosion on/off.
+    // OFF now; flip to true when you want to experiment.
+    private var shouldExplode: Bool { false }
+    
     // MARK: - Init
     init(selectedLesson: Lesson, lessons: [Lesson]) {
         self.selectedLesson = selectedLesson
@@ -99,7 +103,25 @@ struct ContentView: View {
         return scrollID(for: segID, in: folder)
     }
     
-    private func explodeForDisplay(from baseSegments: [Segment]) -> [DisplaySegment] {
+    private func makeDisplaySegments(
+        from baseSegments: [Segment],
+        explode: Bool
+    ) -> [DisplaySegment] {
+
+        // When segmentation is by paragraph, DO NOT explode.
+        guard explode else {
+            return baseSegments.map { seg in
+                DisplaySegment(
+                    id: seg.id * 1000,          // keep stable row id shape
+                    originalID: seg.id,
+                    paragraph: seg.paragraph,
+                    pt_text: seg.pt_text,
+                    en_text: seg.en_text
+                )
+            }
+        }
+
+        // Existing explosion logic (unchanged)
         var out: [DisplaySegment] = []
         let ptLocale = Locale(identifier: "pt")
         let enLocale = Locale(identifier: "en")
@@ -108,10 +130,9 @@ struct ContentView: View {
             let ptParts = splitSentences(seg.pt_text, locale: ptLocale)
             let enParts = splitSentences(seg.en_text, locale: enLocale)
 
-            // If both are already single sentences or counts mismatch, keep as one row
             guard ptParts.count == enParts.count, ptParts.count > 1 else {
                 out.append(DisplaySegment(
-                    id: seg.id * 1000,              // stable “whole” row id
+                    id: seg.id * 1000,
                     originalID: seg.id,
                     paragraph: seg.paragraph,
                     pt_text: seg.pt_text,
@@ -120,7 +141,6 @@ struct ContentView: View {
                 continue
             }
 
-            // Create one DisplaySegment per sentence pair
             for (i, (pt, en)) in zip(ptParts, enParts).enumerated() {
                 out.append(DisplaySegment(
                     id: seg.id * 1000 + i,
@@ -240,7 +260,7 @@ struct ContentView: View {
         }
         .onAppear {
             let base = audioManager.previewSegments(for: currentLesson.folderName)
-            displaySegments = explodeForDisplay(from: base)
+            displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
             
             audioManager.segmentDelay = storedDelay
             audioManager.requestNextLesson = { [weak audioManager] in
@@ -252,16 +272,14 @@ struct ContentView: View {
         }
         .onChange(of: currentLessonIndex, initial: false) { _, _ in
             let base = audioManager.previewSegments(for: currentLesson.folderName)
-            displaySegments = explodeForDisplay(from: base)
-        }
+            displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)        }
 
         .onChange(of: audioManager.currentLessonFolderName, initial: false) { _, newFolder in
             if let folder = newFolder,
                let idx = lessons.firstIndex(where: { $0.folderName == folder }) {
                 currentLessonIndex = idx
                 let base = audioManager.previewSegments(for: folder)
-                displaySegments = explodeForDisplay(from: base)
-            }
+                displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)            }
         }
 
         .onChange(of: storedDelay, initial: false) { _, newValue in

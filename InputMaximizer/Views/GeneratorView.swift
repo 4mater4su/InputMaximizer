@@ -171,6 +171,34 @@ struct GeneratorView: View {
 
     @State private var speechSpeed: SpeechSpeed = .regular
 
+    // Preconfigured prompts to draw from
+    private let presetPrompts: [String] = [
+        "You’re at a café. Order coffee, make small talk with the barista, and ask about a local pastry recommendation.",
+        "Describe your morning routine and ask a friend about theirs. Include at least one follow-up question.",
+        "Explain your travel plans for the weekend and ask for advice on packing and activities.",
+        "Role-play a phone call to schedule a doctor’s appointment. Ask about available times and insurance.",
+        "Discuss a recent movie you watched. Give your opinion and ask for a recommendation in return.",
+        "You’re at a street market. Ask about prices, negotiate politely, and confirm quantities."
+    ]
+
+    // Pick a random preset and paste it into the TextEditor.
+    // If possible, avoid repeating the exact same prompt twice in a row.
+    private func pickRandomPresetPrompt() {
+        guard !presetPrompts.isEmpty else { return }
+        var newPrompt = presetPrompts.randomElement()!
+        if presetPrompts.count > 1 {
+            var attempts = 0
+            while newPrompt == userPrompt && attempts < 5 {
+                newPrompt = presetPrompts.randomElement()!
+                attempts += 1
+            }
+        }
+        userPrompt = newPrompt
+        // Keep the cursor in the editor so users can immediately tweak it
+        promptIsFocused = true
+    }
+    
+    
     // Build a topic from selected aspects + one interest
     private func buildRandomTopic() -> String {
         let styleSel = styleTable.randomSelection()           // only active rows with at least one enabled option
@@ -287,6 +315,16 @@ struct GeneratorView: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
                     .padding(.vertical, 2)
                     .focused($promptIsFocused)
+
+                // NEW: random prompt button directly under the editor
+                Button {
+                    pickRandomPresetPrompt()
+                } label: {
+                    Label("Random Prompt", systemImage: "die.face.5") // iOS 16+; swap to "shuffle" if needed
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 4)
+
                 Text("Describe instructions, a theme, or paste a source text.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
