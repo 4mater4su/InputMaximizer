@@ -194,8 +194,6 @@ struct GeneratorView: View {
             }
         }
         userPrompt = newPrompt
-        // Keep the cursor in the editor so users can immediately tweak it
-        promptIsFocused = true
     }
     
     
@@ -475,9 +473,10 @@ struct GeneratorView: View {
                 Button("Done") { promptIsFocused = false }
             }
         }
-        // Focus the prompt when switching to .prompt
-        .onChange(of: mode, initial: false) { _, newValue in
-            promptIsFocused = (newValue == .prompt)
+        // Remove this block OR replace with:
+        .onChange(of: mode, initial: false) { _, _ in
+            // keep keyboard hidden until user taps
+            promptIsFocused = false
         }
         .onAppear {
             print("DeviceID.current = \(DeviceID.current)")
@@ -494,6 +493,7 @@ struct GeneratorView: View {
             
             // Load generator settings
             loadGeneratorSettings()
+            promptIsFocused = false   // ensure keyboard is hidden on open
         }
         // Persist generator settings — keep one-liners
         .onChange(of: mode, initial: false)            { _, _ in saveGeneratorSettings() }
