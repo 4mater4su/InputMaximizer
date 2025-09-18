@@ -31,6 +31,14 @@ final class GeneratorService: ObservableObject {
         try await proxy.balance(deviceId: DeviceID.current)
     }
     
+    // Helper
+    static func isoNow() -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.string(from: Date())
+    }
+
+    
     // Current running task
     private var currentTask: Task<Void, Never>?
     private let background = BackgroundActivityManager()
@@ -111,6 +119,25 @@ final class GeneratorService: ObservableObject {
         background.end(currentBgTaskId)
         currentBgTaskId = .invalid
     }
+    
+    // Helpers
+    
+    struct LessonMeta: Codable {
+        let schemaVersion: Int
+        let id: String
+        let title: String
+        let targetLanguage: String
+        let translationLanguage: String
+        let targetLangCode: String
+        let translationLangCode: String
+        let targetShort: String   // e.g. "PT-BR", "ZH-Hans", "EN"
+        let translationShort: String
+        let segmentation: String  // "sentences" | "paragraphs"
+        let speechSpeed: String   // "regular" | "slow"
+        let languageLevel: String // CEFR: A1..C2
+        let createdAtISO: String
+    }
+
 }
 
 // MARK: - The worker (non-UI code)
@@ -587,8 +614,39 @@ private extension GeneratorService {
             let segData = try JSONEncoder().encode(rows)
             try save(segData, to: segJSON)
 
+            let meta = LessonMeta(
+                schemaVersion: 1,
+                id: lessonID,
+                title: generatedTitle,
+                targetLanguage: req.genLanguage,
+                translationLanguage: req.transLanguage,
+                targetLangCode: LessonLanguageResolver.languageCode(for: req.genLanguage),
+                translationLangCode: LessonLanguageResolver.languageCode(for: req.transLanguage),
+                targetShort: LessonLanguageResolver.shortLabel(for: req.genLanguage),
+                translationShort: LessonLanguageResolver.shortLabel(for: req.transLanguage),
+                segmentation: req.segmentation.rawValue.lowercased(),
+                speechSpeed: req.speechSpeed.rawValue,
+                languageLevel: req.languageLevel.rawValue,
+                createdAtISO: isoNow()
+            )
+            let metaURL = base.appendingPathComponent("lesson_meta.json")
+            let metaData = try JSONEncoder().encode(meta)
+            try save(metaData, to: metaURL)
+
+            
             // update lessons.json in Documents
-            struct Manifest: Codable { var id:String; var title:String; var folderName:String }
+            // Replace the Manifest struct in runGeneration with:
+            struct Manifest: Codable {
+                var id: String
+                var title: String
+                var folderName: String
+                var targetLanguage: String?
+                var translationLanguage: String?
+                var targetLangCode: String?
+                var translationLangCode: String?
+            }
+            
+            
             let manifestURL = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
             var list: [Manifest] = []
             if let d = try? Data(contentsOf: manifestURL) {
@@ -596,7 +654,17 @@ private extension GeneratorService {
                 list.removeAll { $0.id == lessonID }
             }
             let title = generatedTitle
-            list.append(.init(id: lessonID, title: title, folderName: lessonID))
+            
+            list.append(.init(
+                id: lessonID,
+                title: title,
+                folderName: lessonID,
+                targetLanguage: req.genLanguage,
+                translationLanguage: req.transLanguage,
+                targetLangCode: LessonLanguageResolver.languageCode(for: req.genLanguage),
+                translationLangCode: LessonLanguageResolver.languageCode(for: req.transLanguage)
+            ))
+            
             let out = try JSONEncoder().encode(list)
             try save(out, to: manifestURL)
 

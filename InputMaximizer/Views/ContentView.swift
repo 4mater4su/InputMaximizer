@@ -54,6 +54,8 @@ struct ContentView: View {
 
     // Local, non-playing transcript for whatever is *selected* in UI
     @State private var displaySegments: [DisplaySegment] = []
+    
+    @State private var lessonLangs: LessonLanguages
 
     // Turn sentence explosion on/off.
     // OFF now; flip to true when you want to experiment.
@@ -64,6 +66,7 @@ struct ContentView: View {
         self.selectedLesson = selectedLesson
         self.lessons = lessons
         _currentLessonIndex = State(initialValue: lessons.firstIndex(of: selectedLesson) ?? 0)
+        _lessonLangs = State(initialValue: LessonLanguageResolver.resolve(for: selectedLesson))
     }
 
     // MARK: - Derived
@@ -185,6 +188,84 @@ struct ContentView: View {
             audioManager.playInContinuousLane(from: 0)
         }
     }
+    
+    private struct LangPill: View {
+        let text: String
+        var body: some View {
+            Text(text)
+                .font(.caption2.bold())
+                .padding(.vertical, 2).padding(.horizontal, 6)
+                .background(Capsule().stroke(Color.hairline, lineWidth: 1))
+                .contentTransition(.opacity)
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private func DisplayModeIcon(_ mode: TextDisplayMode, langs: LessonLanguages) -> some View {
+        switch mode {
+        case .both:
+            HStack(spacing: 4) { LangPill(text: langs.targetShort); LangPill(text: langs.translationShort) }
+        case .targetOnly:
+            LangPill(text: langs.targetShort)
+        case .translationOnly:
+            LangPill(text: langs.translationShort)
+        }
+    }
+
+    @ViewBuilder
+    private func PlaybackModeIcon(_ mode: AudioManager.PlaybackMode, langs: LessonLanguages) -> some View {
+        switch mode {
+        case .target:
+            HStack(spacing: 6) {
+                Image(systemName: "speaker.wave.2.fill")
+                LangPill(text: langs.targetShort)
+            }
+        case .translation:
+            HStack(spacing: 6) {
+                Image(systemName: "speaker.wave.2.fill")
+                LangPill(text: langs.translationShort)
+            }
+        case .both:
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.left.and.right.circle")
+                LangPill(text: langs.targetShort)
+                LangPill(text: langs.translationShort)
+            }
+        }
+    }
+
+    /// If you prefer the button to show the **next** mode instead of the current one:
+    @ViewBuilder
+    private func PlaybackNextIcon(current: AudioManager.PlaybackMode, langs: LessonLanguages) -> some View {
+        let next: AudioManager.PlaybackMode = {
+            switch current {
+            case .target: return .translation
+            case .translation: return .both
+            case .both: return .target
+            }
+        }()
+        PlaybackModeIcon(next, langs: langs)
+    }
+    
+    //
+    private var oppositeLangShort: String {
+        switch audioManager.playbackMode {
+        case .target:       return lessonLangs.translationShort
+        case .translation:  return lessonLangs.targetShort
+        case .both:         // dual → show first lane’s opposite
+            return audioManager.isPlayingPT ? lessonLangs.translationShort : lessonLangs.targetShort
+        }
+    }
+
+    private var oppositeLangFull: String {
+        switch audioManager.playbackMode {
+        case .target:       return lessonLangs.translationName
+        case .translation:  return lessonLangs.targetName
+        case .both:         return audioManager.isPlayingPT ? lessonLangs.translationName : lessonLangs.targetName
+        }
+    }
+
 
     // MARK: - View
     var body: some View {
@@ -233,14 +314,36 @@ struct ContentView: View {
                                 .imageScale(.large)
                         }
                         .buttonStyle(MinimalIconButtonStyle())
-                        .accessibilityLabel(audioManager.isPlayingPT ? "Pause Portuguese" : "Play Portuguese")
+                        .accessibilityLabel(audioManager.isPlayingPT ? "Pause" : "Play")
 
                         Button {
                             audioManager.playOppositeOnce()
                         } label: {
-                            Image(systemName: "globe").imageScale(.large)
+                            if audioManager.playbackMode == .both {
+                                // Dual mode → back-and-forth icon only
+                                Image(systemName: "arrow.left.and.right.circle")
+                                    .imageScale(.large)
+                            } else {
+                                // Single mode → pill with opposite language short code
+                                Text(oppositeLangShort)
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.surface.opacity(0.8))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            }
                         }
                         .buttonStyle(MinimalIconButtonStyle())
+                        .accessibilityLabel({
+                            switch audioManager.playbackMode {
+                            case .target:       return "Play \(lessonLangs.translationName) once"
+                            case .translation:  return "Play \(lessonLangs.targetName) once"
+                            case .both:         return "Replay both languages for this segment"
+                            }
+                        }())
+
+
                     }
                     .padding(.vertical, 14) // a bit more breathing room
                 }
@@ -261,6 +364,7 @@ struct ContentView: View {
         .onAppear {
             let base = audioManager.previewSegments(for: currentLesson.folderName)
             displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
+            lessonLangs = LessonLanguageResolver.resolve(for: currentLesson)
             
             audioManager.segmentDelay = storedDelay
             audioManager.requestNextLesson = { [weak audioManager] in
@@ -272,14 +376,18 @@ struct ContentView: View {
         }
         .onChange(of: currentLessonIndex, initial: false) { _, _ in
             let base = audioManager.previewSegments(for: currentLesson.folderName)
-            displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)        }
+            displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
+            lessonLangs = LessonLanguageResolver.resolve(for: currentLesson)
+        }
 
         .onChange(of: audioManager.currentLessonFolderName, initial: false) { _, newFolder in
             if let folder = newFolder,
                let idx = lessons.firstIndex(where: { $0.folderName == folder }) {
                 currentLessonIndex = idx
                 let base = audioManager.previewSegments(for: folder)
-                displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)            }
+                displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
+                lessonLangs = LessonLanguageResolver.resolve(for: currentLesson)
+            }
         }
 
         .onChange(of: storedDelay, initial: false) { _, newValue in
@@ -306,28 +414,24 @@ struct ContentView: View {
 
             
             ToolbarItem(placement: .navigationBarTrailing) {
+                // 🔄 Text display toggle
                 Button {
                     textDisplayModeRaw = (textDisplayModeRaw + 1) % 3
                 } label: {
-                    Group {
-                        switch textDisplayMode {
-                        case .both:            Image(systemName: "eye")                       // both
-                        case .targetOnly:      Image(systemName: "character.book.closed")     // target only
-                        case .translationOnly: Image(systemName: "globe")                     // translation only
-                        }
-                    }
+                    DisplayModeIcon(textDisplayMode, langs: lessonLangs)
                 }
                 .accessibilityLabel({
                     switch textDisplayMode {
-                    case .both:            return "Show target only"
-                    case .targetOnly:      return "Show translation only"
-                    case .translationOnly: return "Show target and translation"
+                    case .both:            return "Show \(lessonLangs.targetShort) only"
+                    case .targetOnly:      return "Show \(lessonLangs.translationShort) only"
+                    case .translationOnly: return "Show both \(lessonLangs.targetShort) and \(lessonLangs.translationShort)"
                     }
                 }())
                 .accessibilityHint("Cycles between both, target-only, and translation-only.")
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {
+                // 🔄 Playback mode toggle
                 Button {
                     let next: AudioManager.PlaybackMode = {
                         switch audioManager.playbackMode {
@@ -336,33 +440,25 @@ struct ContentView: View {
                         case .both: return .target
                         }
                     }()
-
                     audioManager.setPlaybackMode(next)
-
-                    // Re-play current segment according to the chosen mode (no auto-hop)
                     audioManager.playInContinuousLane(from: audioManager.currentIndex)
                 } label: {
-                    Group {
-                        switch audioManager.playbackMode {
-                        case .target:
-                            Image(systemName: "character.book.closed")          // Target-only
-                        case .translation:
-                            Image(systemName: "globe")                           // Translation-only
-                        case .both:
-                            Image(systemName: "eye")
-                            //Image(systemName: "arrow.left.and.right.circle")     // Dual (both languages)
-                        }
-                    }
+                    // A) shows the **current** playback mode:
+                    PlaybackModeIcon(audioManager.playbackMode, langs: lessonLangs)
+
+                    // If you want the button to show the **next** mode instead, swap to:
+                    //PlaybackNextIcon(current: audioManager.playbackMode, langs: lessonLangs)
                 }
                 .accessibilityLabel({
                     switch audioManager.playbackMode {
-                    case .target: return "Switch to translation playback"
-                    case .translation: return "Switch to dual playback"
-                    case .both: return "Switch to target playback"
+                    case .target:       return "Switch to \(lessonLangs.translationShort) playback"
+                    case .translation:  return "Switch to dual playback"
+                    case .both:         return "Switch to \(lessonLangs.targetShort) playback"
                     }
                 }())
                 .accessibilityHint("Cycles between target, translation, and dual playback modes.")
             }
+
         }
         .sheet(isPresented: $showDelaySheet) {
             NavigationStack {
