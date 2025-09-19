@@ -68,6 +68,10 @@ struct GeneratorView: View {
     
     // Persist all generator knobs in one blob
     @AppStorage("generatorSettingsV1") private var generatorSettingsData: Data = Data()
+    
+    @AppStorage("generatorPromptV1") private var userPrompt: String = ""
+    @AppStorage("generatorRandomTopicV1") private var randomTopic: String = ""
+
 
     // MARK: - Length preset
     enum LengthPreset: Int, CaseIterable, Identifiable {
@@ -85,9 +89,9 @@ struct GeneratorView: View {
         
         var words: Int {
             switch self {
-            case .short:     return 100   // ~100 words
-            case .medium:    return 300   // ~300 words
-            case .long:      return 500   // ~500 words
+            case .short:     return 100
+            case .medium:    return 200
+            case .long:      return 300
             }
         }
     }
@@ -123,8 +127,6 @@ struct GeneratorView: View {
     @State private var transLanguage: String = "English"
 
     @State private var languageLevel: LanguageLevel = .B1
-    
-    @State private var randomTopic: String?
 
     // NEW: aspect states
     @State private var styleTable: AspectTable = .defaults()
@@ -155,9 +157,8 @@ struct GeneratorView: View {
         case prompt = "Prompt"
         var id: String { rawValue }
     }
-    @State private var mode: GenerationMode = .random
-    @State private var userPrompt: String = ""
-
+    @State private var mode: GenerationMode = .prompt
+    
     // MARK: - Segmentation
     enum Segmentation: String, CaseIterable, Identifiable {
         case sentences = "Sentences"
@@ -627,7 +628,7 @@ struct GeneratorView: View {
     @ViewBuilder private func randomTopicSection() -> some View {
         if mode == .random {
             Section("Random Topic") {
-                Text(randomTopic ?? "Tap Randomize to pick from your aspect table")
+                Text(randomTopic)
                     .font(.callout).foregroundStyle(.secondary)
 
                 HStack {
@@ -754,7 +755,7 @@ struct GeneratorView: View {
         Section {
             Button {
                 // No local debit here; proxy debits per request.
-                if mode == .random && (randomTopic ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if mode == .random && randomTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     randomTopic = buildRandomTopic()
                 }
 
@@ -770,7 +771,7 @@ struct GeneratorView: View {
                     segmentation: reqSeg,
                     lengthWords: lengthPreset.words,
                     speechSpeed: speechSpeed,
-                    userChosenTopic: randomTopic,
+                    userChosenTopic: randomTopic.isEmpty ? nil : randomTopic, // wrap to nil if empty
                     topicPool: nil
                 )
 

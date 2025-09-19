@@ -501,7 +501,7 @@ final class AudioManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 if playbackMode == .translation {
                     cancelPendingAdvance()
                     didFinishLesson = false
-
+                    resumeENAfterPT = true
                     if !isPlayingPT || isInDelay {
                         // EN (or delay) → PT of SAME segment
                         play(.pt, from: currentIndex, resumeAfter: false)
