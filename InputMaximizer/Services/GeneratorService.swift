@@ -453,15 +453,37 @@ private extension GeneratorService {
         }
 
         func translate(_ text: String, to targetLang: String) async throws -> String {
-            let body: [String:Any] = [
-                "model":"gpt-5-nano",
-                "messages":[
-                    ["role":"system","content":"Translate naturally and idiomatically."],
-                    ["role":"user","content":"Translate into \(targetLang):\n\n\(text)"]
-                ],
+            let system = """
+            Translate naturally and idiomatically into the requested language.
+
+            Sentence alignment (must):
+            • Keep a 1:1 mapping with the source: SAME number of sentences, SAME order.
+            • Do not merge, split, add, or drop sentences.
+
+            Formatting:
+            • Return plain text only (no quotes, bullets, numbering, or metadata).
+            • Use normal sentence punctuation for the target language.
+            """
+
+            let user = """
+            Target language: \(targetLang)
+
+            Translate the text below. Preserve the sentence boundaries exactly
+            (one target sentence per source sentence, same order).
+
+            \(text)
+            """
+
+            let body: [String: Any] = [
+                "model": "gpt-5-nano",
+                "messages": [
+                    ["role": "system", "content": system],
+                    ["role": "user", "content": user]
+                ]
             ]
             return try await chatViaProxy(body)
         }
+
 
         // ---------- Two-phase credit hold (reserve → commit/cancel) ----------
         let deviceId = DeviceID.current
