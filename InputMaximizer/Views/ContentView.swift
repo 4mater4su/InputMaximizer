@@ -8,6 +8,12 @@
 import SwiftUI
 import NaturalLanguage
 
+// Toolbar layout constants (file-level)
+private let CHIP_GAP: CGFloat      = 6   // space between chips
+private let CHIP_HPAD: CGFloat     = 8   // horizontal padding inside Chip
+private let PILL_SPACING: CGFloat  = 4   // space between language pills
+private let PILL_HPAD: CGFloat     = 5   // horizontal padding inside TinyPill
+
 // Display-only segment that can represent a sub-sentence row
 private struct DisplaySegment: Identifiable {
     let id: Int               // unique, stable for SwiftUI (originalID * 1000 + subIndex)
@@ -216,8 +222,8 @@ struct ContentView: View {
                 if let icon { Image(systemName: icon) }
                 content
             }
-            .font(.callout) // compact but readable
-            .padding(.horizontal, 10)
+            .font(.callout)
+            .padding(.horizontal, CHIP_HPAD)   // ← was chipHorzPadding
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -228,9 +234,10 @@ struct ContentView: View {
                     )
             )
             .contentShape(Rectangle())
-            .frame(height: 32)                 // consistent height
+            .frame(height: 32)
         }
     }
+
 
     // Stronger, tidy vertical divider that matches chip height
     private struct ChipDivider: View {
@@ -244,20 +251,21 @@ struct ContentView: View {
         }
     }
 
-    // Small code pill for language short labels
     private struct TinyPill: View {
         let text: String
         var body: some View {
             Text(text)
                 .font(.caption2.monospaced().bold())
                 .padding(.vertical, 2)
-                .padding(.horizontal, 6)
+                .padding(.horizontal, PILL_HPAD)   // ← was pillHorzPadding
                 .background(
-                    Capsule()
-                        .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+                    Capsule().stroke(Color.secondary.opacity(0.35), lineWidth: 1)
                 )
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
     }
+
     
     private struct Pill: View {
         let text: String
@@ -316,9 +324,7 @@ struct ContentView: View {
     
     private let toolbarItemWidth: CGFloat = 118
     private let toolbarItemHeight: CGFloat = 28
-    
-    private let chipWidth: CGFloat  = 132   // same for all three chips
-    private let chipGap: CGFloat    = 10    // equal gap between chips
+
     @State private var chipMeasuredWidth: CGFloat = 0        // replaces chipMeasuredSize
 
 
@@ -594,7 +600,7 @@ struct ContentView: View {
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: chipGap) {
+                HStack(spacing: CHIP_GAP) {
                     // 1) Delay chip
                     Menu {
                         Text("Pause between segments (seconds)")
@@ -624,7 +630,7 @@ struct ContentView: View {
                             content: AnyView(
                                 ZStack {
                                     // reserve for two pills so width doesn’t jump
-                                    HStack(spacing: 6) {
+                                    HStack(spacing: PILL_SPACING) {
                                         TinyPill(text: lessonLangs.targetShort)
                                         TinyPill(text: lessonLangs.translationShort)
                                     }
@@ -632,7 +638,7 @@ struct ContentView: View {
 
                                     switch textDisplayMode {
                                     case .both:
-                                        HStack(spacing: 6) {
+                                        HStack(spacing: PILL_SPACING) {
                                             TinyPill(text: lessonLangs.targetShort)
                                             TinyPill(text: lessonLangs.translationShort)
                                         }
@@ -673,7 +679,7 @@ struct ContentView: View {
                             content: AnyView(
                                 ZStack {
                                     // reserve for two pills
-                                    HStack(spacing: 6) {
+                                    HStack(spacing: PILL_SPACING) {
                                         TinyPill(text: lessonLangs.targetShort)
                                         TinyPill(text: lessonLangs.translationShort)
                                     }
@@ -681,7 +687,7 @@ struct ContentView: View {
 
                                     switch audioManager.playbackMode {
                                     case .both:
-                                        HStack(spacing: 6) {
+                                        HStack(spacing: PILL_SPACING) {
                                             TinyPill(text: lessonLangs.targetShort)
                                             TinyPill(text: lessonLangs.translationShort)
                                         }
@@ -709,8 +715,8 @@ struct ContentView: View {
                 .onPreferenceChange(WidthPrefKey.self) { newMax in
                     // clamp + coalesce on main actor to avoid jitter
                     Task { @MainActor in
-                        let minW: CGFloat = 110
-                        let maxW: CGFloat = 136
+                        let minW: CGFloat = 108      // was 110
+                        let maxW: CGFloat = 150      // was 136
                         let clamped = min(max(newMax, minW), maxW)
                         if abs(clamped - chipMeasuredWidth) > 0.5 {
                             chipMeasuredWidth = clamped
