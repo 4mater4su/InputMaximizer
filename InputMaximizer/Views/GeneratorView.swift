@@ -72,7 +72,8 @@ struct GeneratorView: View {
     @AppStorage("generatorPromptV1") private var userPrompt: String = ""
     @AppStorage("generatorRandomTopicV1") private var randomTopic: String = ""
 
-
+    @Environment(\.horizontalSizeClass) private var hSize
+    
     // MARK: - Length preset
     enum LengthPreset: Int, CaseIterable, Identifiable {
         case short, medium, long
@@ -97,6 +98,7 @@ struct GeneratorView: View {
     }
 
     @State private var showSegmentationInfo = false
+    @State private var showModeInfo = false
     
     @State private var lengthPreset: LengthPreset = .medium
 
@@ -155,8 +157,8 @@ struct GeneratorView: View {
 
     // Modes
     enum GenerationMode: String, CaseIterable, Identifiable {
-        case random = "Random"
         case prompt = "Prompt"
+        case random = "Random"
         var id: String { rawValue }
     }
     @State private var mode: GenerationMode = .prompt
@@ -616,7 +618,7 @@ struct GeneratorView: View {
     private var allSupportedLanguages: [String] { supportedLanguages }
     
     @ViewBuilder private func modeSection() -> some View {
-        Section("Mode") {
+        Section {
             let allModes: [GenerationMode] = Array(GenerationMode.allCases)
             Picker("Generation Mode", selection: $mode) {
                 ForEach(allModes, id: \.self) { m in
@@ -624,6 +626,37 @@ struct GeneratorView: View {
                 }
             }
             .pickerStyle(.segmented)
+        } header: {
+            HStack(spacing: 6) {
+                Text("Mode")
+                Button {
+                    showModeInfo = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .imageScale(.medium)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("About Mode")
+
+                // iPad/regular width
+                .modifier(RegularWidthPopover(isPresented: $showModeInfo) {
+                    ModeInfoCard()
+                        .frame(maxWidth: 360)
+                        .padding()
+                })
+
+                // iPhone/compact width
+                .sheet(isPresented: Binding(
+                    get: { hSize == .compact && showModeInfo },
+                    set: { showModeInfo = $0 }
+                )) {
+                    ModeInfoCard()
+                        .presentationDetents([.fraction(0.35), .medium])
+                        .presentationDragIndicator(.visible)
+                }
+
+                Spacer()
+            }
         }
     }
 
@@ -700,24 +733,29 @@ struct GeneratorView: View {
                 Button {
                     showSegmentationInfo = true
                 } label: {
-                    Image(systemName: "info.circle")
-                        .imageScale(.medium)
+                    Image(systemName: "info.circle").imageScale(.medium)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("About Segmentation")
-                // 👇 attach the popover to the *button*, not the Section
-                .popover(isPresented: $showSegmentationInfo,
-                         attachmentAnchor: .rect(.bounds),
-                         arrowEdge: .top) {
+
+                // iPad/regular width: anchored popover
+                .modifier(RegularWidthPopover(isPresented: $showSegmentationInfo) {
                     SegmentationInfoCard()
                         .frame(maxWidth: 360)
                         .padding()
+                })
+                .sheet(isPresented: Binding(
+                    get: { hSize == .compact && showSegmentationInfo },
+                    set: { showSegmentationInfo = $0 }
+                )) {
+                    SegmentationInfoCard()
+                        .presentationDetents([.fraction(0.4), .medium])
+                        .presentationDragIndicator(.visible)
                 }
-                // On iPhone, show as a sheet automatically
-                .presentationCompactAdaptation(.sheet)
 
                 Spacer()
             }
+
         }
     }
 
@@ -982,6 +1020,56 @@ struct GeneratorView: View {
     }
 }
 
+private struct ModeInfoCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "square.and.pencil")
+                    .imageScale(.large)
+                Text("About Mode")
+                    .font(.headline)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Prompt")
+                            .font(.subheadline.bold())
+                        Text("You provide your own prompt or source text. Great for tailored lessons.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "text.cursor")
+                        .font(.caption2)
+                }
+
+                Divider()
+
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Random")
+                            .font(.subheadline.bold())
+                        Text("The app generates a random topic based on your interests and style settings. Good for variety and surprise practice.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "die.face.5")
+                        .font(.caption2)
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(.systemBackground))
+                .shadow(radius: 8, y: 4)
+        )
+    }
+}
+
+
 private struct SegmentationInfoCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1022,5 +1110,24 @@ private struct SegmentationInfoCard: View {
                 .fill(Color(.systemBackground))
                 .shadow(radius: 8, y: 4)
         )
+    }
+}
+private struct RegularWidthPopover<PopupContent: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    let popup: () -> PopupContent
+
+    @Environment(\.horizontalSizeClass) private var hSize
+
+    func body(content: Content) -> some View {
+        content.popover(
+            isPresented: Binding(
+                get: { hSize != .compact && isPresented },
+                set: { isPresented = $0 }
+            ),
+            attachmentAnchor: .rect(.bounds),
+            arrowEdge: .top
+        ) {
+            popup()
+        }
     }
 }
