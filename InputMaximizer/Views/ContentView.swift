@@ -585,20 +585,10 @@ struct ContentView: View {
         
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)   // hide system back button
+        //.navigationBarBackButtonHidden(true)   // hide system back button
 
         // MARK: - Toolbar
         .toolbar {
-            // Custom chevron-only back button (works on all iOS versions)
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.body.weight(.semibold))
-                }
-                .accessibilityLabel("Back")
-            }
 
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: CHIP_GAP) {
