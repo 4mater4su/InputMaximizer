@@ -96,6 +96,8 @@ struct GeneratorView: View {
         }
     }
 
+    @State private var showSegmentationInfo = false
+    
     @State private var lengthPreset: LengthPreset = .medium
 
     // MARK: - State
@@ -683,7 +685,7 @@ struct GeneratorView: View {
     }
 
     @ViewBuilder private func segmentationSection() -> some View {
-        Section("Segmentation") {
+        Section {
             let allSegs: [Segmentation] = Array(Segmentation.allCases)
             Picker("Segment by", selection: $segmentation) {
                 ForEach(allSegs, id: \.self) { s in
@@ -691,8 +693,34 @@ struct GeneratorView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .accessibilityLabel("Segment by")
+        } header: {
+            HStack(spacing: 6) {
+                Text("Segmentation")
+                Button {
+                    showSegmentationInfo = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .imageScale(.medium)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("About Segmentation")
+                // 👇 attach the popover to the *button*, not the Section
+                .popover(isPresented: $showSegmentationInfo,
+                         attachmentAnchor: .rect(.bounds),
+                         arrowEdge: .top) {
+                    SegmentationInfoCard()
+                        .frame(maxWidth: 360)
+                        .padding()
+                }
+                // On iPhone, show as a sheet automatically
+                .presentationCompactAdaptation(.sheet)
+
+                Spacer()
+            }
         }
     }
+
 
     @ViewBuilder private func lengthSection() -> some View {
         Section {
@@ -954,3 +982,45 @@ struct GeneratorView: View {
     }
 }
 
+private struct SegmentationInfoCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "textformat")
+                    .imageScale(.large)
+                Text("About Segmentation")
+                    .font(.headline)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Sentences")
+                            .font(.subheadline.bold())
+                        Text("Splits the text into sentence-sized segments. Great for quicker call-and-response practice.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: { Image(systemName: "circle.fill").font(.caption2) }
+
+                Divider()
+
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Paragraphs")
+                            .font(.subheadline.bold())
+                        Text("Keeps multi-sentence blocks together for natural flow and context. Ideal for longer listening and shadowing.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: { Image(systemName: "rectangle.3.offgrid").font(.caption2) }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(.systemBackground))
+                .shadow(radius: 8, y: 4)
+        )
+    }
+}
