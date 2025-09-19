@@ -33,9 +33,28 @@ private enum TextDisplayMode: Int {
     }
 }
 
+// Measure just width to keep the preference stable.
+private struct WidthPrefKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+private struct WidthReader: ViewModifier {
+    func body(content: Content) -> some View {
+        content.background(
+            GeometryReader { gp in
+                Color.clear.preference(key: WidthPrefKey.self, value: gp.size.width)
+            }
+        )
+    }
+}
+private extension View { func readWidth() -> some View { modifier(WidthReader()) } }
+
 @MainActor
 struct ContentView: View {
     @EnvironmentObject private var audioManager: AudioManager
+    @Environment(\.dismiss) private var dismiss
 
     @State private var showDelaySheet = false
     private let delayPresets: [Double] = [0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
@@ -189,6 +208,69 @@ struct ContentView: View {
         }
     }
     
+    private struct Chip: View {
+        let icon: String?
+        let content: AnyView
+        var body: some View {
+            HStack(spacing: 6) {
+                if let icon { Image(systemName: icon) }
+                content
+            }
+            .font(.callout) // compact but readable
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(.tertiarySystemBackground))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                    )
+            )
+            .contentShape(Rectangle())
+            .frame(height: 32)                 // consistent height
+        }
+    }
+
+    // Stronger, tidy vertical divider that matches chip height
+    private struct ChipDivider: View {
+        var body: some View {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.6))
+                .frame(width: 1, height: 32)
+                .cornerRadius(0.5)
+                .padding(.horizontal, 3)
+                .accessibilityHidden(true)
+        }
+    }
+
+    // Small code pill for language short labels
+    private struct TinyPill: View {
+        let text: String
+        var body: some View {
+            Text(text)
+                .font(.caption2.monospaced().bold())
+                .padding(.vertical, 2)
+                .padding(.horizontal, 6)
+                .background(
+                    Capsule()
+                        .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+                )
+        }
+    }
+    
+    private struct Pill: View {
+        let text: String
+        var body: some View {
+            Text(text)
+                .font(.caption2.bold())
+                .padding(.vertical, 2).padding(.horizontal, 6)
+                .background(
+                    Capsule().stroke(Color.hairline, lineWidth: 1)
+                )
+        }
+    }
+    
     private struct LangPill: View {
         let text: String
         var body: some View {
@@ -201,6 +283,105 @@ struct ContentView: View {
         }
     }
 
+    private func secondsString(_ v: Double) -> String {
+        let nf = NumberFormatter()
+        nf.locale = Locale(identifier: "en_US_POSIX") // force dot decimal
+        nf.minimumFractionDigits = 1
+        nf.maximumFractionDigits = 1
+        return (nf.string(from: v as NSNumber) ?? String(format: "%.1f", v)) + "s"
+    }
+
+    private struct DelayChip: View {
+        let valueText: String
+        var body: some View {
+            HStack(spacing: 6) {
+                Image(systemName: "hourglass")
+                Text(valueText)
+                    .font(.callout.monospacedDigit())
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+            )
+            .frame(height: 32)
+            .contentShape(Rectangle())
+        }
+    }
+    
+    private let toolbarItemWidth: CGFloat = 118
+    private let toolbarItemHeight: CGFloat = 28
+    
+    private let chipWidth: CGFloat  = 132   // same for all three chips
+    private let chipGap: CGFloat    = 10    // equal gap between chips
+    @State private var chipMeasuredWidth: CGFloat = 0        // replaces chipMeasuredSize
+
+
+    @ViewBuilder
+    private func TextModeToolbarLabel(mode: TextDisplayMode, langs: LessonLanguages) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "captions.bubble") // ← captions bubble for text mode
+
+            ZStack {
+                // Reserve max width (two pills baseline)
+                HStack(spacing: 4) {
+                    Pill(text: langs.targetShort)
+                    Pill(text: langs.translationShort)
+                }
+                .opacity(0)
+
+                switch mode {
+                case .both:
+                    HStack(spacing: 4) {
+                        Pill(text: langs.targetShort)
+                        Pill(text: langs.translationShort)
+                    }
+                case .targetOnly:
+                    Pill(text: langs.targetShort)
+                case .translationOnly:
+                    Pill(text: langs.translationShort)
+                }
+            }
+            .frame(height: toolbarItemHeight, alignment: .center)
+        }
+        .frame(width: toolbarItemWidth, alignment: .trailing)
+    }
+
+    @ViewBuilder
+    private func PlaybackToolbarLabel(mode: AudioManager.PlaybackMode, langs: LessonLanguages) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "speaker.wave.2.fill") // ← always speaker with waves
+
+            ZStack {
+                // Reserve max width (two pills baseline)
+                HStack(spacing: 4) {
+                    Pill(text: langs.targetShort)
+                    Pill(text: langs.translationShort)
+                }
+                .opacity(0)
+
+                switch mode {
+                case .both:
+                    HStack(spacing: 4) {
+                        Pill(text: langs.targetShort)
+                        Pill(text: langs.translationShort)
+                    }
+                case .target:
+                    Pill(text: langs.targetShort)
+                case .translation:
+                    Pill(text: langs.translationShort)
+                }
+            }
+            .frame(height: toolbarItemHeight, alignment: .center)
+        }
+        .frame(width: toolbarItemWidth, alignment: .trailing)
+    }
+    
     @ViewBuilder
     private func DisplayModeIcon(_ mode: TextDisplayMode, langs: LessonLanguages) -> some View {
         switch mode {
@@ -394,72 +575,154 @@ struct ContentView: View {
             audioManager.segmentDelay = newValue
         }
 
+        
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)   // hide system back button
+
+        // MARK: - Toolbar
         .toolbar {
+            // Custom chevron-only back button (works on all iOS versions)
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.body.weight(.semibold))
+                }
+                .accessibilityLabel("Back")
+            }
+
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    // quick picks
-                    Picker("Pause Between Segments", selection: $storedDelay) {
-                        ForEach(delayPresets, id: \.self) { v in
-                            Text("\(v, specifier: "%.1f")s").tag(v)
+                HStack(spacing: chipGap) {
+                    // 1) Delay chip
+                    Menu {
+                        Text("Pause between segments (seconds)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .disabled(true)
+                        Divider()
+                        Picker("Pause Between Segments", selection: $storedDelay) {
+                            ForEach(delayPresets, id: \.self) { v in
+                                Text(secondsString(v)).tag(v)
+                            }
                         }
+                        Button("Custom…") { showDelaySheet = true }
+                    } label: {
+                        DelayChip(valueText: secondsString(storedDelay))
+                            .frame(width: chipMeasuredWidth)
+                            .contentShape(Rectangle())
+                            .readWidth()   // measure intrinsic width
                     }
-                    // fine-tune
-                    Button("Custom…") { showDelaySheet = true }
-                } label: {
-                    Image(systemName: "hourglass") // or "timer"
-                }
-            }
 
-            
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // 🔄 Text display toggle
-                Button {
-                    textDisplayModeRaw = (textDisplayModeRaw + 1) % 3
-                } label: {
-                    DisplayModeIcon(textDisplayMode, langs: lessonLangs)
-                }
-                .accessibilityLabel({
-                    switch textDisplayMode {
-                    case .both:            return "Show \(lessonLangs.targetShort) only"
-                    case .targetOnly:      return "Show \(lessonLangs.translationShort) only"
-                    case .translationOnly: return "Show both \(lessonLangs.targetShort) and \(lessonLangs.translationShort)"
+                    // 2) Text mode chip
+                    Button {
+                        textDisplayModeRaw = (textDisplayModeRaw + 1) % 3
+                    } label: {
+                        Chip(
+                            icon: "captions.bubble",
+                            content: AnyView(
+                                ZStack {
+                                    // reserve for two pills so width doesn’t jump
+                                    HStack(spacing: 6) {
+                                        TinyPill(text: lessonLangs.targetShort)
+                                        TinyPill(text: lessonLangs.translationShort)
+                                    }
+                                    .opacity(0)
+
+                                    switch textDisplayMode {
+                                    case .both:
+                                        HStack(spacing: 6) {
+                                            TinyPill(text: lessonLangs.targetShort)
+                                            TinyPill(text: lessonLangs.translationShort)
+                                        }
+                                    case .targetOnly:
+                                        TinyPill(text: lessonLangs.targetShort)
+                                    case .translationOnly:
+                                        TinyPill(text: lessonLangs.translationShort)
+                                    }
+                                }
+                            )
+                        )
+                        .frame(width: chipMeasuredWidth)
+                        .readWidth()
                     }
-                }())
-                .accessibilityHint("Cycles between both, target-only, and translation-only.")
-            }
+                    .accessibilityLabel({
+                        switch textDisplayMode {
+                        case .both:            return "Show \(lessonLangs.targetShort) only"
+                        case .targetOnly:      return "Show \(lessonLangs.translationShort) only"
+                        case .translationOnly: return "Show both \(lessonLangs.targetShort) and \(lessonLangs.translationShort)"
+                        }
+                    }())
+                    .accessibilityHint("Cycles between both, target-only, and translation-only.")
 
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // 🔄 Playback mode toggle
-                Button {
-                    let next: AudioManager.PlaybackMode = {
+                    // 3) Playback chip
+                    Button {
+                        let next: AudioManager.PlaybackMode = {
+                            switch audioManager.playbackMode {
+                            case .target: return .translation
+                            case .translation: return .both
+                            case .both: return .target
+                            }
+                        }()
+                        audioManager.setPlaybackMode(next)
+                        audioManager.playInContinuousLane(from: audioManager.currentIndex)
+                    } label: {
+                        Chip(
+                            icon: "speaker.wave.2.fill",
+                            content: AnyView(
+                                ZStack {
+                                    // reserve for two pills
+                                    HStack(spacing: 6) {
+                                        TinyPill(text: lessonLangs.targetShort)
+                                        TinyPill(text: lessonLangs.translationShort)
+                                    }
+                                    .opacity(0)
+
+                                    switch audioManager.playbackMode {
+                                    case .both:
+                                        HStack(spacing: 6) {
+                                            TinyPill(text: lessonLangs.targetShort)
+                                            TinyPill(text: lessonLangs.translationShort)
+                                        }
+                                    case .target:
+                                        TinyPill(text: lessonLangs.targetShort)
+                                    case .translation:
+                                        TinyPill(text: lessonLangs.translationShort)
+                                    }
+                                }
+                            )
+                        )
+                        .frame(width: chipMeasuredWidth)
+                        .readWidth()
+                    }
+                    .accessibilityLabel({
                         switch audioManager.playbackMode {
-                        case .target: return .translation
-                        case .translation: return .both
-                        case .both: return .target
+                        case .target:       return "Switch to \(lessonLangs.translationShort) playback"
+                        case .translation:  return "Switch to dual playback"
+                        case .both:         return "Switch to \(lessonLangs.targetShort) playback"
                         }
-                    }()
-                    audioManager.setPlaybackMode(next)
-                    audioManager.playInContinuousLane(from: audioManager.currentIndex)
-                } label: {
-                    // A) shows the **current** playback mode:
-                    PlaybackModeIcon(audioManager.playbackMode, langs: lessonLangs)
-
-                    // If you want the button to show the **next** mode instead, swap to:
-                    //PlaybackNextIcon(current: audioManager.playbackMode, langs: lessonLangs)
+                    }())
+                    .accessibilityHint("Cycles between target, translation, and dual playback modes.")
                 }
-                .accessibilityLabel({
-                    switch audioManager.playbackMode {
-                    case .target:       return "Switch to \(lessonLangs.translationShort) playback"
-                    case .translation:  return "Switch to dual playback"
-                    case .both:         return "Switch to \(lessonLangs.targetShort) playback"
+                .padding(.trailing, 8)
+                .onPreferenceChange(WidthPrefKey.self) { newMax in
+                    // clamp + coalesce on main actor to avoid jitter
+                    Task { @MainActor in
+                        let minW: CGFloat = 110
+                        let maxW: CGFloat = 136
+                        let clamped = min(max(newMax, minW), maxW)
+                        if abs(clamped - chipMeasuredWidth) > 0.5 {
+                            chipMeasuredWidth = clamped
+                        }
                     }
-                }())
-                .accessibilityHint("Cycles between target, translation, and dual playback modes.")
+                }
             }
-
         }
+        // ✅ No .navigationBarBackButtonDisplayMode(.minimal) needed
+
+
+        
         .sheet(isPresented: $showDelaySheet) {
             NavigationStack {
                 Form {

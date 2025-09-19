@@ -187,9 +187,9 @@ enum LessonLanguageResolver {
         return .init(
             targetName: "Portuguese (Brazil)",
             translationName: "English",
-            targetCode: "pt-BR",
+            targetCode: "pt",
             translationCode: "en",
-            targetShort: "PT-BR",
+            targetShort: "PT",
             translationShort: "EN"
         )
     }
