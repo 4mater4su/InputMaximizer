@@ -141,13 +141,6 @@ extension AspectTable {
                     AspectOption(label: "Stream of consciousness")
                 ]),
 
-                AspectRow(title: "Mood", options: [
-                    AspectOption(label: "Joyful"),
-                    AspectOption(label: "Melancholic"),
-                    AspectOption(label: "Hopeful"),
-                    AspectOption(label: "Tense"),
-                ]),
-
                 // A little spice for surprise
                 AspectRow(title: "Constraint", options: [
                     AspectOption(label: "Start in medias res"),
