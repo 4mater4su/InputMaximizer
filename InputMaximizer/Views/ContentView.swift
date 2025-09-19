@@ -515,9 +515,10 @@ struct ContentView: View {
                                 Text(oppositeLangShort)
                                     .font(.caption)
                                     .fontWeight(.semibold)
+                                    .foregroundColor(.black)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
-                                    .background(Color.surface.opacity(0.8))
+                                    .background(Color.white)
                                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                             }
                         }
