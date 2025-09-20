@@ -40,11 +40,6 @@
 			path = InputMaximizer;
 			sourceTree = "<group>";
 		};
-		0C911FE02E7934F500A1EFE8 /* Lessons */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Lessons;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,7 +63,6 @@
 				0C38E3092E51D405002F7723 /* InputMaximizer */,
 				0C8C3A7E2E6D57EF0040AED9 /* Frameworks */,
 				0C38E3082E51D405002F7723 /* Products */,
-				0C911FE02E7934F500A1EFE8 /* Lessons */,
 			);
 			sourceTree = "<group>";
 		};
@@ -105,7 +99,6 @@
 			);
 			fileSystemSynchronizedGroups = (
 				0C38E3092E51D405002F7723 /* InputMaximizer */,
-				0C911FE02E7934F500A1EFE8 /* Lessons */,
 			);
 			name = InputMaximizer;
 			packageProductDependencies = (
