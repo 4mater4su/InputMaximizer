@@ -8,6 +8,9 @@ export interface Env {
   APPSTORE_ISSUER_ID: string;   // e.g. "57246542-96fe-1a63-e053-0824d011072a"
   APPSTORE_KEY_ID: string;      // 10-char key id
   APPSTORE_PRIVATE_KEY: string; // contents of the .p8 (BEGIN PRIVATE KEY ... END PRIVATE KEY)
+
+  REVIEW_CODE: string;          // e.g. "APPREVIEW2025" (set via wrangler secret)
+  REVIEW_GRANT_AMOUNT: string;  // e.g. "20" (as string; set via wrangler secret)
 }
 
 /* ================================
@@ -279,6 +282,37 @@ export default {
       return Response.json(
         { balance, reserved, available: Math.max(0, balance - reserved) },
         { headers: { "cache-control": "no-store" } }
+      );
+    }
+    // --- Credits: one-time review grant (self-serve for App Review) ---
+    if (req.method === "POST" && path === "/credits/review-grant") {
+      const deviceId = requireDeviceId(req);
+      const body = await parseJSON<{ code?: string }>(req);
+      const provided = (body.code || "").trim();
+      const expected = (env.REVIEW_CODE || "").trim();
+
+      if (!provided || !expected || provided !== expected) {
+        return new Response('{"error":"bad_code"}', {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      // One-time per device
+      const onceKey = `review_granted:${deviceId}`;
+      if (await env.CREDITS.get(onceKey)) {
+        const balance = await getBalance(env, deviceId);
+        return Response.json({ ok: true, granted: 0, already: true, balance }, { headers: { "cache-control": "no-store" } });
+      }
+
+      const grant = parseInt(env.REVIEW_GRANT_AMOUNT || "20", 10) || 20;
+      await addCredits(env, deviceId, grant);
+      await env.CREDITS.put(onceKey, String(Date.now()));
+
+      const balance = await getBalance(env, deviceId);
+      return Response.json(
+        { ok: true, granted: grant, balance },
+        { headers: { "cache-control": "no-store" }}
       );
     }
 

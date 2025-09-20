@@ -229,4 +229,25 @@ extension ProxyClient {
     }
 }
 
+extension ProxyClient {
+    /// Redeem a one-time review code. Returns the updated server balance.
+    func reviewGrant(deviceId: String, code: String) async throws -> Int {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/credits/review-grant"))
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
 
+        let (data, resp) = try await URLSession.shared.data(for: request)
+        guard let http = resp as? HTTPURLResponse else {
+            throw NSError(domain: "Proxy", code: -1, userInfo: [NSLocalizedDescriptionKey: "No response"])
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "reviewGrant failed"
+            throw NSError(domain: "Proxy", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (json?["balance"] as? Int) ?? 0
+    }
+}

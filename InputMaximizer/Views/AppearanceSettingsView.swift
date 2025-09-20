@@ -17,6 +17,9 @@ struct AppearanceSettingsView: View {
     @State private var serverBalance: Int = 0
     @State private var serverError: String?
     
+    @State private var redeemCode: String = ""
+    @State private var redeemStatus: String?
+    
     private func refreshServerBalance() async {
         do {
             serverBalance = try await GeneratorService.fetchServerBalance()
@@ -64,9 +67,52 @@ struct AppearanceSettingsView: View {
                             .environmentObject(purchases)
                     }
 
+                    HStack {
+                        TextField("Redeem Code", text: $redeemCode)
+                            .textInputAutocapitalization(.never)
+                            .disableAutocorrection(true)
+                            .textFieldStyle(.roundedBorder)
+                        
+                        Button("Redeem") {
+                            Task {
+                                do {
+                                    guard !redeemCode.isEmpty else { return }
+                                    let url = URL(string: "https://inputmax-proxy.inputmax.workers.dev/credits/review-grant")!
+                                    var req = URLRequest(url: url)
+                                    req.httpMethod = "POST"
+                                    req.addValue(DeviceID.current, forHTTPHeaderField: "X-Device-Id")
+                                    req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+                                    req.httpBody = try JSONEncoder().encode(["code": redeemCode])
+                                    
+                                    let (data, resp) = try await URLSession.shared.data(for: req)
+                                    guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+                                        throw URLError(.badServerResponse)
+                                    }
+                                    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                                    if let ok = json?["ok"] as? Bool, ok == true {
+                                        redeemStatus = "Redeemed! +\(json?["granted"] ?? 0) credits"
+                                        await refreshServerBalance()
+                                    } else {
+                                        redeemStatus = "Invalid code"
+                                    }
+                                } catch {
+                                    redeemStatus = "Error: \(error.localizedDescription)"
+                                }
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    if let status = redeemStatus {
+                        Text(status)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    /*
                     Button("Reload Products") {
                         Task { await purchases.refresh() }
                     }
+                     */
                 }
 
             }
