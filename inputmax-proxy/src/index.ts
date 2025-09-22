@@ -24,7 +24,6 @@ const APP_BUNDLE_ID = "io.robinfederico.InputMaximizer";
 const PRODUCT_TO_CREDITS: Record<string, number> = {
   "io.robinfederico.InputMaximizer.credits_10": 10,
   "io.robinfederico.InputMaximizer.credits_50": 50,
-  "io.robinfederico.InputMaximizer.credits_200": 200,
 };
 
 /* ================================

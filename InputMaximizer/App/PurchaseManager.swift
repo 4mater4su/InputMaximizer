@@ -8,16 +8,14 @@ import SwiftUI
 enum IAP {
     static let creditsSmall  = "io.robinfederico.InputMaximizer.credits_10"
     static let creditsMedium = "io.robinfederico.InputMaximizer.credits_50"
-    static let creditsLarge  = "io.robinfederico.InputMaximizer.credits_200"
 
-    static let creditPacks: Set<String> = [creditsSmall, creditsMedium, creditsLarge]
+    static let creditPacks: Set<String> = [creditsSmall, creditsMedium]
 }
 
 // Optional: map productID -> credits (useful to show amounts in UI)
 private let creditAmounts: [String: Int] = [
     IAP.creditsSmall: 10,
     IAP.creditsMedium: 50,
-    IAP.creditsLarge: 200
 ]
 
 @MainActor
