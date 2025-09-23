@@ -177,36 +177,18 @@ struct GeneratorView: View {
     @State private var speechSpeed: SpeechSpeed = .regular
 
     
-    // MARK: - Prompt categories
+    // MARK: - Prompt categories (I Ching trigrams)
 
     enum PromptCategory: String, CaseIterable, Identifiable {
         case all = "All"
-        case sea = "Sea"
-        case mountains = "Mountains"
-        case forest = "Forest"
-        case desert = "Desert"
-        case riversLakes = "Rivers & Lakes"
-        case sky = "Sky"
-        case wildlife = "Wildlife"
-        case space = "Space"
-        case adventure = "Adventure"
-        case calm = "Calm"
-        case travel = "Travel"
-        case reflection = "Reflection"
-        case city = "City"
-        case familyFriends = "Family & Friends"
-        case food = "Food"
-        case artMusic = "Art & Music"
-        case history = "History"
-        case movement = "Movement"
-        case pets = "Pets"
-        case natureCloseUp = "Nature Close-Up"
-        case gratitude = "Gratitude"
-        case mystery = "Mystery"
-        case tech = "Tech"
-        case ethics = "Ethics"
-        case humor = "Humor"
-        case dreams = "Dreams"
+        case heaven = "Heaven ☰"
+        case earth = "Earth ☷"
+        case thunder = "Thunder ☳"
+        case wind = "Wind ☴"
+        case water = "Water ☵"
+        case fire = "Fire ☲"
+        case mountain = "Mountain ☶"
+        case lake = "Lake ☱"
 
         var id: String { rawValue }
     }
@@ -214,192 +196,104 @@ struct GeneratorView: View {
     @State private var selectedPromptCategory: PromptCategory = .all
 
     private let promptsByCategory: [PromptCategory: [String]] = [
-        // --- Outdoor & Exploration ---
-        .sea: [
-            "Describe a dawn paddle through fog. Include kelp scent, gull shadows, and a rip current. End by dropping into your first clean wave.",
-            "Tell a beach rescue from the lifeguard’s view: red flag, torn leash, sprint, hand to wrist.",
-            "Plan a low-tide reef entry: urchins underfoot, timing the surge, following a spotted ray to a safe channel.",
-            "Describe leaving harbor by sound and smell: diesel, bell, rope slip, foghorn cut short, then the fog opens.",
-            "Night-dive where each kick blooms blue; a curious seal circles; choose a heading under Orion."
-        ],
-        .mountains: [
-            "Write a summit push in present tense: crampons on blue ice, rope calls, cornice decision, turn back 50 meters.",
-            "Navigate a whiteout: leave the tent, take a bearing, pace by breath counts, probe for crevasses, find the next cairn.",
-            "Cross a sunrise ridge: alpenglow, thin air, penitentes, a raven gliding; end with the valley lighting up.",
-            "Lose the altimeter: steer by sun angle, snow texture, and breath counts to a safe notch and coffee steam.",
-            "Lightning bivouac; hair lifts under the zipper; count flash to thunder; share chocolate until the storm walks away."
-        ],
-        .forest: [
-            "Hike at dusk with a red headlamp. Note moths in the beam, wet cedar, and the moment you step into a clearing.",
-            "Track after rain: read a split hoof, crushed mint, and a snapped fern; explain where the animal turned off.",
-            "Cross through the canopy: harness creak, bark under fingers, wind like a tide; name one new shade of green.",
-            "Learn woodpecker code: three cadences, what each means, and the tree that answers back.",
-            "Storm-fall reveals a root doorway; soil like tea, beetle spirals; leave a small offering before you step through."
-        ],
-        .desert: [
-            "Walk a sunrise dune line. Include cold sand squeak, first edge of heat, and a lark sharing your shadow.",
-            "Build shelter in a dust storm: sky turns copper, tie the scarf, make a lee wall, count breaths until calm.",
-            "Cross a salt flat: explain mirage rules, manage blisters, and reach a shoreline that maps got wrong.",
-            "Find water by reading wind ripples on sand. Mark how you confirmed it before digging.",
-            "At high noon the canyon speaks once; step into the beam, ask one question, and accept the answer."
-        ],
-        .riversLakes: [
-            "Ferry-glide a foggy river bend: bow angle, eddy lines, heron lift-off; land in a quiet backwater.",
-            "Write a flood cleanup scene: mud lines on walls, borrowed pumps, one found photo, hot stew shared.",
-            "Describe first lake ice: singing cracks, safety checks, breath clouds, one clean skate line.",
-            "Portage around a waterfall: rising roar, slick moss, shoulder ache; launch where water carries, not fights.",
-            "Night swim under a bright moon; cold shock, quick laughter, stars repeating in ripples."
-        ],
-        .sky: [
-            "Capture the air before rain: metallic taste, pressure drop, swallows low, first heavy drops.",
-            "Watch a thunderstorm from a safe porch: sheet lightning, counting seconds, roof drum, quiet after.",
-            "Teach three constellations from a rooftop blanket using story, not lines. Explain one common mistake.",
-            "Describe the afternoon a drought breaks: smell arrives, dust darkens, neighbors step outside.",
-            "Aurora writes in verbs; choose one and act by morning."
-        ],
-        .wildlife: [
-            "Track a big cat by absence: undisturbed snow, clear crossing points, one soft print at the edge.",
-            "Explain how to watch a migrating flock without changing its path. Describe one reason they detoured.",
-            "Resolve a fence problem between wolves and ranchers using language, not wire. Show the new rule.",
-            "Hold a tidepool vote: who eats, who hides, who yields; explain why yielding wins.",
-            "An injured raptor lands on your glove uninvited; accept the oath implied."
-        ],
-        .space: [
-            "Navigate a small craft through a meteor shower. Explain the upward fall and how you steer through it.",
-            "Chart by pulsars after the nav computer forgets your name. Show the pattern you trust.",
-            "Dock at a station over a blue world; find the quiet room and who goes there.",
-            "Choose noon or midnight on a tidally locked planet. Describe the culture on your side.",
-            "A derelict probe broadcasts a lullaby; translate without waking what listens."
-        ],
-        .adventure: [
-            "Use a rumor map to find a moving valley. Explain how you caught it on a cloudy day.",
-            "Free-dive a blue hole where depth feels like time. Bring back one minute you lost and why.",
-            "Packraft from glacier to sea. List the hazards, the questions you carried, and which one you let sink.",
-            "Sail a new coastline with paper charts. Log one correction for the next sailor.",
-            "An ice cave hoards lightning; thread the chambers without waking the light."
-        ],
-        .calm: [
-            "Walk a night beach. Read three short lines the tide writes and keep one.",
-            "Make tea while rain starts. Time the scene by steam and window sound.",
-            "Watch snow under a streetlamp. Count silence between flakes until thoughts thin.",
-            "Ride a slow train through dark fields. List what you leave behind by the mile.",
-            "Lanterns lead through a narrow canyon; let shadows finish the sentences."
-        ],
-        .travel: [
-            "Open a street market at daybreak. Follow three smells to three stalls and the story that links them.",
-            "Map an island with no cars. Measure distance by footsteps and ferry schedules.",
-            "Walk a city by its waterways. Collect two secrets from bridges.",
-            "Stay a night in a lighthouse hostel. Describe the beam’s pattern and what it teaches.",
-            "Taste a town by its bakeries. Choose a winner and justify the choice."
-        ],
-        .reflection: [
-            "Show how a big landscape made you humbler or braver by one changed habit.",
-            "Explain one lesson risk taught you that talent did not.",
-            "Describe how solitude changed what you noticed and what noticed you.",
-            "Draw the line between naming a place and trying to own it. Use one example.",
-            "Write your code for treating places well, then apply it once."
+
+        // --- Heaven (creativity, vision, force) ---
+        .heaven: [
+            "Story: Begin with pure sky and describe what takes form beneath it.",
+            "Myth: Tell of the first being who shaped order from chaos.",
+            "Dream-journey: You climb endlessly upward—what do you find at the top?",
+            "Koan: What does pure beginning look like?",
+            "Journal entry: Today I felt the weight of leading—here is what I noticed.",
+            "Letter: Write to someone who waits for your decision.",
+            "Lyric poem: Six bright lines, each opening a path.",
+            "Riddle: I move without hands, I build without tools. What am I?"
         ],
 
-        // --- People & Life ---
-        .city: [
-            "Map one block at sunrise by smell: bakery, rain, coffee, and what each says about the day.",
-            "Follow one bee from a rooftop garden to its secret stopover. Describe why it chose that route.",
-            "Write a late-night subway car with four strangers, one shared truth, and how it surfaces.",
-            "Ride a river ferry through downtown. Stitch two lives together during one crossing.",
-            "Rain turns crosswalks into mirrors; meet your reflection doing something braver and catch up."
+        // --- Earth (receptivity, nurture, yielding) ---
+        .earth: [
+            "Story: Describe a time when gentleness redirected something vast.",
+            "Myth: A goddess of soil teaches humans how to receive.",
+            "Dream-journey: You lie down and the ground begins to speak.",
+            "Koan: How can yielding be stronger than force?",
+            "Journal entry: A quiet moment taught me more than achievement.",
+            "Letter: Write thanks to a place that steadies you.",
+            "Lyric poem: Dark soil waits—every seed a secret.",
+            "Riddle: I open to all, yet hold everything within. Who am I?"
         ],
-        .familyFriends: [
-            "Keep a family tradition that started by accident. Show how you keep the accident on purpose.",
-            "Write the thank-you you never said and the reply you hope for.",
-            "Cook together and recover when it goes wrong. Show the moment that saves the night.",
-            "End a disagreement in understanding, not victory. Quote the sentence that turned it.",
-            "Repay moving-day helpers without money. Make the payback matter."
+
+        // --- Thunder (shock, arousal, breakthrough) ---
+        .thunder: [
+            "Story: A sudden event shakes a village—how do they respond?",
+            "Myth: Tell how thunder first taught humans fear and courage.",
+            "Dream-journey: Lightning splits the sky; what do you see revealed?",
+            "Koan: What remains after a shock?",
+            "Journal entry: Today I broke apart something old and found…",
+            "Letter: Write to someone you woke suddenly from sleep.",
+            "Lyric poem: Flash—then silence. The heart remembers.",
+            "Lecture/essay: Explain why disruption is necessary for renewal."
         ],
-        .food: [
-            "Tell a trip through three meals. Let each plate change your plan.",
-            "Use a handed-down recipe that only works when you break one rule. Explain the rule and why.",
-            "Wait in a long street-food line. Share the lesson the line taught, not just the flavor.",
-            "Bake bread and name the moment the room forgives the day.",
-            "Open five spices, link each aroma to a memory, then make one new promise."
+
+        // --- Wind/Wood (influence, growth, guidance) ---
+        .wind: [
+            "Story: A whisper changes the course of events.",
+            "Myth: The tree-spirit teaches slow growth and quiet influence.",
+            "Dream-journey: A breeze carries you through many doors.",
+            "Koan: What subtle influence shifts a life?",
+            "Journal entry: Today a small act shaped my whole mood.",
+            "Letter: Write to someone you guided without them knowing.",
+            "Lyric poem: Soft wind shapes stone in time.",
+            "Riddle: I am invisible, yet I bend forests. What am I?"
         ],
-        .artMusic: [
-            "A busker changes the street’s pace. Pay with a story that earns an encore.",
-            "Stand before one painting that will not let you pass. Settle the unpaid debt it claims.",
-            "Learn an instrument and mark the first clean note that rearranges your day.",
-            "Interview a wall about a new mural and the neighbors who watched it appear.",
-            "Backstage before curtain, show the bargain performers make with fear."
+
+        // --- Water (flow, danger, endurance) ---
+        .water: [
+            "Story: Describe a journey down a dangerous river.",
+            "Myth: The river god teaches endurance through trial.",
+            "Dream-journey: You sink into depth—what rhythm carries you through?",
+            "Koan: How does retreat open a way?",
+            "Journal entry: I learned strength today in yielding to current.",
+            "Letter: Write instructions for someone crossing dark waters.",
+            "Lyric poem: Endless depth, voice of persistence.",
+            "Lecture/essay: Analyze how endurance forms through repeated trials."
         ],
-        .history: [
-            "Find the hinge day when a quiet town changed. Name who felt it first.",
-            "Answer a letter that crossed a century and arrived late. Close the loop.",
-            "Play a reenactor who doubts the script. Choose truth or role and live the result.",
-            "Restore a photo missing a corner. Tell the part outside the frame.",
-            "Open a time capsule. Decide which item returns to earth and which to memory."
+
+        // --- Fire (clarity, passion, illumination) ---
+        .fire: [
+            "Story: A flame spreads insight through a gathering.",
+            "Myth: The sun-bird carries light across the sky.",
+            "Dream-journey: You walk into a hall of mirrors lit by fire.",
+            "Koan: What clears the air like thunder?",
+            "Journal entry: Today I saw what was hidden in plain sight.",
+            "Letter: Write to someone you wish to enlighten.",
+            "Lyric poem: Spark into blaze, truth unveiled.",
+            "Riddle: I consume, yet I reveal. What am I?"
         ],
-        .movement: [
-            "Balance on a board for the first time. Mark the instant you trusted friction.",
-            "Run before sunrise and claim one empty mile as your own.",
-            "Describe the cue that finally unlocked a yoga pose for you.",
-            "Climb on belay and show what the rope holds besides weight.",
-            "Learn a kayak stroke on moving water. Explain the correction that kept you straight."
+
+        // --- Mountain (stillness, limits, reflection) ---
+        .mountain: [
+            "Story: A wanderer finds wisdom in silence at the peak.",
+            "Myth: The mountain spirit teaches the value of waiting.",
+            "Dream-journey: You sit so still the world begins to move around you.",
+            "Koan: What is learned in stillness?",
+            "Journal entry: Today I chose not to move, and I discovered…",
+            "Letter: Write to someone about the boundary you keep.",
+            "Lyric poem: Stone, unmoved, yet full of time.",
+            "Lecture/essay: Explain why limits are essential for growth."
         ],
-        .pets: [
-            "Write one day from your pet’s view. Include one secret you missed and why they kept it.",
-            "Record the exact cue that made a training session click for both of you.",
-            "Describe the moment during adoption when you knew this was your animal.",
-            "Script a calm vet visit. Show the kindness that made it work for everyone.",
-            "Care for an aging pet with dignity. Invent one new way to play."
-        ],
-        .natureCloseUp: [
-            "Study a single leaf until it becomes a landscape. Chart its rivers and ridges.",
-            "Stage a tidepool drama with one protagonist, one obstacle, one tiny triumph.",
-            "Describe an anthill by sound and motion. Explain what is being built.",
-            "Follow one raindrop from cloud to soil to river to sea to cloud. List every helper.",
-            "Frost writes on glass; speak one sentence aloud and mean it."
-        ],
-        .gratitude: [
-            "Name three unseen helpers from this week and repay each in one line of action.",
-            "Thank a place that steadies you. Say what you take and what you give back.",
-            "Honor an ordinary object by counting its quiet saves today.",
-            "Write to a mentor you never thanked and include the lesson you resisted first.",
-            "Thank your body for one small competence. Be precise."
-        ],
-        .mystery: [
-            "A key postmarked tomorrow arrives. Choose the first door you try and describe what happens.",
-            "Footprints start in the middle of a field and end at your door. Decide whether to invite or refuse.",
-            "A door appears only at dusk. Enter once and set one rule you will keep.",
-            "Your radio plays yesterday’s news. Correct one story and note what changes tonight.",
-            "A map without a legend marks a spot with a heartbeat. Go there and report what beats."
-        ],
-        .tech: [
-            "Design a tiny tool that removes one daily friction. Narrate the first user’s delight.",
-            "Fix an algorithm’s charming human mistake without killing the charm.",
-            "Spend a day offline. Map what returns to your attention and keep one piece.",
-            "Automate a small task. Show the before and after in human terms.",
-            "Choose privacy over convenience once today. Capture the trade and the relief."
-        ],
-        .ethics: [
-            "Write a traveler’s code for places you visit. Test it on one hard case.",
-            "Describe a bystander moment and the action you chose. Explain why.",
-            "Braid truth and kindness when they pull apart. Show the result.",
-            "Draw the line where you refuse to trade privacy for convenience. Keep it.",
-            "Tell how turning back saved more than safety. Name what else it saved."
-        ],
-        .humor: [
-            "Let a day derail in small ways and land perfectly. Recount the chain that made it work.",
-            "Play a polite misunderstanding that snowballs but keeps everyone likable.",
-            "Give a grocery mishap heroic stakes and play it straight.",
-            "Recover from a frozen video call face in a way that wins the room.",
-            "Turn a kitchen disaster into applause. Show the pivot."
-        ],
-        .dreams: [
-            "A recurring dream changes one detail. Follow the change to its source.",
-            "Walk a city that exists only when you sleep. Bring back one law and one street.",
-            "Fly in thick air. Learn the technique and teach it once.",
-            "Meet your future self on a bench. Ask one question you will obey.",
-            "Climb a staircase that loops. Record what changes each pass."
+
+        // --- Lake (joy, openness, exchange) ---
+        .lake: [
+            "Story: A festival by the lake unites strangers in laughter.",
+            "Myth: A water spirit teaches joy as a sacred duty.",
+            "Dream-journey: You walk into a circle of voices and songs.",
+            "Koan: How does joy multiply when shared?",
+            "Journal entry: Today I allowed delight to enter—this is what followed.",
+            "Letter: Write to someone who brings you laughter.",
+            "Lyric poem: Ripples carry laughter across water.",
+            "Riddle: I reflect all, yet sing my own song. What am I?"
         ]
     ]
+
     // Flattened pool that respects the selected category (All = union of all)
     private var promptPool: [String] {
         if selectedPromptCategory == .all {
@@ -438,10 +332,11 @@ struct GeneratorView: View {
 
         var parts: [String] = []
         if !styleSeed.isEmpty { parts.append(styleSeed) }
-        if let interest = interestSeed { parts.append("Interest: \(interest)") }
+        if let interest = interestSeed { parts.append("\n\(interest)") }    //      if let interest = interestSeed { parts.append("Interest: \(interest)") }
 
-        if parts.isEmpty { return "Interest: capoeira ao amanhecer" } // final fallback
-        return parts.joined(separator: " • ")
+        if parts.isEmpty { return "Interest: capoeira ao amanhecer" }
+        return parts.joined(separator: "\n")   // <-- instead of " • "
+
     }
 
     // MARK: - Persistence helpers
