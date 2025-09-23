@@ -216,25 +216,37 @@ async function signES256JWT(env: Env): Promise<string> {
   return `${signingInput}.${sigJOSE}`;
 }
 
-// Call App Store Server API: Get Transaction Info
+// Call App Store Server API: Get Transaction Info (try production, then sandbox)
 async function getTransactionInfoFromApple(env: Env, transactionId: string): Promise<any | null> {
-  const jwt = await signES256JWT(env);
-  const r = await fetch(
-    `https://api.storekit.itunes.apple.com/inApps/v1/transactions/${encodeURIComponent(
-      transactionId
-    )}`,
-    {
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        "Content-Type": "application/json",
-      },
+  async function call(
+    host: "api.storekit.itunes.apple.com" | "api.storekit-sandbox.itunes.apple.com"
+  ) {
+    const jwt = await signES256JWT(env);
+    const url = `https://${host}/inApps/v1/transactions/${encodeURIComponent(transactionId)}`;
+    const r = await fetch(url, {
+      headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+    });
+    const text = await r.text(); // keep raw for debugging if needed
+    if (!r.ok) return { ok: false, status: r.status, text };
+    try {
+      return { ok: true, json: JSON.parse(text) };
+    } catch {
+      return { ok: false, status: r.status, text };
     }
-  );
-  if (!r.ok) {
-    return null;
   }
-  return await r.json();
+
+  // 1) Try production first
+  const prod = await call("api.storekit.itunes.apple.com");
+  if (prod.ok && prod.json?.signedTransactionInfo) return prod.json;
+
+  // 2) Fallback to sandbox (what App Review / TestFlight uses)
+  const sbx = await call("api.storekit-sandbox.itunes.apple.com");
+  if (sbx.ok && sbx.json?.signedTransactionInfo) return sbx.json;
+
+  // 3) Neither worked
+  return null;
 }
+
 
 /* ================================
    Types for JWS payloads (client + Apple)
