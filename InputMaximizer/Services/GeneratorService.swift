@@ -373,6 +373,7 @@ private extension GeneratorService {
     ) async throws -> String {
 
         // ---------- Local helpers ----------
+        /*
         func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
             let meta = """
             You are a prompt refiner. Transform the user's instruction, input text, or theme into a clear, actionable writing brief that will produce a high-quality text.
@@ -407,6 +408,66 @@ private extension GeneratorService {
             ]
             return try await chatViaProxy(body)
         }
+        */
+        func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
+            let meta = """
+            You are a prompt compositor & refiner for a writing generator.
+
+            The user provides a multi-line seed where each line is a Key: Value pair (e.g., "Archetype: Story", "Tone / Style: Dramatic / emotional", "Hexagram Archetype: ䷜ 29 · The Abysmal (Danger)", "Setting: Desert", etc.). The seed may also include a free-text instruction or pasted material.
+
+            Your tasks:
+            1) **Parse** the seed lines robustly (trim spaces; accept minor label variations or missing lines).
+            2) **Preserve** all given intent, named entities, facts, references, and requested form (story, koan, letter, poem, myth, essay, etc.).
+            3) **Weave** the parsed axes into one coherent writing brief that a model can follow directly.
+
+            Hard constraints to enforce:
+            - Language: \(targetLang)
+            - Target length: ≈ \(wordCount) words (flexible ±15%)
+            - CEFR level: \(req.languageLevel.rawValue)
+
+            Map from the seed:
+            - Form (from “Archetype”): the mode (Story/Myth/Dream-journey/Koan/Journal/Letter/Lyric Poem/Riddle/Lecture / essay).
+            - Tone / Style: emotional color.
+            - Perspective: voice (1st/2nd/3rd/Stream of consciousness).
+            - Hexagram Archetype: use the hexagram’s core meaning as **theme**; do not add unrelated mysticism.
+            - Setting: place/venue (e.g., Forest, City, Dreamscape).
+            - Timeframe: era (Mythic past, Present, Near/Far future, Timeless).
+            - Scale / Recursion: zoom level (Cosmic → Microcosmic; Elemental/Systemic/Abstract).
+            - Interest: a vivid experiential seed; treat it as grounding material if present.
+
+            If any axis is missing, default sensibly without inventing contradictions.
+
+            Output format (return ONLY this brief; no headers, no explanations):
+            - **Title**: a short working title in \(targetLang).
+            - **Writing Task**: 1–2 sentences describing what to write, honoring the Form and Hexagram theme.
+            - **Audience & Voice**: audience (if implied) and the requested Perspective & Tone.
+            - **Context & Setting**: Setting, Timeframe, and Scale/Recursion (and Season/Weather if present); integrate Interest seed concretely if provided.
+            - **Must-Cover Points**: 4–7 bullet points derived from the seed/material; include any named entities/facts the user gave.
+            - **Structure**: simple paragraph plan (e.g., 3–5 paragraphs) with 1–2 clauses per paragraph about its focus; sentences not too long.
+            - **Language Guidance (CEFR \(req.languageLevel.rawValue))**:
+              \(cefrGuidance(req.languageLevel, targetLanguage: targetLang))
+            - **Length**: aim for ≈ \(wordCount) words (±15%).
+
+            Notes:
+            - Keep the brief in \(targetLang).
+            - Be faithful; do not drift from the user’s seed.
+            - Do not include meta-commentary or analysis outside the brief.
+            - If the seed includes extra free text after the Key: Value lines, treat it as user material that must be respected.
+
+            User seed / material:
+            \(raw)
+            """
+
+            let body: [String:Any] = [
+                "model": "gpt-5-nano",
+                "messages": [
+                    ["role":"system","content":"Compose faithful, executable writing briefs from multi-line aspect seeds. Preserve intent; integrate all provided axes."],
+                    ["role":"user","content": meta]
+                ],
+            ]
+            return try await chatViaProxy(body)
+        }
+
 
         func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int) async throws -> String {
             let system = """

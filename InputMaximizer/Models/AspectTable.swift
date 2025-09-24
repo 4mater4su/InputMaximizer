@@ -143,7 +143,76 @@ extension AspectTable {
                     AspectOption(label: "Third-person"),
                     AspectOption(label: "Stream of consciousness")
                 ]),
+                
+                // ARCHETYPE: The 64 I Ching hexagrams
+                AspectRow(title: "Hexagram Archetype", options: [
+                    AspectOption(label: "The Creative (Heaven)"),
+                    AspectOption(label: "The Receptive (Earth)"),
+                    AspectOption(label: "Difficulty at the Beginning"),
+                    AspectOption(label: "Youthful Folly"),
+                    AspectOption(label: "Waiting"),
+                    AspectOption(label: "Conflict"),
+                    AspectOption(label: "The Army"),
+                    AspectOption(label: "Holding Together"),
+                    AspectOption(label: "Small Taming"),
+                    AspectOption(label: "Treading"),
+                    AspectOption(label: "Peace"),
+                    AspectOption(label: "Standstill"),
+                    AspectOption(label: "Fellowship"),
+                    AspectOption(label: "Great Possession"),
+                    AspectOption(label: "Modesty"),
+                    AspectOption(label: "Enthusiasm"),
+                    AspectOption(label: "Following"),
+                    AspectOption(label: "Work on the Decayed"),
+                    AspectOption(label: "Approach"),
+                    AspectOption(label: "Contemplation"),
+                    AspectOption(label: "Biting Through"),
+                    AspectOption(label: "Grace"),
+                    AspectOption(label: "Splitting Apart"),
+                    AspectOption(label: "Return"),
+                    AspectOption(label: "Innocence"),
+                    AspectOption(label: "Great Taming"),
+                    AspectOption(label: "Nourishment"),
+                    AspectOption(label: "Great Exceeding"),
+                    AspectOption(label: "The Abysmal (Danger)"),
+                    AspectOption(label: "Clinging (Fire)"),
+                    AspectOption(label: "Influence"),
+                    AspectOption(label: "Duration"),
+                    AspectOption(label: "Retreat"),
+                    AspectOption(label: "Great Power"),
+                    AspectOption(label: "Progress"),
+                    AspectOption(label: "Darkening of the Light"),
+                    AspectOption(label: "The Family"),
+                    AspectOption(label: "Opposition"),
+                    AspectOption(label: "Obstruction"),
+                    AspectOption(label: "Deliverance"),
+                    AspectOption(label: "Decrease"),
+                    AspectOption(label: "Increase"),
+                    AspectOption(label: "Breakthrough"),
+                    AspectOption(label: "Coming to Meet"),
+                    AspectOption(label: "Gathering Together"),
+                    AspectOption(label: "Pushing Upward"),
+                    AspectOption(label: "Oppression"),
+                    AspectOption(label: "The Well"),
+                    AspectOption(label: "Revolution"),
+                    AspectOption(label: "The Cauldron"),
+                    AspectOption(label: "The Arousing (Thunder)"),
+                    AspectOption(label: "Keeping Still (Mountain)"),
+                    AspectOption(label: "Development"),
+                    AspectOption(label: "The Marrying Maiden"),
+                    AspectOption(label: "Abundance"),
+                    AspectOption(label: "The Wanderer"),
+                    AspectOption(label: "The Gentle (Wind)"),
+                    AspectOption(label: "The Joyous (Lake)"),
+                    AspectOption(label: "Dispersion"),
+                    AspectOption(label: "Limitation"),
+                    AspectOption(label: "Inner Truth"),
+                    AspectOption(label: "Small Exceeding"),
+                    AspectOption(label: "After Completion"),
+                    AspectOption(label: "Before Completion")
+                ]),
 
+                /*
                 // ARCHETYPE: The 64 I Ching hexagrams
                 AspectRow(title: "Hexagram Archetype", options: [
                     AspectOption(label: "䷀ 1 · The Creative (Heaven)"),
@@ -211,7 +280,8 @@ extension AspectTable {
                     AspectOption(label: "䷾ 63 · After Completion"),
                     AspectOption(label: "䷿ 64 · Before Completion")
                 ]),
-
+                */
+                
                 // WHERE it happens
                 AspectRow(title: "Setting", options: [
                     AspectOption(label: "Sea / Coast"),
