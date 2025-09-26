@@ -69,33 +69,37 @@ final class PurchaseManager: ObservableObject {
     ) async throws {
         switch result {
         case .success(let verification):
-            // Locally verify first (StoreKit 2)
             let tx: StoreKit.Transaction = try checkVerified(verification)
 
             do {
+                // Try JWS first on iOS 18+, then fall back to legacy receipt on any failure.
+                var redeemed = false
                 if #available(iOS 18.0, *) {
-                    // iOS 18+: send signed transaction JWS to server
-                    let jws = verification.jwsRepresentation
-                    try await GeneratorService.proxy.redeemSignedTransactions(
-                        deviceId: DeviceID.current,
-                        signedTransactions: [jws]
-                    )
-                } else {
-                    // < iOS 18: fallback to legacy receipt flow
+                    do {
+                        let jws = verification.jwsRepresentation
+                        _ = try await GeneratorService.proxy.redeemSignedTransactions(
+                            deviceId: DeviceID.current,
+                            signedTransactions: [jws]
+                        )
+                        redeemed = true
+                    } catch {
+                        // Fall through to legacy receipt
+                    }
+                }
+                if !redeemed {
                     let receiptB64 = try await appReceiptBase64_legacy(refreshIfNeeded: true)
-                    try await GeneratorService.proxy.redeemReceipt(
+                    _ = try await GeneratorService.proxy.redeemReceipt(
                         deviceId: DeviceID.current,
                         receiptBase64: receiptB64
                     )
                 }
 
-                // Finish only after the server grants credits
+                // Finish only AFTER the server grants credits
                 await tx.finish()
-
-                // Refresh UI / balance
                 NotificationCenter.default.post(name: .didPurchaseCredits, object: nil)
+
             } catch {
-                // Leave unfinished so we can retry via updates observer
+                // Leave unfinished so updates observer can retry
                 lastError = "Redeem failed: \(error.localizedDescription)"
                 return
             }
@@ -106,6 +110,7 @@ final class PurchaseManager: ObservableObject {
             break
         }
     }
+
 
     private func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {
         switch result {
@@ -129,12 +134,29 @@ final class PurchaseManager: ObservableObject {
 
                     do {
                         if #available(iOS 18.0, *) {
-                            // `update` is VerificationResult<Transaction>; use its JWS directly
-                            let jws = update.jwsRepresentation
-                            try await GeneratorService.proxy.redeemSignedTransactions(
-                                deviceId: DeviceID.current,
-                                signedTransactions: [jws]
-                            )
+                            do {
+                                let jws = update.jwsRepresentation
+                                do {
+                                    _ = try await GeneratorService.proxy.redeemSignedTransactions(
+                                        deviceId: DeviceID.current,
+                                        signedTransactions: [jws]
+                                    )
+                                } catch {
+                                    let receiptB64 = try await self.appReceiptBase64_legacy(refreshIfNeeded: true)
+                                    _ = try await GeneratorService.proxy.redeemReceipt(
+                                        deviceId: DeviceID.current,
+                                        receiptBase64: receiptB64
+                                    )
+                                }
+                                await tx.finish()
+                                await MainActor.run {
+                                    NotificationCenter.default.post(name: .didPurchaseCredits, object: nil)
+                                }
+                            } catch {
+                                await MainActor.run {
+                                    self.lastError = "Auto-redeem failed: \(error.localizedDescription)"
+                                }
+                            }
                         } else {
                             let receiptB64 = try await self.appReceiptBase64_legacy(refreshIfNeeded: true)
                             try await GeneratorService.proxy.redeemReceipt(

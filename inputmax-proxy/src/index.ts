@@ -197,6 +197,7 @@ async function signES256JWT(env: Env): Promise<string> {
     iat: now,
     exp: now + 180, // short-lived
     aud: "appstoreconnect-v1",
+    bid: APP_BUNDLE_ID,
   };
 
   const encHeader = base64urlFromString(JSON.stringify(header));
@@ -295,6 +296,7 @@ export default {
         { headers: { "cache-control": "no-store" } }
       );
     }
+
     // --- Credits: one-time review grant (self-serve for App Review) ---
     if (req.method === "POST" && path === "/credits/review-grant") {
       const deviceId = requireDeviceId(req);
@@ -313,7 +315,10 @@ export default {
       const onceKey = `review_granted:${deviceId}`;
       if (await env.CREDITS.get(onceKey)) {
         const balance = await getBalance(env, deviceId);
-        return Response.json({ ok: true, granted: 0, already: true, balance }, { headers: { "cache-control": "no-store" } });
+        return Response.json(
+          { ok: true, granted: 0, already: true, balance },
+          { headers: { "cache-control": "no-store" } }
+        );
       }
 
       const grant = parseInt(env.REVIEW_GRANT_AMOUNT || "20", 10) || 20;
@@ -323,7 +328,7 @@ export default {
       const balance = await getBalance(env, deviceId);
       return Response.json(
         { ok: true, granted: grant, balance },
-        { headers: { "cache-control": "no-store" }}
+        { headers: { "cache-control": "no-store" } }
       );
     }
 
@@ -489,6 +494,13 @@ export default {
         });
       }
 
+      // NEW: clear signal when JWS is not configured on the server
+      if (!env.APPSTORE_ISSUER_ID || !env.APPSTORE_KEY_ID || !env.APPSTORE_PRIVATE_KEY) {
+        return new Response(JSON.stringify({ error: "jws_verification_not_configured" }), {
+          status: 501, headers: { "content-type": "application/json", "cache-control": "no-store" },
+        });
+      }
+
       let granted = 0;
 
       for (const jws of signed) {
@@ -505,12 +517,16 @@ export default {
         const txId = (clientPayload?.transactionId || "").trim();
         const claimedProductId = (clientPayload?.productId || "").trim();
         const claimedBundleId = (clientPayload?.bundleId || "").trim();
-        if (!txId || !claimedProductId || !claimedBundleId) continue;
+	if (!txId) continue;
 
-        // Authoritative verification with Apple
+        // Authoritative verification with Apple (prod→sandbox fallback inside)
         const info = await getTransactionInfoFromApple(env, txId);
         if (!info || typeof info.signedTransactionInfo !== "string") {
-          continue; // Could not verify
+          // Surface a temporary verification failure so client keeps the transaction open and auto-retries
+          return new Response(JSON.stringify({ error: "apple_verification_unavailable" }), {
+            status: 503,
+            headers: { "content-type": "application/json", "cache-control": "no-store" },
+          });
         }
 
         // Parse Apple's signedTransactionInfo (JWS) payload (trusted source)
