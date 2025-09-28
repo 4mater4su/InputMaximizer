@@ -108,11 +108,10 @@ struct AppearanceSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    /*
                     Button("Reload Products") {
                         Task { await purchases.refresh() }
                     }
-                     */
+                     
                 }
 
             }
