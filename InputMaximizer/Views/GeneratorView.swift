@@ -72,6 +72,17 @@ struct GeneratorView: View {
     @AppStorage("generatorPromptV1") private var userPrompt: String = ""
     @AppStorage("generatorRandomTopicV1") private var randomTopic: String = ""
 
+    // Persisted toggle for the Advanced dropdown
+    @AppStorage("generatorAdvancedExpandedV1") private var advancedExpandedStore: Bool = false
+
+    // Local binding that connects @AppStorage to the environment
+    private var advancedExpandedBinding: Binding<Bool> {
+        Binding(
+            get: { advancedExpandedStore },
+            set: { advancedExpandedStore = $0 }
+        )
+    }
+    
     @Environment(\.horizontalSizeClass) private var hSize
     
     // MARK: - Length preset
@@ -647,14 +658,41 @@ struct GeneratorView: View {
     
     // MARK: - UI
     var body: some View {
+        
+        // local alias so the body stays readable
+        let advanced = advancedExpandedBinding
+        
         Form {
                 modeSection()
                 randomTopicSection()
                 promptSection()
-                segmentationSection()
-                lengthSection()
-                speechSpeedSection()
-                levelSection()
+                
+                // --- Dropdown toggle row (shows/hides advanced controls) ---
+                Section {
+                    Button {
+                        advanced.wrappedValue.toggle()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "slider.horizontal.3")
+                            Text("Advanced options")
+                            Spacer()
+                            Image(systemName: advanced.wrappedValue ? "chevron.up" : "chevron.down")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        advanced.wrappedValue ? "Hide advanced options" : "Show advanced options"
+                    )
+                }
+
+                if advanced.wrappedValue {
+                    segmentationSection()
+                    lengthSection()
+                    speechSpeedSection()
+                    levelSection()
+                }
+
                 languagesSection()
                 actionSection()
         }
@@ -741,6 +779,7 @@ struct GeneratorView: View {
 
         .navigationTitle("Generator")
         .listStyle(.insetGrouped)
+        .environment(\.generatorAdvancedExpanded, advancedExpandedBinding)
         .sheet(isPresented: $showConfigurator) {
             AspectConfiguratorView(styleTable: $styleTable, interestRow: $interestRow)
                 .onDisappear {
@@ -894,6 +933,7 @@ private struct SegmentationInfoCard: View {
         )
     }
 }
+
 private struct RegularWidthPopover<PopupContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     let popup: () -> PopupContent
@@ -911,5 +951,18 @@ private struct RegularWidthPopover<PopupContent: View>: ViewModifier {
         ) {
             popup()
         }
+    }
+}
+
+// MARK: - Environment key for "Advanced options" expanded state
+
+private struct GeneratorAdvancedExpandedKey: EnvironmentKey {
+    static let defaultValue: Binding<Bool> = .constant(false)
+}
+
+extension EnvironmentValues {
+    var generatorAdvancedExpanded: Binding<Bool> {
+        get { self[GeneratorAdvancedExpandedKey.self] }
+        set { self[GeneratorAdvancedExpandedKey.self] = newValue }
     }
 }
