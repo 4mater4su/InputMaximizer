@@ -54,17 +54,17 @@ struct ProxyClient {
         let (data, resp) = try await ProxyClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
 
+        let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+        print("🌐 redeemReceipt: status=\(http.statusCode) body=\(body)")
+
         if http.statusCode == 409 {
-            // already redeemed; still parse to get up-to-date balance
             let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             let balance = (obj?["balance"] as? Int) ?? 0
             return (granted: 0, balance: balance)
         }
-
         guard (200..<300).contains(http.statusCode) else {
-            let msg = String(data: data, encoding: .utf8) ?? "Server error"
             throw NSError(domain: "Proxy", code: http.statusCode,
-                          userInfo: [NSLocalizedDescriptionKey: msg])
+                          userInfo: [NSLocalizedDescriptionKey: body])
         }
 
         let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -86,17 +86,12 @@ struct ProxyClient {
         let (data, resp) = try await ProxyClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
 
-        if http.statusCode == 409 {
-            // already redeemed; still parse to get up-to-date balance (if your server ever returns 409)
-            let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let balance = (obj?["balance"] as? Int) ?? 0
-            return (granted: 0, balance: balance)
-        }
+        let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+        print("🌐 redeemSigned: status=\(http.statusCode) body=\(body.prefix(400))")
 
         guard (200..<300).contains(http.statusCode) else {
-            let msg = String(data: data, encoding: .utf8) ?? "Server error"
             throw NSError(domain: "Proxy", code: http.statusCode,
-                          userInfo: [NSLocalizedDescriptionKey: msg])
+                          userInfo: [NSLocalizedDescriptionKey: body])
         }
 
         let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -111,8 +106,12 @@ struct ProxyClient {
 
         let (data, resp) = try await ProxyClient.session.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            print("🌐 balance: bad status. body=\(body)")
             throw URLError(.badServerResponse)
         }
+        let s = String(data: data, encoding: .utf8) ?? ""
+        print("🌐 balance: \(s)")
         let j = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         return j?["balance"] as? Int ?? 0
     }

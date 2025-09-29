@@ -41,10 +41,16 @@ final class PurchaseManager: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         do {
+            print("ℹ️ PurchaseManager.refresh(): requesting products: \(Array(IAP.creditPacks))")
             let products = try await Product.products(for: Array(IAP.creditPacks))
+            products.forEach { p in
+                print("✅ Loaded product: id=\(p.id) name=\(p.displayName) price=\(p.displayPrice)")
+            }
             creditProducts = products.sorted { credits(for: $0) < credits(for: $1) }
+            print("ℹ️ PurchaseManager.refresh(): sorted products = \(creditProducts.map { $0.id })")
         } catch {
             lastError = error.localizedDescription
+            print("❌ PurchaseManager.refresh() error: \(error.localizedDescription)")
         }
     }
 
@@ -55,10 +61,13 @@ final class PurchaseManager: ObservableObject {
     // MARK: - Purchase
     func buyCredits(_ product: Product) async {
         do {
+            print("🛒 buyCredits(): purchasing \(product.id)")
             let result = try await product.purchase()
+            print("🧾 buyCredits(): purchase result = \(result)")
             try await handlePurchaseResult(result, purchasedID: product.id)
         } catch {
             lastError = error.localizedDescription
+            print("❌ buyCredits() error: \(error.localizedDescription)")
         }
     }
 
@@ -67,50 +76,60 @@ final class PurchaseManager: ObservableObject {
         _ result: Product.PurchaseResult,
         purchasedID: String
     ) async throws {
+        print("➡️ handlePurchaseResult(): entered for product \(purchasedID) with result=\(result)")
+
         switch result {
         case .success(let verification):
+            print("✅ Purchase success. Attempting verification…")
             let tx: StoreKit.Transaction = try checkVerified(verification)
+            print("🔏 Verified tx: id=\(tx.id) productID=\(tx.productID) env=\(tx.environment) purchaseDate=\(tx.purchaseDate)")
 
             do {
-                // Try JWS first on iOS 18+, then fall back to legacy receipt on any failure.
                 var redeemed = false
                 if #available(iOS 18.0, *) {
                     do {
                         let jws = verification.jwsRepresentation
-                        _ = try await GeneratorService.proxy.redeemSignedTransactions(
+                        print("🔁 Redeem path: JWS (iOS 18+). JWS length=\(jws.count)")
+                        let res = try await GeneratorService.proxy.redeemSignedTransactions(
                             deviceId: DeviceID.current,
                             signedTransactions: [jws]
                         )
+                        print("✅ JWS redeem OK: granted=\(res.granted) balance=\(res.balance)")
                         redeemed = true
                     } catch {
-                        // Fall through to legacy receipt
+                        print("⚠️ JWS redeem failed: \(error.localizedDescription). Falling back to legacy receipt…")
                     }
                 }
+
                 if !redeemed {
                     let receiptB64 = try await appReceiptBase64_legacy(refreshIfNeeded: true)
-                    _ = try await GeneratorService.proxy.redeemReceipt(
+                    print("🔁 Redeem path: legacy receipt. receiptB64.len=\(receiptB64.count)")
+                    let res = try await GeneratorService.proxy.redeemReceipt(
                         deviceId: DeviceID.current,
                         receiptBase64: receiptB64
                     )
+                    print("✅ Legacy redeem OK: granted=\(res.granted) balance=\(res.balance)")
                 }
 
-                // Finish only AFTER the server grants credits
                 await tx.finish()
+                print("🧹 Finished transaction id=\(tx.id)")
                 NotificationCenter.default.post(name: .didPurchaseCredits, object: nil)
+                print("🔔 Posted .didPurchaseCredits")
 
             } catch {
-                // Leave unfinished so updates observer can retry
                 lastError = "Redeem failed: \(error.localizedDescription)"
+                print("❌ handlePurchaseResult(): redeem failed. Leaving tx unfinished so system re-delivers. error=\(error.localizedDescription)")
                 return
             }
 
-        case .userCancelled, .pending:
-            break
+        case .userCancelled:
+            print("🟡 handlePurchaseResult(): user cancelled")
+        case .pending:
+            print("🟠 handlePurchaseResult(): pending")
         @unknown default:
-            break
+            print("❓ handlePurchaseResult(): unknown result")
         }
     }
-
 
     private func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {
         switch result {
@@ -124,10 +143,13 @@ final class PurchaseManager: ObservableObject {
     private func observeTransactionUpdates() -> Task<Void, Never> {
         Task.detached { [weak self] in
             guard let self else { return }
+            print("👂 observeTransactionUpdates(): started")
             for await update in StoreKit.Transaction.updates {
                 do {
                     let tx: StoreKit.Transaction = try await self.checkVerified(update)
+                    print("🔁 Re-delivered tx: id=\(tx.id) productID=\(tx.productID) env=\(tx.environment)")
                     guard IAP.creditPacks.contains(tx.productID) else {
+                        print("↩️ Not a credit product. Finishing.")
                         await tx.finish()
                         continue
                     }
@@ -136,49 +158,50 @@ final class PurchaseManager: ObservableObject {
                         if #available(iOS 18.0, *) {
                             do {
                                 let jws = update.jwsRepresentation
+                                print("🔁 Auto-redeem JWS path. JWS len=\(jws.count)")
                                 do {
-                                    _ = try await GeneratorService.proxy.redeemSignedTransactions(
+                                    let res = try await GeneratorService.proxy.redeemSignedTransactions(
                                         deviceId: DeviceID.current,
                                         signedTransactions: [jws]
                                     )
+                                    print("✅ Auto-redeem JWS OK: granted=\(res.granted) balance=\(res.balance)")
                                 } catch {
+                                    print("⚠️ Auto-redeem JWS failed: \(error.localizedDescription). Trying legacy receipt…")
                                     let receiptB64 = try await self.appReceiptBase64_legacy(refreshIfNeeded: true)
-                                    _ = try await GeneratorService.proxy.redeemReceipt(
+                                    let res = try await GeneratorService.proxy.redeemReceipt(
                                         deviceId: DeviceID.current,
                                         receiptBase64: receiptB64
                                     )
+                                    print("✅ Auto-redeem legacy OK: granted=\(res.granted) balance=\(res.balance)")
                                 }
                                 await tx.finish()
+                                print("🧹 Finished re-delivered tx \(tx.id)")
                                 await MainActor.run {
                                     NotificationCenter.default.post(name: .didPurchaseCredits, object: nil)
                                 }
                             } catch {
-                                await MainActor.run {
-                                    self.lastError = "Auto-redeem failed: \(error.localizedDescription)"
-                                }
+                                await MainActor.run { self.lastError = "Auto-redeem failed: \(error.localizedDescription)" }
+                                print("❌ Auto-redeem outer catch: \(error.localizedDescription)")
                             }
                         } else {
                             let receiptB64 = try await self.appReceiptBase64_legacy(refreshIfNeeded: true)
-                            try await GeneratorService.proxy.redeemReceipt(
+                            let res = try await GeneratorService.proxy.redeemReceipt(
                                 deviceId: DeviceID.current,
                                 receiptBase64: receiptB64
                             )
-                        }
-
-                        await tx.finish()
-                        await MainActor.run {
-                            NotificationCenter.default.post(name: .didPurchaseCredits, object: nil)
+                            print("✅ Auto-redeem (<iOS18) OK: granted=\(res.granted) balance=\(res.balance)")
+                            await tx.finish()
+                            await MainActor.run {
+                                NotificationCenter.default.post(name: .didPurchaseCredits, object: nil)
+                            }
                         }
                     } catch {
-                        // If redeem fails, don't finish; system will re-deliver later
-                        await MainActor.run {
-                            self.lastError = "Auto-redeem failed: \(error.localizedDescription)"
-                        }
+                        await MainActor.run { self.lastError = "Auto-redeem failed: \(error.localizedDescription)" }
+                        print("❌ observeTransactionUpdates(): inner error \(error.localizedDescription)")
                     }
                 } catch {
-                    await MainActor.run {
-                        self.lastError = "Verification failed: \(error.localizedDescription)"
-                    }
+                    await MainActor.run { self.lastError = "Verification failed: \(error.localizedDescription)" }
+                    print("❌ observeTransactionUpdates(): verification failed \(error.localizedDescription)")
                 }
             }
         }
@@ -192,34 +215,33 @@ final class PurchaseManager: ObservableObject {
     private func appReceiptBase64_legacy(refreshIfNeeded: Bool = true) async throws -> String {
 
         func loadReceiptDataIfPresent() -> Data? {
-            // Access the same URL as Bundle.main.appStoreReceiptURL, but via KVC to
-            // avoid referencing the deprecated symbol directly when building with iOS 18 SDK.
             let url = Bundle.main.value(forKey: "appStoreReceiptURL") as? URL
-            guard let u = url, let data = try? Data(contentsOf: u), !data.isEmpty else { return nil }
-            return data
+            let data = (url.flatMap { try? Data(contentsOf: $0) }) ?? Data()
+            print("🧾 appReceiptBase64_legacy(): receipt at \(String(describing: url)) size=\(data.count) bytes")
+            return data.isEmpty ? nil : data
         }
 
-        // 1) If a receipt is already present and non-empty, return it.
         if let data = loadReceiptDataIfPresent() {
+            print("🧾 Using existing receipt")
             return data.base64EncodedString()
         }
 
-        // 2) If caller doesn’t want a refresh attempt, fail now.
         guard refreshIfNeeded else {
+            print("🧾 No receipt and refreshIfNeeded=false")
             throw NSError(domain: "Receipt", code: 2, userInfo: [NSLocalizedDescriptionKey: "Missing receipt"])
         }
 
-        // 3) Ask the App Store to sync the receipt (StoreKit 2).
+        print("🔄 Requesting AppStore.sync() for receipt…")
         do { try await AppStore.sync() } catch {
-            // Ignore; we’ll re-check below and error out if still missing.
+            print("⚠️ AppStore.sync() error: \(error.localizedDescription)")
         }
 
-        // 4) Re-check after sync.
         if let data = loadReceiptDataIfPresent() {
+            print("🧾 Got receipt after sync")
             return data.base64EncodedString()
         }
 
-        // 5) Still missing: report a clear error.
+        print("❌ Still no receipt after sync")
         throw NSError(domain: "Receipt", code: 3, userInfo: [NSLocalizedDescriptionKey: "Receipt refresh did not produce a receipt"])
     }
 

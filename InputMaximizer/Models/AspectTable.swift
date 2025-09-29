@@ -144,6 +144,7 @@ extension AspectTable {
                     AspectOption(label: "Stream of consciousness")
                 ]),
                 
+                /*
                 // ARCHETYPE: The 64 I Ching hexagrams
                 AspectRow(title: "Hexagram Archetype", options: [
                     AspectOption(label: "The Creative (Heaven)"),
@@ -211,6 +212,7 @@ extension AspectTable {
                     AspectOption(label: "After Completion"),
                     AspectOption(label: "Before Completion")
                 ]),
+                */
 
                 /*
                 // ARCHETYPE: The 64 I Ching hexagrams
@@ -282,6 +284,7 @@ extension AspectTable {
                 ]),
                 */
                 
+                /*
                 // WHERE it happens
                 AspectRow(title: "Setting", options: [
                     AspectOption(label: "Sea / Coast"),
@@ -305,7 +308,9 @@ extension AspectTable {
                     AspectOption(label: "Space Station / Starship"),
                     AspectOption(label: "Alien World")
                 ]),
+                 */
 
+                /*
                 // WHEN it happens
                 AspectRow(title: "Timeframe", options: [
                     AspectOption(label: "Mythic past"),
@@ -315,7 +320,9 @@ extension AspectTable {
                     AspectOption(label: "Far future"),
                     AspectOption(label: "Timeless")
                 ]),
+                 */
 
+                /*
                 // HOW FAR IN / OUT we zoom (recursion levels)
                 AspectRow(title: "Scale / Recursion", options: [
                     AspectOption(label: "Cosmic (galaxies, creation, entropy)"),
@@ -329,6 +336,7 @@ extension AspectTable {
                     AspectOption(label: "Systemic (networks, economies, ecologies)"),
                     AspectOption(label: "Abstract / Archetypal (concepts, forces, patterns)")
                 ]),
+                */
 
             ]
         )
