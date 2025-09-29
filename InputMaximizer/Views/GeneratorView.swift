@@ -410,105 +410,7 @@ struct GeneratorView: View {
     
     private var allSupportedLanguages: [String] { supportedLanguages }
     
-    @ViewBuilder private func modeSection() -> some View {
-        Section {
-            let allModes: [GenerationMode] = Array(GenerationMode.allCases)
-            Picker("Generation Mode", selection: $mode) {
-                ForEach(allModes, id: \.self) { m in
-                    Text(m.rawValue).tag(m)
-                }
-            }
-            .pickerStyle(.segmented)
-        } header: {
-            HStack(spacing: 6) {
-                Text("Mode")
-                Button {
-                    showModeInfo = true
-                } label: {
-                    Image(systemName: "info.circle")
-                        .imageScale(.medium)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("About Mode")
-
-                // iPad/regular width
-                .modifier(RegularWidthPopover(isPresented: $showModeInfo) {
-                    ModeInfoCard()
-                        .frame(maxWidth: 360)
-                        .padding()
-                })
-
-                // iPhone/compact width
-                .sheet(isPresented: Binding(
-                    get: { hSize == .compact && showModeInfo },
-                    set: { showModeInfo = $0 }
-                )) {
-                    ModeInfoCard()
-                        .presentationDetents([.fraction(0.35), .medium])
-                        .presentationDragIndicator(.visible)
-                }
-
-                Spacer()
-            }
-        }
-    }
-
-    @ViewBuilder private func randomTopicSection() -> some View {
-        if mode == .random {
-            Section("Random Topic") {
-                Text(randomTopic)
-                    .font(.callout).foregroundStyle(.secondary)
-
-                HStack {
-                    Button("Randomize") { randomTopic = buildRandomTopic() }
-                    Spacer(minLength: 12)
-                    Button { showConfigurator = true } label: {
-                        Label("Configure", systemImage: "slider.horizontal.3")
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private func promptSection() -> some View {
-        if mode == .prompt {
-            Section("Prompt") {
-                TextEditor(text: $userPrompt)
-                    .frame(minHeight: 120)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
-                    .padding(.vertical, 2)
-                    .focused($promptIsFocused)
-
-                // Random button (left) + category picker (right), no visible label
-                HStack {
-                    Button {
-                        pickRandomPresetPrompt()
-                    } label: {
-                        Label("Random Prompt", systemImage: "die.face.5") // or "shuffle"
-                    }
-                    .buttonStyle(.bordered)
-
-                    Spacer(minLength: 8)
-
-                    Picker("", selection: $selectedPromptCategory) {
-                        ForEach(PromptCategory.allCases) { cat in
-                            Text(cat.rawValue).tag(cat)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    // (Optional) keep this for VoiceOver while hiding the label visually:
-                    // .accessibilityLabel("Prompt category")
-                }
-                .padding(.top, 4)
-
-
-                Text("Describe instructions, a theme, or paste a source text.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-        }
-    }
+    
 
     @ViewBuilder private func segmentationSection() -> some View {
         Section {
@@ -663,9 +565,22 @@ struct GeneratorView: View {
         let advanced = advancedExpandedBinding
         
         Form {
-            modeSection()
-            randomTopicSection()
-            promptSection()
+            // --- Mode + Input as a single card ---
+            Section {
+                ModeCard(
+                    mode: $mode,
+                    userPrompt: $userPrompt,
+                    selectedPromptCategory: $selectedPromptCategory,
+                    randomTopic: $randomTopic,
+                    showConfigurator: $showConfigurator,
+                    pickRandomPresetPrompt: { pickRandomPresetPrompt() },
+                    buildRandomTopic: { buildRandomTopic() },
+                    promptFocus: $promptIsFocused,
+                    showModeInfo: $showModeInfo
+                )
+            }
+            .listRowInsets(EdgeInsets())            // edge-to-edge for the card
+            .listRowBackground(Color.clear)
             
             // --- Advanced group as a single card ---
             Section {
@@ -932,6 +847,138 @@ private struct AdvancedCard<Content: View>: View {
         }
         .background(
             // Card background that adapts to light/dark
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+        .padding(.vertical, 6)
+    }
+}
+
+// MARK: - Mode + Input card
+
+private struct ModeCard: View {
+    @Binding var mode: GeneratorView.GenerationMode
+    @Binding var userPrompt: String
+    @Binding var selectedPromptCategory: GeneratorView.PromptCategory
+    @Binding var randomTopic: String
+    @Binding var showConfigurator: Bool
+    var pickRandomPresetPrompt: () -> Void
+    var buildRandomTopic: () -> String
+    var promptFocus: FocusState<Bool>.Binding
+    @Binding var showModeInfo: Bool
+
+    @Environment(\.horizontalSizeClass) private var hSize
+
+    var body: some View {
+        VStack(spacing: 0) {
+
+            // Header: Mode segmented + info
+            HStack(spacing: 12) {
+                Image(systemName: "square.and.pencil")
+                Text("Mode").font(.headline)
+                Spacer()
+
+                // Info button (preserves your popover/sheet behavior)
+                Button {
+                    showModeInfo = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .imageScale(.medium)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("About Mode")
+                .modifier(RegularWidthPopover(isPresented: $showModeInfo) {
+                    ModeInfoCard()
+                        .frame(maxWidth: 360)
+                        .padding()
+                })
+                .sheet(isPresented: Binding(
+                    get: { hSize == .compact && showModeInfo },
+                    set: { showModeInfo = $0 }
+                )) {
+                    ModeInfoCard()
+                        .presentationDetents([.fraction(0.35), .medium])
+                        .presentationDragIndicator(.visible)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+
+            Picker("Generation Mode", selection: $mode) {
+                Text(GeneratorView.GenerationMode.prompt.rawValue).tag(GeneratorView.GenerationMode.prompt)
+                Text(GeneratorView.GenerationMode.random.rawValue).tag(GeneratorView.GenerationMode.random)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            // Body switches with mode
+            Group {
+                if mode == .prompt {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Prompt").font(.subheadline.weight(.semibold))
+
+                        TextEditor(text: $userPrompt)
+                            .frame(minHeight: 120)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
+                            .padding(.vertical, 2)
+                            .focused(promptFocus)
+
+                        HStack {
+                            Button {
+                                pickRandomPresetPrompt()
+                            } label: {
+                                Label("Random Prompt", systemImage: "die.face.5")
+                            }
+                            .buttonStyle(.bordered)
+
+                            Spacer(minLength: 8)
+
+                            Picker("", selection: $selectedPromptCategory) {
+                                ForEach(GeneratorView.PromptCategory.allCases) { cat in
+                                    Text(cat.rawValue).tag(cat)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+
+                        Text("Describe instructions, a theme, or paste a source text.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Random Topic").font(.subheadline.weight(.semibold))
+
+                        Text(randomTopic)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+
+                        HStack {
+                            Button("Randomize") { randomTopic = buildRandomTopic() }
+                            Spacer(minLength: 12)
+                            Button { showConfigurator = true } label: {
+                                Label("Configure", systemImage: "slider.horizontal.3")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(14)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+        }
+        .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(uiColor: .secondarySystemGroupedBackground))
         )
