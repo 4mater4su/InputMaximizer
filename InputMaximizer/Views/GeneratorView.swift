@@ -663,38 +663,82 @@ struct GeneratorView: View {
         let advanced = advancedExpandedBinding
         
         Form {
-                modeSection()
-                randomTopicSection()
-                promptSection()
-                
-                // --- Dropdown toggle row (shows/hides advanced controls) ---
-                Section {
-                    Button {
-                        advanced.wrappedValue.toggle()
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "slider.horizontal.3")
-                            Text("Advanced options")
-                            Spacer()
-                            Image(systemName: advanced.wrappedValue ? "chevron.up" : "chevron.down")
-                                .foregroundStyle(.secondary)
+            modeSection()
+            randomTopicSection()
+            promptSection()
+            
+            // --- Advanced group as a single card ---
+            Section {
+                AdvancedCard(expanded: advanced, title: "Advanced options") {
+                    // 1) Segmentation
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Text("Segmentation").font(.subheadline.weight(.semibold))
+                            Button {
+                                showSegmentationInfo = true
+                            } label: {
+                                Image(systemName: "info.circle").imageScale(.small)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("About Segmentation")
                         }
+
+                        Picker("Segment by", selection: $segmentation) {
+                            ForEach(Array(Segmentation.allCases), id: \.self) { s in
+                                Text(s.rawValue).tag(s)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityLabel("Segment by")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(
-                        advanced.wrappedValue ? "Hide advanced options" : "Show advanced options"
-                    )
-                }
 
-                if advanced.wrappedValue {
-                    segmentationSection()
-                    lengthSection()
-                    speechSpeedSection()
-                    levelSection()
-                }
+                    // 2) Length
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Length").font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Text("~\(lengthPreset.words) words")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("Approximately \(lengthPreset.words) words")
+                        }
 
-                languagesSection()
-                actionSection()
+                        Picker("", selection: $lengthPreset) {
+                            ForEach(LengthPreset.allCases) { preset in
+                                Text(preset.label).tag(preset)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+
+                    // 3) Speech Speed
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Speech Speed").font(.subheadline.weight(.semibold))
+                        Picker("Speech Speed", selection: $speechSpeed) {
+                            Text("Regular").tag(SpeechSpeed.regular)
+                            Text("Slow").tag(SpeechSpeed.slow)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    // 4) Language Level
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Language Level (CEFR)").font(.subheadline.weight(.semibold))
+                        Picker("Level", selection: $languageLevel) {
+                            ForEach(Array(LanguageLevel.allCases), id: \.self) { level in
+                                Text(level.rawValue).tag(level)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+            }
+            .listRowInsets(EdgeInsets())               // removes the default insets
+            .listRowBackground(Color.clear)            // removes the default grouped bg
+
+            languagesSection()
+            actionSection()
         }
         .scrollContentBackground(.hidden)
         .background(Color.appBackground)
@@ -840,6 +884,66 @@ struct GeneratorView: View {
 
     }
 }
+
+// MARK: - Advanced options card
+
+private struct AdvancedCard<Content: View>: View {
+    @Binding var expanded: Bool
+    let title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header row
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                    expanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "slider.horizontal.3")
+                    Text(title)
+                        .font(.headline)
+                    Spacer()
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .foregroundStyle(.secondary)
+                        .imageScale(.medium)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+
+            // Divider between header and content
+            if expanded {
+                Divider()
+                    .transition(.opacity)
+            }
+
+            // Body content
+            if expanded {
+                VStack(alignment: .leading, spacing: 16) {
+                    content
+                }
+                .padding(14)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .background(
+            // Card background that adapts to light/dark
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+        .padding(.vertical, 6)
+    }
+}
+
 
 private struct ModeInfoCard: View {
     var body: some View {
