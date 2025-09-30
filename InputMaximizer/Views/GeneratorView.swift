@@ -410,7 +410,6 @@ struct GeneratorView: View {
     
     private var allSupportedLanguages: [String] { supportedLanguages }
     
-    
 
     @ViewBuilder private func segmentationSection() -> some View {
         Section {
@@ -875,27 +874,19 @@ private struct ModeCard: View {
     @Environment(\.horizontalSizeClass) private var hSize
 
     var body: some View {
-        VStack(spacing: 0) {
-
-            // Header: Mode segmented + info
+        // Outer card
+        VStack(alignment: .leading, spacing: 20) {            // <<< more breathing room
+            // Header
             HStack(spacing: 12) {
                 Image(systemName: "square.and.pencil")
                 Text("Mode").font(.headline)
                 Spacer()
-
-                // Info button (preserves your popover/sheet behavior)
-                Button {
-                    showModeInfo = true
-                } label: {
-                    Image(systemName: "info.circle")
-                        .imageScale(.medium)
+                Button { showModeInfo = true } label: {
+                    Image(systemName: "info.circle").imageScale(.medium)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("About Mode")
                 .modifier(RegularWidthPopover(isPresented: $showModeInfo) {
-                    ModeInfoCard()
-                        .frame(maxWidth: 360)
-                        .padding()
+                    ModeInfoCard().frame(maxWidth: 360).padding()
                 })
                 .sheet(isPresented: Binding(
                     get: { hSize == .compact && showModeInfo },
@@ -906,32 +897,42 @@ private struct ModeCard: View {
                         .presentationDragIndicator(.visible)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
 
+            // Segmented control
             Picker("Generation Mode", selection: $mode) {
-                Text(GeneratorView.GenerationMode.prompt.rawValue).tag(GeneratorView.GenerationMode.prompt)
-                Text(GeneratorView.GenerationMode.random.rawValue).tag(GeneratorView.GenerationMode.random)
+                Text(GeneratorView.GenerationMode.prompt.rawValue)
+                    .tag(GeneratorView.GenerationMode.prompt)
+                Text(GeneratorView.GenerationMode.random.rawValue)
+                    .tag(GeneratorView.GenerationMode.random)
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, 14)
-            .padding(.bottom, 12)
 
-            Divider()
+            Divider()                                       // <<< separates switch from content
 
-            // Body switches with mode
+            // Body switches by mode
             Group {
                 if mode == .prompt {
+                    // ---- PROMPT MODE ----
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Prompt").font(.subheadline.weight(.semibold))
+                        Text("Prompt")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
 
+                        // Spacious text editor with soft background
                         TextEditor(text: $userPrompt)
-                            .frame(minHeight: 120)
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
-                            .padding(.vertical, 2)
+                            .frame(minHeight: 140)
+                            .padding(8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color(uiColor: .systemGray6))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+                            )
                             .focused(promptFocus)
 
-                        HStack {
+                        HStack(spacing: 12) {
                             Button {
                                 pickRandomPresetPrompt()
                             } label: {
@@ -953,31 +954,51 @@ private struct ModeCard: View {
                         Text("Describe instructions, a theme, or paste a source text.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                            .padding(.top, 2)
                     }
-                    .padding(14)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 } else {
+                    // ---- RANDOM MODE ----
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Random Topic").font(.subheadline.weight(.semibold))
-
-                        Text(randomTopic)
-                            .font(.callout)
+                        Text("Random Topic")
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
 
+                        // Render multi-line topic in a note-style box
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(randomTopic.split(whereSeparator: \.isNewline).map(String.init), id: \.self) {
+                                Text($0).font(.callout).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color(uiColor: .systemGray6))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+                        )
+
                         HStack {
-                            Button("Randomize") { randomTopic = buildRandomTopic() }
-                            Spacer(minLength: 12)
-                            Button { showConfigurator = true } label: {
+                            Button("Randomize") {
+                                randomTopic = buildRandomTopic()
+                            }
+                            Spacer()
+                            Button {
+                                showConfigurator = true
+                            } label: {
                                 Label("Configure", systemImage: "slider.horizontal.3")
                             }
                             .buttonStyle(.bordered)
                         }
+                        .padding(.top, 4)
                     }
-                    .padding(14)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
         }
+        .padding(16)                                        // <<< generous inner padding
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(uiColor: .secondarySystemGroupedBackground))
@@ -990,6 +1011,7 @@ private struct ModeCard: View {
         .padding(.vertical, 6)
     }
 }
+
 
 
 private struct ModeInfoCard: View {
