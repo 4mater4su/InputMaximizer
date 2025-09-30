@@ -535,9 +535,32 @@ struct GeneratorView: View {
                 .foregroundStyle(.secondary)
             
             if !generator.status.isEmpty {
-                Text(generator.status)
+                // Try to resolve the last generated lesson
+                let lesson = lessonStore.lessons.first(where: { $0.id == generator.lastLessonID })
+                let statusText = (lesson != nil) ? "Lesson ready — tap to open" : generator.status
+
+                if let lesson {
+                    Button {
+                        navTargetLesson = lesson
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .imageScale(.small)
+                            Text(statusText)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.green) // optional: success hint
+                    .accessibilityLabel("Open last generated lesson")
+                } else {
+                    Text(statusText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
