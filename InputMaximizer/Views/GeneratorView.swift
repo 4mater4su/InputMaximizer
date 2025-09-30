@@ -185,7 +185,7 @@ struct GeneratorView: View {
     // Reuse the same enum so there’s no mismatch.
     typealias SpeechSpeed = GeneratorService.Request.SpeechSpeed
 
-    @State private var speechSpeed: SpeechSpeed = .regular
+    @State private var speechSpeed: SpeechSpeed = .slow
 
     
     // MARK: - Prompt categories (I Ching trigrams)
@@ -548,7 +548,7 @@ struct GeneratorView: View {
 
 
             Text("Credits: \(serverBalance)")
-                .font(.footnote)
+                .font(.body)
                 .foregroundStyle(.secondary)
             
             if !generator.status.isEmpty {
@@ -565,17 +565,16 @@ struct GeneratorView: View {
                                 .imageScale(.small)
                             Text(statusText)
                             Image(systemName: "chevron.right")
-                                .font(.footnote)
+                                .font(.body)
                                 .foregroundStyle(.secondary)
                         }
                     }
                     .buttonStyle(.plain)
-                    .font(.footnote)
                     .foregroundStyle(.green) // optional: success hint
                     .accessibilityLabel("Open last generated lesson")
                 } else {
                     Text(statusText)
-                        .font(.footnote)
+                        .font(.body)
                         .foregroundStyle(.secondary)
                 }
             }
