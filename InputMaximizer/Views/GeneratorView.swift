@@ -604,6 +604,7 @@ struct GeneratorView: View {
                     promptFocus: $promptIsFocused,
                     showModeInfo: $showModeInfo
                 )
+                .padding(.top, 42)
                 .buttonStyle(.plain)  // <— prevents the whole row from being a tappable button
 
             }
@@ -977,11 +978,14 @@ private struct ModeCard: View {
 
     @Environment(\.horizontalSizeClass) private var hSize
 
+    private var editorMinHeight: CGFloat {
+        hSize == .compact ? 160 : 200
+    }
+
     var body: some View {
-        // Outer card
-        VStack(alignment: .leading, spacing: 20) {            // <<< more breathing room
+        VStack(alignment: .leading, spacing: 12) {
             // Header
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Image(systemName: "square.and.pencil")
                 Text("Mode").font(.headline)
                 Spacer()
@@ -1001,111 +1005,93 @@ private struct ModeCard: View {
                         .presentationDragIndicator(.visible)
                 }
             }
+            .padding(.bottom, 2)
 
-            // Segmented control
+            // Mode picker
             Picker("Generation Mode", selection: $mode) {
-                Text(GeneratorView.GenerationMode.prompt.rawValue)
-                    .tag(GeneratorView.GenerationMode.prompt)
-                Text(GeneratorView.GenerationMode.random.rawValue)
-                    .tag(GeneratorView.GenerationMode.random)
+                Text(GeneratorView.GenerationMode.prompt.rawValue).tag(GeneratorView.GenerationMode.prompt)
+                Text(GeneratorView.GenerationMode.random.rawValue).tag(GeneratorView.GenerationMode.random)
             }
             .pickerStyle(.segmented)
 
-            //Divider()                                       // <<< separates switch from content
-
-            // Body switches by mode
             Group {
                 if mode == .prompt {
                     // ---- PROMPT MODE ----
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 10) {
 
-                        // Spacious text editor with soft background
-                        StableTextEditor(text: $userPrompt, minHeight: 140, showsDoneAccessory: true)
-                            .frame(minHeight: 140)  // ensures it’s not 1 line
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10).fill(Color(uiColor: .systemGray6))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
-                            )
+                        StableTextEditor(
+                            text: $userPrompt,
+                            minHeight: editorMinHeight,
+                            showsDoneAccessory: true,
+                            placeholder: "Describe your lesson idea, theme, or paste a source snippet…"
+                        )
+                        .frame(minHeight: editorMinHeight)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(8)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color(uiColor: .systemGray6)))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
 
-                        HStack(spacing: 12) {
-                            Button {
-                                pickRandomPresetPrompt()
-                            } label: {
+                        HStack(spacing: 8) {
+                            Button(action: pickRandomPresetPrompt) {
                                 Label("Randomize", systemImage: "die.face.5")
                             }
                             .buttonStyle(.bordered)
 
                             Spacer(minLength: 8)
 
-                            Picker("", selection: $selectedPromptCategory) {
-                                ForEach(GeneratorView.PromptCategory.allCases) { cat in
-                                    Text(cat.rawValue).tag(cat)
+                            Menu {
+                                Picker("Category", selection: $selectedPromptCategory) {
+                                    ForEach(GeneratorView.PromptCategory.allCases) { Text($0.rawValue).tag($0) }
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "line.3.horizontal.decrease.circle")
+                                    Text(selectedPromptCategory.rawValue)
                                 }
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
+                            .buttonStyle(.bordered)
                         }
-
-                        Text("")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            //.padding(.top, 2)
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 } else {
                     // ---- RANDOM MODE ----
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 10) {
 
-                        // Use the same editor + styling as Prompt
-                        StableTextEditor(text: $randomTopic, minHeight: 140, showsDoneAccessory: true)
-                            .frame(minHeight: 140)
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10).fill(Color(uiColor: .systemGray6))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
-                            )
+                        StableTextEditor(
+                            text: $randomTopic,
+                            minHeight: editorMinHeight,
+                            showsDoneAccessory: true,
+                            placeholder: "We’ll build a topic from your style & interests. Add a nudge if you want…"
+                        )
+                        .frame(minHeight: editorMinHeight)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(8)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Color(uiColor: .systemGray6)))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
 
-                        HStack {
+                        HStack(spacing: 8) {
                             Button {
                                 randomTopic = buildRandomTopic()
                             } label: {
                                 Label("Randomize", systemImage: "die.face.5")
                             }
                             .buttonStyle(.bordered)
-                            
-                            Spacer()
+                                                        
                             Button {
                                 showConfigurator = true
                             } label: {
                                 Label("Configure", systemImage: "slider.horizontal.3")
                             }
                             .buttonStyle(.bordered)
-                        }
-                        .padding(.top, 4)
 
-                        Text("")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            //.padding(.top, 2)
+                            Spacer(minLength: 0)
+                        }
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
         }
-        .padding(16)                                        // <<< generous inner padding
+        .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(uiColor: .secondarySystemGroupedBackground))
@@ -1115,10 +1101,20 @@ private struct ModeCard: View {
                 .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
-        //.padding(.vertical, 6)
     }
 }
 
+private struct FieldHeader: View {
+    let title: String
+    init(_ title: String) { self.title = title }
+    var body: some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .accessibilityAddTraits(.isHeader)
+            .padding(.top, 2)
+    }
+}
 
 
 private struct ModeInfoCard: View {
@@ -1337,24 +1333,69 @@ struct StableTextEditor: UIViewRepresentable {
     @Binding var text: String
     var minHeight: CGFloat = 140
     var showsDoneAccessory: Bool = true
+    var placeholder: String? = nil
 
     class Coordinator: NSObject, UITextViewDelegate {
         var parent: StableTextEditor
         weak var textView: UITextView?
+        private let placeholderLabel = UILabel()
+        private var constraints: [NSLayoutConstraint] = []
 
-        init(_ parent: StableTextEditor) { self.parent = parent }
+        init(_ parent: StableTextEditor) {
+            self.parent = parent
+            super.init()
+            placeholderLabel.numberOfLines = 0
+            placeholderLabel.font = UIFont.preferredFont(forTextStyle: .body)
+            placeholderLabel.textColor = UIColor.secondaryLabel.withAlphaComponent(0.5)
+        }
+
+        func attachPlaceholder(to textView: UITextView) {
+            guard placeholderLabel.superview == nil else { return }
+            placeholderLabel.text = parent.placeholder
+            placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+            textView.addSubview(placeholderLabel)
+            activatePlaceholderConstraints(for: textView)
+            updatePlaceholderVisibility()
+        }
+
+        private func activatePlaceholderConstraints(for textView: UITextView) {
+            NSLayoutConstraint.deactivate(constraints)
+            let left = textView.textContainerInset.left + textView.textContainer.lineFragmentPadding
+            let right = textView.textContainerInset.right + textView.textContainer.lineFragmentPadding
+            let top = textView.textContainerInset.top
+
+            constraints = [
+                placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: left),
+                // Use lessThanOrEqual to avoid forcing layout wider than container
+                placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: textView.trailingAnchor, constant: -right),
+                placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: top)
+            ]
+            NSLayoutConstraint.activate(constraints)
+        }
+
+        func updatePlaceholderVisibility() {
+            placeholderLabel.isHidden = !(parent.placeholder != nil && parent.text.isEmpty)
+        }
+
+        // Keep constraints in sync if insets/padding change (e.g., Dynamic Type)
+        func refreshConstraintsIfNeeded() {
+            guard let tv = textView else { return }
+            activatePlaceholderConstraints(for: tv)
+        }
 
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
+            updatePlaceholderVisibility()
         }
 
-        // Keep caret moves from auto-scrolling to bottom
-        func textViewDidChangeSelection(_ textView: UITextView) {
-            // Do nothing; prevents SwiftUI from forcing a scroll jump
-        }
+        func textViewDidChangeSelection(_ textView: UITextView) { /* keep stable */ }
 
-        @objc func doneTapped() {
-            textView?.resignFirstResponder()
+        @objc func doneTapped() { textView?.resignFirstResponder() }
+        
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            if scrollView.contentOffset.x != 0 {
+                scrollView.contentOffset.x = 0
+            }
         }
     }
 
@@ -1362,14 +1403,32 @@ struct StableTextEditor: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UITextView {
         let tv = UITextView()
+        tv.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        tv.setContentHuggingPriority(.defaultLow, for: .vertical)
         tv.isScrollEnabled = true
         tv.alwaysBounceVertical = true
+        tv.alwaysBounceHorizontal = false
+        tv.showsHorizontalScrollIndicator = false
+        tv.isDirectionalLockEnabled = true     // helps keep gestures vertical
+        tv.contentInsetAdjustmentBehavior = .never
+        
+        // ✅ Force wrapping at the layout level
+        tv.textContainer.widthTracksTextView = true
+        tv.textContainer.lineBreakMode = .byWordWrapping
+
+        // ✅ Also set paragraph style so newly typed text obeys wrapping
+        let para = NSMutableParagraphStyle()
+        para.lineBreakMode = .byWordWrapping
+        tv.typingAttributes[.paragraphStyle] = para
+        //tv.defaultTextAttributes[.paragraphStyle] = para
+        
         tv.backgroundColor = .clear
         tv.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
         tv.font = UIFont.preferredFont(forTextStyle: .body)
         tv.adjustsFontForContentSizeCategory = true
         tv.delegate = context.coordinator
         context.coordinator.textView = tv
+        context.coordinator.attachPlaceholder(to: tv)
 
         if showsDoneAccessory {
             let bar = UIToolbar()
@@ -1380,12 +1439,27 @@ struct StableTextEditor: UIViewRepresentable {
             ]
             tv.inputAccessoryView = bar
         }
-
         return tv
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
         if uiView.text != text { uiView.text = text }
-        // respect min height via SwiftUI frame
+
+        // Keep paragraph wrapping if attributes get reset
+        if (uiView.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.lineBreakMode != .byWordWrapping {
+            let para = NSMutableParagraphStyle()
+            para.lineBreakMode = .byWordWrapping
+            uiView.typingAttributes[.paragraphStyle] = para
+            //uiView.defaultTextAttributes[.paragraphStyle] = para
+        }
+
+        // Extra safety: if something pushed content wider, snap X back to 0
+        if uiView.contentOffset.x != 0 {
+            uiView.setContentOffset(CGPoint(x: 0, y: uiView.contentOffset.y), animated: false)
+        }
+
+        context.coordinator.updatePlaceholderVisibility()
+        context.coordinator.refreshConstraintsIfNeeded()
     }
 }
+
