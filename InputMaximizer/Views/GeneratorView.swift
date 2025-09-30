@@ -497,20 +497,6 @@ struct GeneratorView: View {
         }
     }
 
-    @ViewBuilder private func languagesSection() -> some View {
-        Section("Languages") {
-            Picker("Generate in", selection: $genLanguage) {
-                ForEach(allSupportedLanguages, id: \.self) { Text($0).tag($0) }
-            }
-            .pickerStyle(.menu)
-
-            Picker("Translate to", selection: $transLanguage) {
-                ForEach(allSupportedLanguages, id: \.self) { Text($0).tag($0) }
-            }
-            .pickerStyle(.menu)
-        }
-    }
-
     @ViewBuilder private func actionSection() -> some View {
         Section {
             Button {
@@ -564,6 +550,7 @@ struct GeneratorView: View {
         let advanced = advancedExpandedBinding
         
         Form {
+            
             // --- Mode + Input as a single card ---
             Section {
                 ModeCard(
@@ -584,74 +571,95 @@ struct GeneratorView: View {
             // --- Advanced group as a single card ---
             Section {
                 AdvancedCard(expanded: advanced, title: "Advanced options") {
-                    // 1) Segmentation
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 6) {
-                            Text("Segmentation").font(.subheadline.weight(.semibold))
-                            Button {
-                                showSegmentationInfo = true
-                            } label: {
-                                Image(systemName: "info.circle").imageScale(.small)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("About Segmentation")
-                        }
 
+                    AdvancedItem(
+                        title: "Segmentation",
+                        infoAction: { showSegmentationInfo = true }
+                    ) {
                         Picker("Segment by", selection: $segmentation) {
                             ForEach(Array(Segmentation.allCases), id: \.self) { s in
                                 Text(s.rawValue).tag(s)
                             }
                         }
                         .pickerStyle(.segmented)
+                        .contentShape(Rectangle())     // keeps taps easy
+                        .padding(.horizontal, 2)       // inside the segmented picker container
                         .accessibilityLabel("Segment by")
                     }
 
-                    // 2) Length
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Length").font(.subheadline.weight(.semibold))
-                            Spacer()
-                            Text("~\(lengthPreset.words) words")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .accessibilityLabel("Approximately \(lengthPreset.words) words")
-                        }
+                    AdvancedSpacer()
 
+                    AdvancedItem(
+                        title: "Length",
+                        trailing: "~\(lengthPreset.words) words"
+                    ) {
                         Picker("", selection: $lengthPreset) {
                             ForEach(LengthPreset.allCases) { preset in
                                 Text(preset.label).tag(preset)
                             }
                         }
                         .pickerStyle(.segmented)
+                        .contentShape(Rectangle())     // keeps taps easy
+                        .padding(.horizontal, 2)       // inside the segmented picker container
                         .labelsHidden()
                     }
 
-                    // 3) Speech Speed
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Speech Speed").font(.subheadline.weight(.semibold))
-                        Picker("Speech Speed", selection: $speechSpeed) {
+                    AdvancedSpacer()
+
+                    AdvancedItem(title: "Speech speed") {
+                        Picker("Speech speed", selection: $speechSpeed) {
                             Text("Regular").tag(SpeechSpeed.regular)
                             Text("Slow").tag(SpeechSpeed.slow)
                         }
                         .pickerStyle(.segmented)
+                        .contentShape(Rectangle())     // keeps taps easy
+                        .padding(.horizontal, 2)       // inside the segmented picker container
+                        .labelsHidden()
                     }
 
-                    // 4) Language Level
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Language Level (CEFR)").font(.subheadline.weight(.semibold))
+                    AdvancedSpacer()
+
+                    AdvancedItem(title: "Language level (CEFR)") {
                         Picker("Level", selection: $languageLevel) {
                             ForEach(Array(LanguageLevel.allCases), id: \.self) { level in
                                 Text(level.rawValue).tag(level)
                             }
                         }
                         .pickerStyle(.segmented)
+                        .contentShape(Rectangle())     // keeps taps easy
+                        .padding(.horizontal, 2)       // inside the segmented picker container
+                        .labelsHidden()
                     }
+                }
+                .modifier(RegularWidthPopover(isPresented: $showSegmentationInfo) {
+                    SegmentationInfoCard()
+                        .frame(maxWidth: 360)
+                        .padding()
+                })
+                .sheet(isPresented: Binding(
+                    get: { hSize == .compact && showSegmentationInfo },
+                    set: { showSegmentationInfo = $0 }
+                )) {
+                    SegmentationInfoCard()
+                        .presentationDetents([.fraction(0.4), .medium])
+                        .presentationDragIndicator(.visible)
                 }
             }
             .listRowInsets(EdgeInsets())               // removes the default insets
             .listRowBackground(Color.clear)            // removes the default grouped bg
 
-            languagesSection()
+            
+            Section {
+                LanguageCard(
+                    genLanguage: $genLanguage,
+                    transLanguage: $transLanguage,
+                    allSupportedLanguages: allSupportedLanguages
+                )
+
+            }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            
             actionSection()
         }
         .scrollContentBackground(.hidden)
@@ -857,6 +865,57 @@ private struct AdvancedCard<Content: View>: View {
         .padding(.vertical, 6)
     }
 }
+
+// A lightweight inner group to give each advanced control its own mini-surface
+private struct AdvancedItem<Content: View>: View {
+    let title: String
+    var trailing: String? = nil
+    var infoAction: (() -> Void)? = nil
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if let trailing {
+                    Text(trailing)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if let infoAction {
+                    Button(action: infoAction) {
+                        Image(systemName: "info.circle")
+                            .imageScale(.small)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("About \(title)")
+                }
+            }
+
+            content
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(uiColor: .systemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.08), lineWidth: 1)
+        )
+    }
+}
+
+// A simple divider with extra breathing room between items
+private struct AdvancedSpacer: View {
+    var body: some View {
+        Divider().opacity(0)      // invisible line
+            .frame(height: 8)     // …acting as vertical spacer
+    }
+}
+
 
 // MARK: - Mode + Input card
 
@@ -1106,6 +1165,92 @@ private struct SegmentationInfoCard: View {
         )
     }
 }
+
+// MARK: - Languages card
+
+private struct LanguageCard: View {
+    @Binding var genLanguage: String
+    @Binding var transLanguage: String
+    let allSupportedLanguages: [String]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header row with title + swap button
+            HStack {
+                Image(systemName: "globe")
+                Text("Languages").font(.headline)
+                Spacer()
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        swap(&genLanguage, &transLanguage)
+                    }
+                } label: {
+                    Image(systemName: "arrow.left.arrow.right")
+                        .imageScale(.medium)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Swap target and helper languages")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+
+            Divider().opacity(0.15)
+
+            // Compact rows
+            VStack(spacing: 0) {
+                // Target
+                HStack {
+                    Text("Target")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Picker("", selection: $genLanguage) {
+                        ForEach(allSupportedLanguages, id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .accessibilityLabel("Target language")
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+
+                Divider().opacity(0.15)
+
+                // Helper
+                HStack {
+                    Text("Helper")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Picker("", selection: $transLanguage) {
+                        ForEach(allSupportedLanguages, id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .accessibilityLabel("Helper language")
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+        .padding(.vertical, 6)
+        .onChange(of: genLanguage) { _, new in
+            if new == transLanguage,
+               let alt = allSupportedLanguages.first(where: { $0 != new }) {
+                transLanguage = alt
+            }
+        }
+    }
+}
+
+
 
 private struct RegularWidthPopover<PopupContent: View>: ViewModifier {
     @Binding var isPresented: Bool
