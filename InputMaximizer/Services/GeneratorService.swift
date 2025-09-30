@@ -144,6 +144,99 @@ final class GeneratorService: ObservableObject {
 
 private extension GeneratorService {
     
+    static func extractRawTitleAndBody(from fullText: String) -> (title: String, body: String) {
+        // Use first *non-empty* line as title, ignore markdown headers (e.g. "# Title")
+        let allLines = fullText
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+
+        var rawTitle: String = "Sem Título"
+        var bodyLines: [Substring] = []
+
+        var foundTitle = false
+        for line in allLines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !foundTitle, !trimmed.isEmpty {
+                // Drop markdown header marks and surrounding quotes
+                rawTitle = trimmed
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "#*>- ")).trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"“”‘’'"))
+                foundTitle = true
+                continue
+            }
+            if foundTitle {
+                bodyLines.append(line)
+            }
+        }
+
+        let body = bodyLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return (rawTitle, body)
+    }
+
+    // Remove bracketed/parenthetical segments like "Title (Draft)" or "Name [v2]"
+    static func stripBracketed(_ s: String) -> String {
+        let patterns = [
+            #"\s*\(.*?\)"#, #"\s*\[.*?\]"#, #"\s*\{.*?\}"#
+        ]
+        var out = s
+        for p in patterns {
+            if let rx = try? NSRegularExpression(pattern: p, options: []) {
+                out = rx.stringByReplacingMatches(in: out, options: [], range: NSRange(out.startIndex..., in: out), withTemplate: "")
+            }
+        }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // Cut off common subtitle separators: "Main: Subtitle", "Main — Subtitle", "Main - Subtitle", "Main | Subtitle"
+    static func dropSubtitle(_ s: String) -> String {
+        let seps = [":", "—", "–", "-", "|", "·"]
+        for sep in seps {
+            if let r = s.range(of: sep) {
+                let prefix = s[..<r.lowerBound]
+                return prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return s
+    }
+
+    // Collapse internal whitespace
+    static func collapseSpaces(_ s: String) -> String {
+        let comps = s.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        return comps.joined(separator: " ")
+    }
+
+    // Ensure short, tidy title
+    static func shortenTitle(_ s: String, maxChars: Int = 48, maxWords: Int = 8) -> String {
+        // 1) strip bracketed parts and subtitles
+        var t = stripBracketed(dropSubtitle(s))
+        // 2) collapse spaces
+        t = collapseSpaces(t)
+
+        // 3) hard limits: words then chars (preserving word boundaries)
+        let words = t.split(separator: " ")
+        if words.count > maxWords {
+            t = words.prefix(maxWords).joined(separator: " ")
+        }
+        if t.count > maxChars {
+            // Cut at the last space before maxChars if possible
+            let idx = t.index(t.startIndex, offsetBy: maxChars)
+            var clipped = String(t[..<idx])
+            if let lastSpace = clipped.lastIndex(of: " ") {
+                clipped = String(clipped[..<lastSpace])
+            }
+            t = clipped
+        }
+
+        // 4) trim leftover punctuation/quotes
+        t = t.trimmingCharacters(in: CharacterSet(charactersIn: " .,:;!?\"“”‘’'|-—–"))
+
+        // Fallback if empty
+        if t.isEmpty { t = "Sem Título" }
+        return t
+    }
+
+    
     // Timeout Handler
     enum NetError: Error { case timedOut }
 
@@ -585,10 +678,17 @@ private extension GeneratorService {
             }
 
             // ---- Parse title/body ----
-            let lines = fullText.split(separator: "\n", omittingEmptySubsequences: false)
-            let rawTitle = lines.first.map(String.init)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Sem Título"
-            let generatedTitle = normalizeTitleCaseIfAllCaps(rawTitle)
-            let bodyPrimary = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            let (rawTitle0, bodyPrimary0) = extractRawTitleAndBody(from: fullText)
+
+            // Normalize "ALL CAPS" → Title Case if needed
+            let normalized = normalizeTitleCaseIfAllCaps(rawTitle0)
+
+            // Enforce short, tidy title (e.g., ≤48 chars and ≤8 words)
+            let generatedTitle = shortenTitle(normalized, maxChars: 48, maxWords: 8)
+
+            // Use the cleaned body
+            let bodyPrimary = bodyPrimary0
+
 
             var folder = slugify(generatedTitle)
             let baseRoot = FileManager.docsLessonsDir
