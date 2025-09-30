@@ -1034,11 +1034,15 @@ private struct ModeCard: View {
                         HStack(spacing: 8) {
                             Button(action: pickRandomPresetPrompt) {
                                 Label("Randomize", systemImage: "die.face.5")
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+                                    .layoutPriority(1)          // <- keep this from being squeezed first
                             }
                             .buttonStyle(.bordered)
 
+                            /*
                             Spacer(minLength: 8)
-
+                            
                             Menu {
                                 Picker("Category", selection: $selectedPromptCategory) {
                                     ForEach(GeneratorView.PromptCategory.allCases) { Text($0.rawValue).tag($0) }
@@ -1047,16 +1051,19 @@ private struct ModeCard: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "line.3.horizontal.decrease.circle")
                                     Text(selectedPromptCategory.rawValue)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)   // <- shorten this first if needed
+                                        .minimumScaleFactor(0.75)
                                 }
                             }
                             .buttonStyle(.bordered)
+                            */
                         }
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 } else {
                     // ---- RANDOM MODE ----
                     VStack(alignment: .leading, spacing: 10) {
-
                         StableTextEditor(
                             text: $randomTopic,
                             minHeight: editorMinHeight,
@@ -1069,22 +1076,31 @@ private struct ModeCard: View {
                         .background(RoundedRectangle(cornerRadius: 10).fill(Color(uiColor: .systemGray6)))
                         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
 
-                        HStack(spacing: 8) {
-                            Button {
-                                randomTopic = buildRandomTopic()
-                            } label: {
-                                Label("Randomize", systemImage: "die.face.5")
+                        // Buttons row: left + right, no overlap, no wrapping
+                        ZStack {
+                            HStack {
+                                Button {
+                                    randomTopic = buildRandomTopic()
+                                } label: {
+                                    Label("Randomize", systemImage: "die.face.5")
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                }
+                                .buttonStyle(.bordered)
+                                Spacer()
                             }
-                            .buttonStyle(.bordered)
-                                                        
-                            Button {
-                                showConfigurator = true
-                            } label: {
-                                Label("Configure", systemImage: "slider.horizontal.3")
-                            }
-                            .buttonStyle(.bordered)
 
-                            Spacer(minLength: 0)
+                            HStack {
+                                Spacer()
+                                Button {
+                                    showConfigurator = true
+                                } label: {
+                                    Label("Configure", systemImage: "slider.horizontal.3")
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                }
+                                .buttonStyle(.bordered)
+                            }
                         }
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
