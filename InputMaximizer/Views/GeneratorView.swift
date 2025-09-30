@@ -570,7 +570,7 @@ struct GeneratorView: View {
             
             // --- Advanced group as a single card ---
             Section {
-                AdvancedCard(expanded: advanced, title: "Advanced options") {
+                AdvancedCard(expanded: advanced, title: "Advanced Options") {
 
                     AdvancedItem(
                         title: "Segmentation",

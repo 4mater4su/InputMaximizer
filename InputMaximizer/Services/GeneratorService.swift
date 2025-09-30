@@ -90,7 +90,7 @@ final class GeneratorService: ObservableObject {
                     }
                 )
                 self.lastLessonID = lessonID
-                self.status = "Done. Open the lesson list and pull to refresh."
+                self.status = "Done. Open the lesson list and select."
                 self.isBusy = false
                 lessonStore.load()
             } catch is CancellationError {
@@ -569,9 +569,10 @@ private extension GeneratorService {
                     return "capoeira rodas ao amanhecer"
                 }()
 
-                await progress("Elevating prompt… (Random)\nTopic: \(topic)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
+                await progress("Elevating prompt…\n\nTopic: \(topic)\n\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
                 let elevated = try await refinePrompt(topic, targetLang: req.genLanguage, wordCount: req.lengthWords)
-                await progress("Generating… \(elevated)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
+                //await progress("Generating… \(elevated)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
+                await progress("Generating… \n\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
                 fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords)
 
             case .prompt:
@@ -579,7 +580,7 @@ private extension GeneratorService {
                 guard !cleaned.isEmpty else { throw NSError(domain: "Generator", code: 1, userInfo: [NSLocalizedDescriptionKey: "Empty prompt"]) }
                 await progress("Elevating prompt…")
                 let elevated = try await refinePrompt(cleaned, targetLang: req.genLanguage, wordCount: req.lengthWords)
-                await progress("Generating… \(elevated)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
+                await progress("Generating…\n\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
                 fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords)
             }
 
@@ -598,7 +599,7 @@ private extension GeneratorService {
             }
             let lessonID = folder
 
-            await progress("Translating to \(req.transLanguage)…\nTítulo: \(generatedTitle)")
+            await progress("Translating to \(req.transLanguage)…\n\nTítulo: \(generatedTitle)")
 
             // Avoid translating into the same language
             let sameLang =
