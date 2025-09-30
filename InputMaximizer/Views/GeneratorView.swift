@@ -564,6 +564,8 @@ struct GeneratorView: View {
                     promptFocus: $promptIsFocused,
                     showModeInfo: $showModeInfo
                 )
+                .buttonStyle(.plain)  // <— prevents the whole row from being a tappable button
+
             }
             .listRowInsets(EdgeInsets())            // edge-to-edge for the card
             .listRowBackground(Color.clear)
@@ -1040,6 +1042,8 @@ private struct ModeCard: View {
                             Button("Randomize") {
                                 randomTopic = buildRandomTopic()
                             }
+                            .buttonStyle(.bordered)
+                            
                             Spacer()
                             Button {
                                 showConfigurator = true
