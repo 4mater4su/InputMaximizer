@@ -298,29 +298,6 @@ struct ContentView: View {
         nf.maximumFractionDigits = 1
         return (nf.string(from: v as NSNumber) ?? String(format: "%.1f", v)) + "s"
     }
-
-    private struct DelayChip: View {
-        let valueText: String
-        var body: some View {
-            HStack(spacing: 6) {
-                Image(systemName: "hourglass")
-                Text(valueText)
-                    .font(.callout.monospacedDigit())
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
-            )
-            .frame(height: 32)
-            .contentShape(Rectangle())
-        }
-    }
     
     private let toolbarItemWidth: CGFloat = 118
     private let toolbarItemHeight: CGFloat = 28
@@ -592,7 +569,7 @@ struct ContentView: View {
 
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: CHIP_GAP) {
-                    // 1) Delay chip
+                    
                     Menu {
                         Text("Pause between segments (seconds)")
                             .font(.caption)
@@ -606,13 +583,20 @@ struct ContentView: View {
                         }
                         Button("Custom…") { showDelaySheet = true }
                     } label: {
-                        DelayChip(valueText: secondsString(storedDelay))
-                            .frame(width: chipMeasuredWidth)
-                            .contentShape(Rectangle())
-                            .readWidth()   // measure intrinsic width
+                        Chip(
+                            icon: "hourglass",
+                            content: AnyView(
+                                Text(secondsString(storedDelay))
+                                    .font(.callout.monospacedDigit()) // ✅ matches text size; monospace digits only
+                                    .lineLimit(1)
+                            )
+                        )
+                        .frame(width: chipMeasuredWidth) // ✅ same measured width rule
+                        .contentShape(Rectangle())
+                        .readWidth()                     // ✅ participates in the same width measuring
                     }
 
-                    // 2) Text mode chip
+
                     Button {
                         textDisplayModeRaw = (textDisplayModeRaw + 1) % 3
                     } label: {
