@@ -466,7 +466,7 @@ private extension GeneratorService {
     ) async throws -> String {
 
         // ---------- Local helpers ----------
-        /*
+        
         func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
             let meta = """
             You are a prompt refiner. Transform the user's instruction, input text, or theme into a clear, actionable writing brief that will produce a high-quality text.
@@ -501,7 +501,9 @@ private extension GeneratorService {
             ]
             return try await chatViaProxy(body)
         }
-        */
+        
+        
+        /*
         func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
             let meta = """
             You are a prompt compositor & refiner for a writing generator.
@@ -560,6 +562,7 @@ private extension GeneratorService {
             ]
             return try await chatViaProxy(body)
         }
+        */
 
 
         func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int) async throws -> String {
