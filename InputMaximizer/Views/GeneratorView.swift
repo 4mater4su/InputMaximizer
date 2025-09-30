@@ -1024,21 +1024,17 @@ private struct ModeCard: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
 
-                        // Render multi-line topic in a note-style box
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(randomTopic.split(whereSeparator: \.isNewline).map(String.init), id: \.self) {
-                                Text($0).font(.callout).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(Color(uiColor: .systemGray6))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
-                        )
+                        // Use the same editor + styling as Prompt
+                        StableTextEditor(text: $randomTopic, minHeight: 140, showsDoneAccessory: true)
+                            .frame(minHeight: 140)
+                            .padding(8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10).fill(Color(uiColor: .systemGray6))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+                            )
 
                         HStack {
                             Button("Randomize") {
@@ -1053,6 +1049,11 @@ private struct ModeCard: View {
                             .buttonStyle(.bordered)
                         }
                         .padding(.top, 4)
+
+                        Text("You can tweak the topic here or tap Randomize.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 2)
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
