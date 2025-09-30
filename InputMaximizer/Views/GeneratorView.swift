@@ -208,102 +208,119 @@ struct GeneratorView: View {
 
     private let promptsByCategory: [PromptCategory: [String]] = [
 
-        // --- Heaven (creativity, vision, force) ---
+        // --- Heaven (vision, beginnings, vastness) ---
         .heaven: [
-            "Story: Begin with pure sky and describe what takes form beneath it.",
-            "Myth: Tell of the first being who shaped order from chaos.",
-            "Dream-journey: You climb endlessly upward—what do you find at the top?",
-            "Koan: What does pure beginning look like?",
-            "Journal entry: Today I felt the weight of leading—here is what I noticed.",
-            "Letter: Write to someone who waits for your decision.",
-            "Lyric poem: Six bright lines, each opening a path.",
-            "Riddle: I move without hands, I build without tools. What am I?"
+            "Watching sunrise from an airplane window as the cabin sleeps",
+            "Learning the names of constellations from a shepherd in the desert",
+            "A rooftop dinner in Marrakech where ten languages mix in the air",
+            "Your passport is stamped with a word you can’t translate",
+            "Clouds forming a sentence you almost understand",
+            "A pilot invites you to the cockpit at dawn",
+            "The first word you speak after landing in a new country",
+            "Stargazing with locals who see different patterns in the sky",
+            "Airport signs glowing in three alphabets you can’t read",
+            "A stranger teaches you their favorite word for ‘sky’"
         ],
 
-        // --- Earth (receptivity, nurture, yielding) ---
+        // --- Earth (place, belonging, roots) ---
         .earth: [
-            "Story: Describe a time when gentleness redirected something vast.",
-            "Myth: A goddess of soil teaches humans how to receive.",
-            "Dream-journey: You lie down and the ground begins to speak.",
-            "Koan: How can yielding be stronger than force?",
-            "Journal entry: A quiet moment taught me more than achievement.",
-            "Letter: Write thanks to a place that steadies you.",
-            "Lyric poem: Dark soil waits—every seed a secret.",
-            "Riddle: I open to all, yet hold everything within. Who am I?"
+            "Harvesting olives with a family in Greece, learning words as you work",
+            "A grandmother showing you bread-making secrets in Sicily",
+            "Buying spices in a Marrakech souk where every color has a story",
+            "Your shoes left at the door of a mountain guesthouse",
+            "Planting rice seedlings knee-deep in water in Bali",
+            "A farmer teaching you proverbs while you help with the harvest",
+            "Sharing tea on the floor of a nomad’s tent",
+            "Children correcting your pronunciation in a village square",
+            "Describing your hometown to someone who has never seen a city",
+            "Collecting words for ‘earth’ in every place you visit"
         ],
 
-        // --- Thunder (shock, arousal, breakthrough) ---
+        // --- Thunder (shock, surprise, change) ---
         .thunder: [
-            "Story: A sudden event shakes a village—how do they respond?",
-            "Myth: Tell how thunder first taught humans fear and courage.",
-            "Dream-journey: Lightning splits the sky; what do you see revealed?",
-            "Koan: What remains after a shock?",
-            "Journal entry: Today I broke apart something old and found…",
-            "Letter: Write to someone you woke suddenly from sleep.",
-            "Lyric poem: Flash—then silence. The heart remembers.",
-            "Lecture/essay: Explain why disruption is necessary for renewal."
+            "A sudden monsoon trapping you in a street market",
+            "Electricity cuts out in a hostel—everyone starts telling ghost stories",
+            "Your mispronounced word makes a crowd burst into laughter",
+            "A drum performance echoing with thunder in West Africa",
+            "Lightning reveals ruins on a distant hillside",
+            "A street protest erupts while you’re asking for directions",
+            "Thunder shakes the train as strangers share food by candlelight",
+            "A joke you don’t understand makes everyone fall silent",
+            "A storm interrupts a village festival—new rituals begin",
+            "Waking to thunder and finding your room flooded with rain"
         ],
 
-        // --- Wind/Wood (influence, growth, guidance) ---
+        // --- Wind (movement, influence, whispers) ---
         .wind: [
-            "Story: A whisper changes the course of events.",
-            "Myth: The tree-spirit teaches slow growth and quiet influence.",
-            "Dream-journey: A breeze carries you through many doors.",
-            "Koan: What subtle influence shifts a life?",
-            "Journal entry: Today a small act shaped my whole mood.",
-            "Letter: Write to someone you guided without them knowing.",
-            "Lyric poem: Soft wind shapes stone in time.",
-            "Riddle: I am invisible, yet I bend forests. What am I?"
+            "Paper lanterns drifting into the night sky at a festival",
+            "A kite battle teaching new words for winning and losing",
+            "Flags snapping above a marketplace in Kathmandu",
+            "A rumor spreads in a hostel and changes your travel plans",
+            "The wind steals your hat—laughter follows in three languages",
+            "A whisper from a stranger guides you to a hidden café",
+            "The smell of bread on the wind pulls you down unknown streets",
+            "Leaves swirl into letters you don’t yet know",
+            "Your map blows away—someone draws a new one in the sand",
+            "A song drifts across rooftops, carrying you toward it"
         ],
 
-        // --- Water (flow, danger, endurance) ---
+        // --- Water (flow, journeys, endurance) ---
         .water: [
-            "Story: Describe a journey down a dangerous river.",
-            "Myth: The river god teaches endurance through trial.",
-            "Dream-journey: You sink into depth—what rhythm carries you through?",
-            "Koan: How does retreat open a way?",
-            "Journal entry: I learned strength today in yielding to current.",
-            "Letter: Write instructions for someone crossing dark waters.",
-            "Lyric poem: Endless depth, voice of persistence.",
-            "Lecture/essay: Analyze how endurance forms through repeated trials."
+            "Sharing a ferry ride with farmers carrying baskets of fruit",
+            "Buying street noodles under umbrellas in a downpour",
+            "A fisherman teaching you the sea’s vocabulary at dawn",
+            "Raindrops turn neon signs into strange poems",
+            "A tide reveals a staircase carved into the cliffside",
+            "Your notebook falls in the river—what words are lost?",
+            "Swimming too far out, advice shouted in a language you don’t know",
+            "A desert well where travelers leave secret notes",
+            "Children counting fish as they teach you numbers",
+            "Following a canal until it becomes the sea"
         ],
 
-        // --- Fire (clarity, passion, illumination) ---
+        // --- Fire (light, passion, clarity) ---
         .fire: [
-            "Story: A flame spreads insight through a gathering.",
-            "Myth: The sun-bird carries light across the sky.",
-            "Dream-journey: You walk into a hall of mirrors lit by fire.",
-            "Koan: What clears the air like thunder?",
-            "Journal entry: Today I saw what was hidden in plain sight.",
-            "Letter: Write to someone you wish to enlighten.",
-            "Lyric poem: Spark into blaze, truth unveiled.",
-            "Riddle: I consume, yet I reveal. What am I?"
+            "Bonfire stories on a beach where each tale is told in a new tongue",
+            "Glassblowers explaining their craft with gestures and sparks",
+            "Lanterns rising over a city during a night festival",
+            "A shadow puppet play where firelight makes the words dance",
+            "Fireworks revealing graffiti hidden on the walls",
+            "Candlelight flickering through a cathedral at midnight",
+            "A letter burned before you could read it",
+            "Torches lighting a wedding procession through the streets",
+            "Street food stalls glowing red with chili and smoke",
+            "A single spark starts laughter in a crowded square"
         ],
 
-        // --- Mountain (stillness, limits, reflection) ---
+        // --- Mountain (stillness, reflection, limits) ---
         .mountain: [
-            "Story: A wanderer finds wisdom in silence at the peak.",
-            "Myth: The mountain spirit teaches the value of waiting.",
-            "Dream-journey: You sit so still the world begins to move around you.",
-            "Koan: What is learned in stillness?",
-            "Journal entry: Today I chose not to move, and I discovered…",
-            "Letter: Write to someone about the boundary you keep.",
-            "Lyric poem: Stone, unmoved, yet full of time.",
-            "Lecture/essay: Explain why limits are essential for growth."
+            "Prayer flags snapping in the wind high above a village",
+            "Sharing soup in a mountain hut with strangers from five countries",
+            "A monk teaching you a single word at dawn",
+            "Echoes of your voice return in another accent",
+            "A mountain trail lined with stones carved with prayers",
+            "Clouds reveal a message written across the ridge",
+            "Sleeping on a mountain ledge under unfamiliar stars",
+            "A hermit teaching without words, only gestures",
+            "Looking down at valleys shaped like sentences",
+            "Waiting in silence for sunrise on the summit"
         ],
 
-        // --- Lake (joy, openness, exchange) ---
+        // --- Lake (joy, exchange, reflection) ---
         .lake: [
-            "Story: A festival by the lake unites strangers in laughter.",
-            "Myth: A water spirit teaches joy as a sacred duty.",
-            "Dream-journey: You walk into a circle of voices and songs.",
-            "Koan: How does joy multiply when shared?",
-            "Journal entry: Today I allowed delight to enter—this is what followed.",
-            "Letter: Write to someone who brings you laughter.",
-            "Lyric poem: Ripples carry laughter across water.",
-            "Riddle: I reflect all, yet sing my own song. What am I?"
+            "Floating lanterns carrying wishes across a lake",
+            "Singing with strangers around a bonfire by the shore",
+            "Children shouting riddles across wooden boats",
+            "Learning a folk song while rowing with locals",
+            "Markets spilling out along the lakeside at dawn",
+            "A fisherman laughing as you mispronounce the word for net",
+            "The lake reflecting fireworks from a village festival",
+            "Stories traded between travelers on paddleboats",
+            "Laughter echoing across the water at night",
+            "A lake that mirrors every language spoken nearby"
         ]
     ]
+
 
     // Flattened pool that respects the selected category (All = union of all)
     private var promptPool: [String] {
@@ -994,14 +1011,14 @@ private struct ModeCard: View {
             }
             .pickerStyle(.segmented)
 
-            Divider()                                       // <<< separates switch from content
+            //Divider()                                       // <<< separates switch from content
 
             // Body switches by mode
             Group {
                 if mode == .prompt {
                     // ---- PROMPT MODE ----
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Prompt")
+                        Text("")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
 
@@ -1021,7 +1038,7 @@ private struct ModeCard: View {
                             Button {
                                 pickRandomPresetPrompt()
                             } label: {
-                                Label("Random Prompt", systemImage: "die.face.5")
+                                Label("Randomize", systemImage: "die.face.5")
                             }
                             .buttonStyle(.bordered)
 
@@ -1036,16 +1053,16 @@ private struct ModeCard: View {
                             .pickerStyle(.menu)
                         }
 
-                        Text("Describe instructions, a theme, or paste a source text.")
+                        Text("")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                            .padding(.top, 2)
+                            //.padding(.top, 2)
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 } else {
                     // ---- RANDOM MODE ----
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Random Topic")
+                        Text("")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
 
@@ -1062,8 +1079,10 @@ private struct ModeCard: View {
                             )
 
                         HStack {
-                            Button("Randomize") {
+                            Button {
                                 randomTopic = buildRandomTopic()
+                            } label: {
+                                Label("Randomize", systemImage: "die.face.5")
                             }
                             .buttonStyle(.bordered)
                             
@@ -1077,10 +1096,10 @@ private struct ModeCard: View {
                         }
                         .padding(.top, 4)
 
-                        Text("You can tweak the topic here or tap Randomize.")
+                        Text("")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                            .padding(.top, 2)
+                            //.padding(.top, 2)
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -1096,7 +1115,7 @@ private struct ModeCard: View {
                 .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
-        .padding(.vertical, 6)
+        //.padding(.vertical, 6)
     }
 }
 
