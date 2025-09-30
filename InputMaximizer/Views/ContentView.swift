@@ -734,34 +734,40 @@ private struct SegmentRow: View {
     let onTap: () -> Void
 
     var body: some View {
+        // In single-language modes, use a lighter (regular) weight.
+        let isSingleLanguage = (displayMode != .both)
+        let primaryWeight: Font.Weight = isSingleLanguage ? .regular : .semibold
+
         HStack(spacing: 10) {
-            // Accent rail highlights the currently playing segment
             Rectangle()
                 .fill(isPlaying ? Color.accentColor : .clear)
                 .frame(width: 3)
                 .cornerRadius(2)
 
             VStack(alignment: .leading, spacing: 5) {
+
                 // Target text
                 if displayMode != .translationOnly {
                     Text(segment.pt_text)
-                        .font(.headline)
+                        .font(.headline.weight(primaryWeight))
                         .foregroundColor(.primary)
-                        .lineSpacing(2) // optional readability tweak
+                        .lineSpacing(2)
                 }
 
-                // Translation text (promote to primary style when shown alone)
+                // Translation text (promote when shown alone, but lighter weight)
                 if displayMode != .targetOnly {
                     let isPrimaryTranslation = (displayMode == .translationOnly)
                     Text(segment.en_text)
-                        .font(isPrimaryTranslation ? .headline : .subheadline)
+                        .font(isPrimaryTranslation
+                              ? .headline.weight(primaryWeight)  // primary but lighter in single-language mode
+                              : .subheadline)                     // secondary in dual mode
                         .foregroundStyle(isPrimaryTranslation ? .primary : .secondary)
-                        .lineSpacing(2) // optional readability tweak
+                        .lineSpacing(2)
                 }
             }
         }
         .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)   // 👈 stretch row inside card
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(isPlaying ? Color.selectionAccent : Color.surface)
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -772,6 +778,7 @@ private struct SegmentRow: View {
         .onTapGesture(perform: onTap)
     }
 }
+
 
 private struct ParagraphBox: View {
     let group: ParaGroup
