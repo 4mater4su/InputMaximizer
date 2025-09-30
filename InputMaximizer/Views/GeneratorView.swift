@@ -675,9 +675,12 @@ struct GeneratorView: View {
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
-                Button("Done") { promptIsFocused = false }
+                Button("Done") {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
             }
         }
+
         // Remove this block OR replace with:
         .onChange(of: mode, initial: false) { _, _ in
             // keep keyboard hidden until user taps
@@ -978,18 +981,16 @@ private struct ModeCard: View {
                             .foregroundStyle(.secondary)
 
                         // Spacious text editor with soft background
-                        TextEditor(text: $userPrompt)
-                            .frame(minHeight: 140)
+                        StableTextEditor(text: $userPrompt, minHeight: 140, showsDoneAccessory: true)
+                            .frame(minHeight: 140)  // ensures it’s not 1 line
                             .padding(8)
                             .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color(uiColor: .systemGray6))
+                                RoundedRectangle(cornerRadius: 10).fill(Color(uiColor: .systemGray6))
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10)
                                     .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
                             )
-                            .focused(promptFocus)
 
                         HStack(spacing: 12) {
                             Button {
@@ -1282,5 +1283,62 @@ extension EnvironmentValues {
     var generatorAdvancedExpanded: Binding<Bool> {
         get { self[GeneratorAdvancedExpandedKey.self] }
         set { self[GeneratorAdvancedExpandedKey.self] = newValue }
+    }
+}
+
+struct StableTextEditor: UIViewRepresentable {
+    @Binding var text: String
+    var minHeight: CGFloat = 140
+    var showsDoneAccessory: Bool = true
+
+    class Coordinator: NSObject, UITextViewDelegate {
+        var parent: StableTextEditor
+        weak var textView: UITextView?
+
+        init(_ parent: StableTextEditor) { self.parent = parent }
+
+        func textViewDidChange(_ textView: UITextView) {
+            parent.text = textView.text
+        }
+
+        // Keep caret moves from auto-scrolling to bottom
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            // Do nothing; prevents SwiftUI from forcing a scroll jump
+        }
+
+        @objc func doneTapped() {
+            textView?.resignFirstResponder()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UITextView {
+        let tv = UITextView()
+        tv.isScrollEnabled = true
+        tv.alwaysBounceVertical = true
+        tv.backgroundColor = .clear
+        tv.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
+        tv.font = UIFont.preferredFont(forTextStyle: .body)
+        tv.adjustsFontForContentSizeCategory = true
+        tv.delegate = context.coordinator
+        context.coordinator.textView = tv
+
+        if showsDoneAccessory {
+            let bar = UIToolbar()
+            bar.sizeToFit()
+            bar.items = [
+                UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
+                UIBarButtonItem(title: "Done", style: .done, target: context.coordinator, action: #selector(Coordinator.doneTapped))
+            ]
+            tv.inputAccessoryView = bar
+        }
+
+        return tv
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        if uiView.text != text { uiView.text = text }
+        // respect min height via SwiftUI frame
     }
 }
