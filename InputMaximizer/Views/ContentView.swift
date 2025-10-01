@@ -769,10 +769,12 @@ private struct SegmentRow: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isPlaying ? Color.selectionAccent : Color.surface)
+        /*
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.hairline, lineWidth: 1)
+                .stroke(Color.hairline.opacity(0.15), lineWidth: 1)
         )
+         */
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .id(rowID)
         .onTapGesture(perform: onTap)
