@@ -344,38 +344,26 @@ extension AspectTable {
 
     static func defaultInterestsRow() -> AspectRow {
         AspectRow(title: "Interests", options: [
-            AspectOption(label: "Capoeira at dawn on a Rio beach"),
-            AspectOption(label: "Midnight fado in a Lisbon tavern"),
-            AspectOption(label: "Trading jokes with taxi drivers in Cairo traffic"),
-            AspectOption(label: "Eating mangoes on a rooftop in Havana"),
-            AspectOption(label: "Learning flamenco rhythms in an Andalusian courtyard"),
-            AspectOption(label: "Storytelling by firelight in the Sahara"),
-            AspectOption(label: "Writing wishes on lanterns in Chiang Mai"),
-            AspectOption(label: "Improvised salsa in a Cartagena plaza"),
-            AspectOption(label: "Reading poetry on a night train to Istanbul"),
-            AspectOption(label: "Karaoke duets with strangers in Tokyo"),
-            
-            AspectOption(label: "Asking for recipes at a spice stall in Marrakech"),
-            AspectOption(label: "Cheering at a village football match in Ghana"),
-            AspectOption(label: "Painting words on walls during a Mexico City mural tour"),
-            AspectOption(label: "Trading tongue twisters over tea in Tbilisi"),
-            AspectOption(label: "Learning sea shanties from sailors in Galway"),
-            AspectOption(label: "Tasting street noodles at midnight in Taipei"),
-            AspectOption(label: "Listening to fishermen name constellations in Crete"),
-            AspectOption(label: "Swapping travel stories in a Kathmandu teahouse"),
-            AspectOption(label: "Joining drumming circles at dusk in Dakar"),
-            AspectOption(label: "Whispering ghost tales in Prague alleys"),
-            
-            AspectOption(label: "Dancing barefoot at a Balinese temple festival"),
-            AspectOption(label: "Practicing Arabic greetings in a desert caravan"),
-            AspectOption(label: "Translating graffiti in Buenos Aires streets"),
-            AspectOption(label: "Learning riddles from Maasai elders"),
-            AspectOption(label: "Singing drinking songs in a Bavarian beer hall"),
-            AspectOption(label: "Buying cherries at sunrise in a Turkish bazaar"),
-            AspectOption(label: "Exchanging travel tips in hostel kitchens"),
-            AspectOption(label: "Journaling at a Paris café window"),
-            AspectOption(label: "Acting in street theater in Naples"),
-            AspectOption(label: "Reciting blessings at a Himalayan monastery")
+            AspectOption(label: "Freediving"),
+            AspectOption(label: "Parkour"),
+            AspectOption(label: "Underground Techno"),
+            AspectOption(label: "Cave Art"),
+            AspectOption(label: "Astrobiology"),
+            AspectOption(label: "Surrealist Cinema"),
+            AspectOption(label: "Tattoo Culture"),
+            AspectOption(label: "Foraging"),
+            AspectOption(label: "Martial Arts Philosophy"),
+            AspectOption(label: "Circus Performance"),
+            AspectOption(label: "Street Art"),
+            AspectOption(label: "Futurist Architecture"),
+            AspectOption(label: "Biohacking"),
+            AspectOption(label: "Shamanic Practices"),
+            AspectOption(label: "Mythical Creatures"),
+            AspectOption(label: "Caving"),
+            AspectOption(label: "Lockpicking"),
+            AspectOption(label: "Ancient Astronomy"),
+            AspectOption(label: "VR Worlds"),
+            AspectOption(label: "Robotics")
         ])
     }
 

@@ -192,14 +192,16 @@ struct GeneratorView: View {
 
     enum PromptCategory: String, CaseIterable, Identifiable {
         case all = "All"
-        case heaven = "Heaven ☰"
-        case earth = "Earth ☷"
-        case thunder = "Thunder ☳"
-        case wind = "Wind ☴"
-        case water = "Water ☵"
-        case fire = "Fire ☲"
-        case mountain = "Mountain ☶"
-        case lake = "Lake ☱"
+        case voyage = "Voyage"
+        case city = "City"
+        case wild = "Wild"
+        case myth = "Myth"
+        case water = "Water"
+        case night = "Night"
+        case cosmos = "Cosmos"
+        case time = "Time"
+        case philosophy = "Philosophy"
+        case practice = "Practice"
 
         var id: String { rawValue }
     }
@@ -208,117 +210,214 @@ struct GeneratorView: View {
 
     private let promptsByCategory: [PromptCategory: [String]] = [
 
-        // --- Heaven (vision, beginnings, vastness) ---
-        .heaven: [
-            "Watching sunrise from an airplane window as the cabin sleeps",
-            "Learning the names of constellations from a shepherd in the desert",
-            "A rooftop dinner in Marrakech where ten languages mix in the air",
-            "Your passport is stamped with a word you can’t translate",
-            "Clouds forming a sentence you almost understand",
-            "A pilot invites you to the cockpit at dawn",
-            "The first word you speak after landing in a new country",
-            "Stargazing with locals who see different patterns in the sky",
-            "Airport signs glowing in three alphabets you can’t read",
-            "A stranger teaches you their favorite word for ‘sky’"
+        // --- Voyage (journeys, movement, routes) ---
+        .voyage: [
+            "Daydreaming in a train to Istanbul, wondering how all our lives are connected",
+            "Riding a horse across the Mongolian steppe under endless skies",
+            "Sailing by starlight among the Greek islands, guided only by myths",
+            "Sailing down the Nile past temples and palm groves",
+            "Drifting on a houseboat through Kerala’s backwaters",
+            "Drifting through the streets of Amsterdam during tulip season",
+            "Crossing Tibetan passes with yak caravans",
+            "Riding the Trans-Siberian Railway and daydreaming for days",
+            "Walking across bamboo bridges in rural Vietnam",
+            "Sharing a ferry ride with farmers carrying baskets of fruit"
         ],
 
-        // --- Earth (place, belonging, roots) ---
-        .earth: [
-            "Harvesting olives with a family in Greece, learning words as you work",
-            "A grandmother showing you bread-making secrets in Sicily",
-            "Buying spices in a Marrakech souk where every color has a story",
-            "Your shoes left at the door of a mountain guesthouse",
-            "Planting rice seedlings knee-deep in water in Bali",
-            "A farmer teaching you proverbs while you help with the harvest",
-            "Sharing tea on the floor of a nomad’s tent",
-            "Children correcting your pronunciation in a village square",
-            "Describing your hometown to someone who has never seen a city",
-            "Collecting words for ‘earth’ in every place you visit"
+        // --- City (cafés, markets, street life) ---
+        .city: [
+            "Trading jokes with taxi drivers in Cairo traffic",
+            "Eating mangoes on a rooftop in Havana",
+            "Listening to live music and tasting tapas in the streets of Sevilla",
+            "Swapping travel stories in a Kathmandu teahouse",
+            "Whispering ghost tales in Prague alleys",
+            "Journaling at a Paris café window",
+            "Acting in street theater in Naples",
+            "Sketching strangers in a smoky café in Buenos Aires",
+            "Playing chess with an old man on the streets of Marrakech",
+            "Getting lost in the alleyways of Fez’s ancient medina",
+            "Reading tarot cards in a candlelit attic in Lisbon",
+            "Walking through neon-lit night markets in Ho Chi Minh City",
+            "Dancing tango on cobblestones in Buenos Aires",
+            "Buying cherries at sunrise in a Turkish bazaar",
+            "Drinking coffee at dawn in a hidden café in Addis Ababa"
         ],
 
-        // --- Thunder (shock, surprise, change) ---
-        .thunder: [
-            "A sudden monsoon trapping you in a street market",
-            "Electricity cuts out in a hostel—everyone starts telling ghost stories",
-            "Your mispronounced word makes a crowd burst into laughter",
-            "A drum performance echoing with thunder in West Africa",
-            "Lightning reveals ruins on a distant hillside",
-            "A street protest erupts while you’re asking for directions",
-            "Thunder shakes the train as strangers share food by candlelight",
-            "A joke you don’t understand makes everyone fall silent",
-            "A storm interrupts a village festival—new rituals begin",
-            "Waking to thunder and finding your room flooded with rain"
+        // --- Wilderness (mountains, deserts, ice, wild places) ---
+        .wild: [
+            "Mountaineering at sunrise on the Himalayan ridges",
+            "Flying as an eagle over the snowy peaks of the Alps",
+            "Watching sunrise from the top of Mount Kilimanjaro, above the clouds",
+            "Wandering the jungle temples of Tikal as howler monkeys roar in the distance",
+            "Sharing stories with nomads in a yurt on the Kazakh steppe",
+            "Exploring flooded marble caves in Patagonia by kayak",
+            "Watching lava flow into the ocean on the shores of Hawai‘i’s Big Island",
+            "Traversing the salt flats of Uyuni under a mirror of stars",
+            "Climbing the ancient rock churches of Lalibela by candlelight",
+            "Spotting wild elephants while camping in Sri Lanka’s jungles",
+            "Exploring ice caves under Vatnajökull Glacier in Iceland",
+            "Crossing the frozen Lake Baikal on foot in winter",
+            "Watching geysers erupt in Yellowstone at dawn",
+            "Sleeping under the open sky in Wadi Rum",
+            "Watching the sunrise paint Uluru in Australia",
+            "Sledding with huskies across Lapland"
         ],
 
-        // --- Wind (movement, influence, whispers) ---
-        .wind: [
-            "Paper lanterns drifting into the night sky at a festival",
-            "A kite battle teaching new words for winning and losing",
-            "Flags snapping above a marketplace in Kathmandu",
-            "A rumor spreads in a hostel and changes your travel plans",
-            "The wind steals your hat—laughter follows in three languages",
-            "A whisper from a stranger guides you to a hidden café",
-            "The smell of bread on the wind pulls you down unknown streets",
-            "Leaves swirl into letters you don’t yet know",
-            "Your map blows away—someone draws a new one in the sand",
-            "A song drifts across rooftops, carrying you toward it"
+        // --- Myth & Ritual (traditions, ceremonies, teachings) ---
+        .myth: [
+            "Storytelling by firelight in the Sahara",
+            "Writing wishes on lanterns in Chiang Mai",
+            "Dancing barefoot at a Balinese temple festival",
+            "Joining a desert caravan, in search of wisdom",
+            "Learning riddles from Maasai elders",
+            "Reciting blessings at a Himalayan monastery",
+            "Practicing secret martial arts in a moss-covered temple in Kyoto",
+            "Practicing calligraphy in a hidden courtyard in Kyoto",
+            "Drinking spiced tea in a desert caravanserai as traders pass by",
+            "Exploring an underwater temple said to belong to forgotten gods",
+            "Listening to throat singing in Tuva around a campfire",
+            "Learning flamenco rhythms in a Granada courtyard",
+            "Drinking cacao with shamans in the Guatemalan highlands",
+            "Joining masked dancers at a Bhutanese festival",
+            "Following legends of dragons in the Carpathian mountains",
+            "Watching shadow puppetry in a Javanese village"
         ],
 
-        // --- Water (flow, journeys, endurance) ---
+        // --- Waters & Coasts (oceans, rivers, shores) ---
         .water: [
-            "Sharing a ferry ride with farmers carrying baskets of fruit",
-            "Buying street noodles under umbrellas in a downpour",
-            "A fisherman teaching you the sea’s vocabulary at dawn",
-            "Raindrops turn neon signs into strange poems",
-            "A tide reveals a staircase carved into the cliffside",
-            "Your notebook falls in the river—what words are lost?",
-            "Swimming too far out, advice shouted in a language you don’t know",
-            "A desert well where travelers leave secret notes",
-            "Children counting fish as they teach you numbers",
-            "Following a canal until it becomes the sea"
+            "Surfing glowing waves under a full moon in Hawaii",
+            "Diving into coral caves in the Great Barrier Reef",
+            "Floating in the Dead Sea at sunrise, surrounded by silence",
+            "Sailing down the Nile past temples and palm groves",
+            "Drifting on a houseboat through Kerala’s backwaters",
+            "Exploring flooded marble caves in Patagonia by kayak",
+            "Exploring shipwrecks while diving in the Maldives",
+            "Listening to myths whispered by shamans in the Amazon",
+            "Stargazing from a hammock deep in the Amazon rainforest",
         ],
 
-        // --- Fire (light, passion, clarity) ---
-        .fire: [
-            "Bonfire stories on a beach where each tale is told in a new tongue",
-            "Glassblowers explaining their craft with gestures and sparks",
-            "Lanterns rising over a city during a night festival",
-            "A shadow puppet play where firelight makes the words dance",
-            "Fireworks revealing graffiti hidden on the walls",
-            "Candlelight flickering through a cathedral at midnight",
-            "A letter burned before you could read it",
-            "Torches lighting a wedding procession through the streets",
-            "Street food stalls glowing red with chili and smoke",
-            "A single spark starts laughter in a crowded square"
+        // --- Night & Neon (after-dark, music, glow) ---
+        .night: [
+            "Karaoke duets with strangers in Tokyo",
+            "Shapeshifting into a cat and wandering neon-lit rooftops of Hong Kong",
+            "Sipping cocktails at the Moon Bar, watching Earth rise above the horizon",
+            "Drumming at midnight in a São Tomé village",
+            "Watching the aurora from a glass igloo in Finland",
+            "Walking through neon-lit night markets in Ho Chi Minh City",
+            "Riding gondolas at midnight through Venice’s quiet canals",
+            "Listening to jazz spill from basement bars in New Orleans",
+            "Lanterns rising over the Ganges in Varanasi"
         ],
 
-        // --- Mountain (stillness, reflection, limits) ---
-        .mountain: [
-            "Prayer flags snapping in the wind high above a village",
-            "Sharing soup in a mountain hut with strangers from five countries",
-            "A monk teaching you a single word at dawn",
-            "Echoes of your voice return in another accent",
-            "A mountain trail lined with stones carved with prayers",
-            "Clouds reveal a message written across the ridge",
-            "Sleeping on a mountain ledge under unfamiliar stars",
-            "A hermit teaching without words, only gestures",
-            "Looking down at valleys shaped like sentences",
-            "Waiting in silence for sunrise on the summit"
+        // --- Cosmos & Frontier (stars, space, sky craft) ---
+        .cosmos: [
+            "Joining the first colony on Mars and planting a tree in red soil",
+            "Wandering through an abandoned Soviet observatory at dawn",
+            "Stargazing from the Atacama Desert observatories",
+            "Watching the Perseid meteor shower from the Sahara dunes",
+            "Learning star navigation with Polynesian wayfinders",
+            "Listening to fishermen name constellations in Crete",
+            "Listening to Arctic winds while camping beneath the Northern Lights in Svalbard",
+            "Flying as an eagle over the snowy peaks of the Alps",
+            "A rooftop dinner in Marrakech where ten languages mix in the air",
+            "Clouds forming a sentence you almost understand",
+            "A door in the desert that opens into the ocean"
         ],
 
-        // --- Lake (joy, exchange, reflection) ---
-        .lake: [
-            "Floating lanterns carrying wishes across a lake",
-            "Singing with strangers around a bonfire by the shore",
-            "Children shouting riddles across wooden boats",
-            "Learning a folk song while rowing with locals",
-            "Markets spilling out along the lakeside at dawn",
-            "A fisherman laughing as you mispronounce the word for net",
-            "The lake reflecting fireworks from a village festival",
-            "Stories traded between travelers on paddleboats",
-            "Laughter echoing across the water at night",
-            "A lake that mirrors every language spoken nearby"
+        // --- Time & Memory (lost places, ruins, eras) ---
+        .time: [
+            "Slipping through time to Paris in the 1920s, jazz spilling from the bars",
+            "Exploring forgotten castles hidden in the Black Forest",
+            "Exploring the eerie silence of Chernobyl’s abandoned streets",
+            "Reading forgotten manuscripts in an old Oxford library",
+            "Hiking through the red canyons of Petra by torchlight",
+            "Climbing the steps of Machu Picchu in the mist",
+            "Sketching ruins among olive groves in Delphi",
+            "Exploring the underground salt cathedral of Zipaquirá in Colombia",
+            "Time-traveling to Florence during the Renaissance and sketching with apprentices",
+            "Capoeira at dawn on a Rio beach",
+            "Cheering at a village football match in Ghana",
+            "Tasting street noodles at midnight in Taipei",
+            "Joining drumming circles at dusk in Dakar"
+        ],
+        
+        .philosophy: [
+            "To what extent are dreams a form of reality rather than just illusions of the mind?",
+            "Where do ideas originate before they arrive in our awareness?",
+            "What does the phenomenon of synesthesia reveal about the hidden nature of reality?",
+            "Do our imaginations create worlds as real as the physical one we share?",
+            "Why do things often become less tangible the more we try to grasp them?",
+            "What makes something “real” — experience, belief, or shared agreement?",
+            "Can beauty exist without an observer?",
+            "What role do myths play in shaping how we see reality?",
+            "Is perception a window into the world, or a world in itself?",
+            "If animals perceive realities we cannot, what world are we missing?",
+            
+            "If incarnation is real, what does it reveal about continuity and change in who we are?",
+            "What is the nature of consciousness: an emergent property, or a fundamental aspect of the universe?",
+            "How can I hold a healthy relationship with my past and future selves while living fully in the present?",
+            "Is it useful to view life as an evolving maze that reshapes itself with every choice?",
+            "What does it truly mean to feel love — and can love ever be fully known, or only lived?",
+            "How much of who I am is memory, and how much is possibility?",
+            "In what ways do fears shape the boundaries of my identity?",
+            "How does imagination contribute to who we become?",
+            "Where do our deepest desires come from, and what do they reveal?",
+            "What does it mean to live with integrity across changing circumstances?",
+            
+            "Is time truly relative, or is it only our perception that shifts?",
+            "Has the future already unfolded, waiting only to be discovered?",
+            "How does meaning shift when viewed from the perspective of deep time?",
+            "If the present is always vanishing, what does it mean to “live in the now”?",
+            "What is eternity — endless duration, or timeless presence?",
+            "How do dreams alter our sense of time?",
+            "Is memory a form of time travel?",
+            "If all moments are connected, how do we move through them?",
+            "What does it mean for a story to outlive its teller?",
+            
+            "What does it mean to share genuine understanding with animals or pets?",
+            "Why do different species — and even individuals of the same species — carry distinct personalities?",
+            "If every encounter with a stranger holds the potential to change my life, what fears keep me from openness?",
+            "How do we recognize ourselves in the faces of others?",
+            "What is carried forward by a promise passed through generations?",
+            "How does trust form, and what sustains it?",
+            "Can love exist without expression, or does it require action?",
+            "What makes a community more than the sum of its members?",
+            "How does listening transform a relationship?",
+            "What do I learn about myself through the bonds I create?",
+            
+            "Where does the universe end, and what, if anything, lies beyond?",
+            "Where do unremembered dreams go when they slip beyond waking?",
+            "What becomes of prayers that never find an echo?",
+            "How do forgotten languages continue to resonate in silence?",
+            "In what ways do myths outlive the people who first told them?",
+            "What role does mystery play in shaping a meaningful life?",
+            "How does wonder keep us alive in the face of the unknown?",
+            "Where do possibilities dwell before they take form?",
+            "What truths linger in ruins and abandoned places?",
+            "How does the unknown give shape to everything we call the known?"
+        ],
+        
+        .practice: [
+            "What small ritual brings you back to yourself?",
+            "How do you recognize joy in ordinary moments?",
+            "What do you return to when everything feels uncertain?",
+            "What do your mornings reveal about the rhythm of your life?",
+            "When do you feel most connected to your body?",
+            "What space in your daily life feels sacred, even if unnoticed?",
+            "How do you give attention to the simplest of tasks?",
+            "How do you carry gratitude through ordinary days?",
+            "How does your body respond when you move without purpose?",
+            "What changes when you treat movement as play rather than exercise?",
+            "How does balance teach you about attention?",
+            "Where in your body do you hold unnecessary tension?",
+            "What lessons appear when you deliberately move awkwardly?",
+            "How does slowness reveal details hidden in fast movement?",
+            "What new pathways open when you explore the floor as a landscape?",
+            "How do you adapt when movement does not go as planned?",
+            "What stories are carried in the way you walk?",
+            "How does repetition transform into understanding?"
         ]
+
     ]
 
 
@@ -1021,8 +1120,7 @@ private struct ModeCard: View {
                         StableTextEditor(
                             text: $userPrompt,
                             minHeight: editorMinHeight,
-                            showsDoneAccessory: true,
-                            placeholder: "Describe your lesson idea, theme, or paste a source snippet…"
+                            showsDoneAccessory: true
                         )
                         .frame(minHeight: editorMinHeight)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1039,7 +1137,7 @@ private struct ModeCard: View {
                             }
                             .buttonStyle(.bordered)
 
-                            /*
+                            
                             Spacer(minLength: 8)
                             
                             Menu {
@@ -1056,7 +1154,7 @@ private struct ModeCard: View {
                                 }
                             }
                             .buttonStyle(.bordered)
-                            */
+                            
                         }
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -1066,8 +1164,7 @@ private struct ModeCard: View {
                         StableTextEditor(
                             text: $randomTopic,
                             minHeight: editorMinHeight,
-                            showsDoneAccessory: true,
-                            placeholder: "We’ll build a topic from your style & interests. Add a nudge if you want…"
+                            showsDoneAccessory: true
                         )
                         .frame(minHeight: editorMinHeight)
                         .fixedSize(horizontal: false, vertical: true)
