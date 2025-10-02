@@ -29,6 +29,12 @@ private struct ParaGroup: Identifiable {
     let segments: [DisplaySegment]
 }
 
+private enum FontComfortMode: Int {
+    case standard = 0
+    case comfy = 1
+    mutating func toggle() { self = (self == .standard) ? .comfy : .standard }
+}
+
 private enum TextDisplayMode: Int {
     case both = 0
     case targetOnly = 1
@@ -57,6 +63,83 @@ private struct WidthReader: ViewModifier {
 }
 private extension View { func readWidth() -> some View { modifier(WidthReader()) } }
 
+private struct Chip: View {
+    let icon: String?
+    let content: AnyView
+    var body: some View {
+        HStack(spacing: 6) {
+            if let icon { Image(systemName: icon) }
+            content
+        }
+        .font(.callout)
+        .padding(.horizontal, CHIP_HPAD)   // ← was chipHorzPadding
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(.tertiarySystemBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                )
+        )
+        .contentShape(Rectangle())
+        .frame(height: 32)
+    }
+}
+
+
+// Stronger, tidy vertical divider that matches chip height
+private struct ChipDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.6))
+            .frame(width: 1, height: 32)
+            .cornerRadius(0.5)
+            .padding(.horizontal, 3)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct TinyPill: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.caption2.monospaced().bold())
+            .padding(.vertical, 2)
+            .padding(.horizontal, PILL_HPAD)   // ← was pillHorzPadding
+            .background(
+                Capsule().stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+            )
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+}
+
+
+private struct Pill: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.caption2.bold())
+            .padding(.vertical, 2).padding(.horizontal, 6)
+            .background(
+                Capsule().stroke(Color.hairline, lineWidth: 1)
+            )
+    }
+}
+
+private struct LangPill: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.caption2.bold())
+            .padding(.vertical, 2).padding(.horizontal, 6)
+            .background(Capsule().stroke(Color.hairline, lineWidth: 1))
+            .contentTransition(.opacity)
+            .accessibilityHidden(true)
+    }
+}
+
 @MainActor
 struct ContentView: View {
     @EnvironmentObject private var audioManager: AudioManager
@@ -69,6 +152,12 @@ struct ContentView: View {
     @State private var currentLessonIndex: Int
     let selectedLesson: Lesson
 
+    @AppStorage("fontComfortMode") private var fontComfortModeRaw: Int = FontComfortMode.standard.rawValue
+    private var fontComfortMode: FontComfortMode {
+        get { FontComfortMode(rawValue: fontComfortModeRaw) ?? .standard }
+        set { fontComfortModeRaw = newValue.rawValue }
+    }
+    
     @AppStorage("textDisplayMode") private var textDisplayModeRaw: Int = TextDisplayMode.both.rawValue
     private var textDisplayMode: TextDisplayMode {
         get { TextDisplayMode(rawValue: textDisplayModeRaw) ?? .both }
@@ -195,6 +284,82 @@ struct ContentView: View {
         return sentences
     }
 
+    // MARK: - Accessibility Strings (lighter for the type-checker)
+    private var textModeAXLabel: String {
+        switch textDisplayMode {
+        case .both:            return "Show \(lessonLangs.targetShort) only"
+        case .targetOnly:      return "Show \(lessonLangs.translationShort) only"
+        case .translationOnly: return "Show both \(lessonLangs.targetShort) and \(lessonLangs.translationShort)"
+        }
+    }
+
+    private var playbackAXLabel: String {
+        switch audioManager.playbackMode {
+        case .target:       return "Switch to \(lessonLangs.translationShort) playback"
+        case .translation:  return "Switch to dual playback"
+        case .both:         return "Switch to \(lessonLangs.targetShort) playback"
+        }
+    }
+    
+    private var playOppositeAXLabel: String {
+        switch audioManager.playbackMode {
+        case .target:       return "Play \(lessonLangs.translationName) once"
+        case .translation:  return "Play \(lessonLangs.targetName) once"
+        case .both:         return "Replay both languages for this segment"
+        }
+    }
+
+    // MARK: - Chip Content Builders (type-erased to AnyView)
+    private var textModeChipContent: AnyView {
+        AnyView(
+            ZStack {
+                // reserve for two pills so width doesn’t jump
+                HStack(spacing: PILL_SPACING) {
+                    TinyPill(text: lessonLangs.targetShort)
+                    TinyPill(text: lessonLangs.translationShort)
+                }
+                .opacity(0)
+
+                switch textDisplayMode {
+                case .both:
+                    HStack(spacing: PILL_SPACING) {
+                        TinyPill(text: lessonLangs.targetShort)
+                        TinyPill(text: lessonLangs.translationShort)
+                    }
+                case .targetOnly:
+                    TinyPill(text: lessonLangs.targetShort)
+                case .translationOnly:
+                    TinyPill(text: lessonLangs.translationShort)
+                }
+            }
+        )
+    }
+
+    private var playbackChipContent: AnyView {
+        AnyView(
+            ZStack {
+                // reserve for two pills
+                HStack(spacing: PILL_SPACING) {
+                    TinyPill(text: lessonLangs.targetShort)
+                    TinyPill(text: lessonLangs.translationShort)
+                }
+                .opacity(0)
+
+                switch audioManager.playbackMode {
+                case .both:
+                    HStack(spacing: PILL_SPACING) {
+                        TinyPill(text: lessonLangs.targetShort)
+                        TinyPill(text: lessonLangs.translationShort)
+                    }
+                case .target:
+                    TinyPill(text: lessonLangs.targetShort)
+                case .translation:
+                    TinyPill(text: lessonLangs.translationShort)
+                }
+            }
+        )
+    }
+    
     // MARK: - Actions
     /// Start playback in the lane that matches the current continuous mode
     private func goToNextLessonAndPlay() {
@@ -211,83 +376,6 @@ struct ContentView: View {
         case .both:
             // Start the dual sequence from the beginning
             audioManager.playInContinuousLane(from: 0)
-        }
-    }
-    
-    private struct Chip: View {
-        let icon: String?
-        let content: AnyView
-        var body: some View {
-            HStack(spacing: 6) {
-                if let icon { Image(systemName: icon) }
-                content
-            }
-            .font(.callout)
-            .padding(.horizontal, CHIP_HPAD)   // ← was chipHorzPadding
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(.tertiarySystemBackground))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                    )
-            )
-            .contentShape(Rectangle())
-            .frame(height: 32)
-        }
-    }
-
-
-    // Stronger, tidy vertical divider that matches chip height
-    private struct ChipDivider: View {
-        var body: some View {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.6))
-                .frame(width: 1, height: 32)
-                .cornerRadius(0.5)
-                .padding(.horizontal, 3)
-                .accessibilityHidden(true)
-        }
-    }
-
-    private struct TinyPill: View {
-        let text: String
-        var body: some View {
-            Text(text)
-                .font(.caption2.monospaced().bold())
-                .padding(.vertical, 2)
-                .padding(.horizontal, PILL_HPAD)   // ← was pillHorzPadding
-                .background(
-                    Capsule().stroke(Color.secondary.opacity(0.35), lineWidth: 1)
-                )
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        }
-    }
-
-    
-    private struct Pill: View {
-        let text: String
-        var body: some View {
-            Text(text)
-                .font(.caption2.bold())
-                .padding(.vertical, 2).padding(.horizontal, 6)
-                .background(
-                    Capsule().stroke(Color.hairline, lineWidth: 1)
-                )
-        }
-    }
-    
-    private struct LangPill: View {
-        let text: String
-        var body: some View {
-            Text(text)
-                .font(.caption2.bold())
-                .padding(.vertical, 2).padding(.horizontal, 6)
-                .background(Capsule().stroke(Color.hairline, lineWidth: 1))
-                .contentTransition(.opacity)
-                .accessibilityHidden(true)
         }
     }
 
@@ -442,18 +530,20 @@ struct ContentView: View {
                     folderName: currentLesson.folderName,
                     displayMode: textDisplayMode,
                     playingSegmentID: playingSegmentID,
-                    headerTitle: currentLesson.title
-                ) { segment in
-                    if !isViewingActiveLesson {
-                        audioManager.loadLesson(
-                            folderName: currentLesson.folderName,
-                            lessonTitle: currentLesson.title
-                        )
-                    }
-                    if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.originalID }) {
-                        audioManager.playInContinuousLane(from: idx)
-                    }
-                }
+                    headerTitle: currentLesson.title,
+                    onTap: { segment in
+                        if !isViewingActiveLesson {
+                            audioManager.loadLesson(
+                                folderName: currentLesson.folderName,
+                                lessonTitle: currentLesson.title
+                            )
+                        }
+                        if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.originalID }) {
+                            audioManager.playInContinuousLane(from: idx)
+                        }
+                    },
+                    fontComfortMode: fontComfortMode
+                )
                 .onChange(of: audioManager.currentIndex, initial: false) { _, _ in
                     guard let id = playingScrollID else { return }
                     DispatchQueue.main.async {
@@ -500,13 +590,7 @@ struct ContentView: View {
                             }
                         }
                         .buttonStyle(MinimalIconButtonStyle())
-                        .accessibilityLabel({
-                            switch audioManager.playbackMode {
-                            case .target:       return "Play \(lessonLangs.translationName) once"
-                            case .translation:  return "Play \(lessonLangs.targetName) once"
-                            case .both:         return "Replay both languages for this segment"
-                            }
-                        }())
+                        .accessibilityLabel(playOppositeAXLabel)
 
 
                     }
@@ -569,76 +653,31 @@ struct ContentView: View {
 
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: CHIP_GAP) {
-                    
-                    Menu {
-                        Text("Pause between segments (seconds)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .disabled(true)
-                        Divider()
-                        Picker("Pause Between Segments", selection: $storedDelay) {
-                            ForEach(delayPresets, id: \.self) { v in
-                                Text(secondsString(v)).tag(v)
-                            }
-                        }
-                        Button("Custom…") { showDelaySheet = true }
-                    } label: {
-                        Chip(
-                            icon: "hourglass",
-                            content: AnyView(
-                                Text(secondsString(storedDelay))
-                                    .font(.callout.monospacedDigit()) // ✅ matches text size; monospace digits only
-                                    .lineLimit(1)
-                            )
-                        )
-                        .frame(width: chipMeasuredWidth) // ✅ same measured width rule
-                        .contentShape(Rectangle())
-                        .readWidth()                     // ✅ participates in the same width measuring
-                    }
+                    ComfortToggleChip(
+                        mode: $fontComfortModeRaw,
+                        measuredWidth: chipMeasuredWidth
+                    )
 
-
-                    Button {
-                        textDisplayModeRaw = (textDisplayModeRaw + 1) % 3
-                    } label: {
-                        Chip(
-                            icon: "captions.bubble",
-                            content: AnyView(
-                                ZStack {
-                                    // reserve for two pills so width doesn’t jump
-                                    HStack(spacing: PILL_SPACING) {
-                                        TinyPill(text: lessonLangs.targetShort)
-                                        TinyPill(text: lessonLangs.translationShort)
-                                    }
-                                    .opacity(0)
-
-                                    switch textDisplayMode {
-                                    case .both:
-                                        HStack(spacing: PILL_SPACING) {
-                                            TinyPill(text: lessonLangs.targetShort)
-                                            TinyPill(text: lessonLangs.translationShort)
-                                        }
-                                    case .targetOnly:
-                                        TinyPill(text: lessonLangs.targetShort)
-                                    case .translationOnly:
-                                        TinyPill(text: lessonLangs.translationShort)
-                                    }
-                                }
-                            )
-                        )
-                        .frame(width: chipMeasuredWidth)
-                        .readWidth()
-                    }
-                    .accessibilityLabel({
-                        switch textDisplayMode {
-                        case .both:            return "Show \(lessonLangs.targetShort) only"
-                        case .targetOnly:      return "Show \(lessonLangs.translationShort) only"
-                        case .translationOnly: return "Show both \(lessonLangs.targetShort) and \(lessonLangs.translationShort)"
-                        }
-                    }())
-                    .accessibilityHint("Cycles between both, target-only, and translation-only.")
-
-                    // 3) Playback chip
-                    Button {
+                    DelayMenuChip(
+                        delay: $storedDelay,
+                        presets: delayPresets,
+                        measuredWidth: chipMeasuredWidth,
+                        secondsString: secondsString,
+                        showSheet: $showDelaySheet
+                    )
+    
+                    TextModeChip(
+                        textDisplayModeRaw: $textDisplayModeRaw,
+                        langs: lessonLangs,
+                        measuredWidth: chipMeasuredWidth,
+                        content: textModeChipContent,
+                        axLabel: textModeAXLabel
+                    )
+                    PlaybackChip(
+                        measuredWidth: chipMeasuredWidth,
+                        content: playbackChipContent,
+                        axLabel: playbackAXLabel
+                    ) {
                         let next: AudioManager.PlaybackMode = {
                             switch audioManager.playbackMode {
                             case .target: return .translation
@@ -648,50 +687,13 @@ struct ContentView: View {
                         }()
                         audioManager.setPlaybackMode(next)
                         audioManager.playInContinuousLane(from: audioManager.currentIndex)
-                    } label: {
-                        Chip(
-                            icon: "speaker.wave.2.fill",
-                            content: AnyView(
-                                ZStack {
-                                    // reserve for two pills
-                                    HStack(spacing: PILL_SPACING) {
-                                        TinyPill(text: lessonLangs.targetShort)
-                                        TinyPill(text: lessonLangs.translationShort)
-                                    }
-                                    .opacity(0)
-
-                                    switch audioManager.playbackMode {
-                                    case .both:
-                                        HStack(spacing: PILL_SPACING) {
-                                            TinyPill(text: lessonLangs.targetShort)
-                                            TinyPill(text: lessonLangs.translationShort)
-                                        }
-                                    case .target:
-                                        TinyPill(text: lessonLangs.targetShort)
-                                    case .translation:
-                                        TinyPill(text: lessonLangs.translationShort)
-                                    }
-                                }
-                            )
-                        )
-                        .frame(width: chipMeasuredWidth)
-                        .readWidth()
                     }
-                    .accessibilityLabel({
-                        switch audioManager.playbackMode {
-                        case .target:       return "Switch to \(lessonLangs.translationShort) playback"
-                        case .translation:  return "Switch to dual playback"
-                        case .both:         return "Switch to \(lessonLangs.targetShort) playback"
-                        }
-                    }())
-                    .accessibilityHint("Cycles between target, translation, and dual playback modes.")
                 }
                 .padding(.trailing, 8)
                 .onPreferenceChange(WidthPrefKey.self) { newMax in
-                    // clamp + coalesce on main actor to avoid jitter
                     Task { @MainActor in
-                        let minW: CGFloat = 108      // was 110
-                        let maxW: CGFloat = 150      // was 136
+                        let minW: CGFloat = 108
+                        let maxW: CGFloat = 150
                         let clamped = min(max(newMax, minW), maxW)
                         if abs(clamped - chipMeasuredWidth) > 0.5 {
                             chipMeasuredWidth = clamped
@@ -700,8 +702,6 @@ struct ContentView: View {
                 }
             }
         }
-        // ✅ No .navigationBarBackButtonDisplayMode(.minimal) needed
-
 
         
         .sheet(isPresented: $showDelaySheet) {
@@ -724,6 +724,107 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Toolbar Chip Subviews (keep compiler happy)
+
+private struct ComfortToggleChip: View {
+    @Binding var mode: Int
+    let measuredWidth: CGFloat
+
+    var body: some View {
+        let current = FontComfortMode(rawValue: mode) ?? .standard
+        Button {
+            var m = current
+            m.toggle()
+            mode = m.rawValue
+        } label: {
+            Chip(
+                icon: "textformat.size",
+                content: AnyView(
+                    ZStack {
+                        Text("A+").font(.callout).opacity(0)
+                        Text(current == .standard ? "A" : "A+")
+                            .font(.callout)
+                            .fontWeight(.semibold)
+                    }
+                )
+            )
+            .frame(width: measuredWidth)
+            .readWidth()
+        }
+        .accessibilityLabel(current == .standard ? "Enable comfy text" : "Disable comfy text")
+        .accessibilityHint("Toggles slightly larger and bolder text")
+    }
+}
+
+private struct DelayMenuChip: View {
+    @Binding var delay: Double
+    let presets: [Double]
+    let measuredWidth: CGFloat
+    let secondsString: (Double) -> String
+    @Binding var showSheet: Bool
+    var body: some View {
+        Menu {
+            Text("Pause between segments (seconds)")
+                .font(.caption).foregroundStyle(.secondary).disabled(true)
+            Divider()
+            Picker("Pause Between Segments", selection: $delay) {
+                ForEach(presets, id: \.self) { v in
+                    Text(secondsString(v)).tag(v)
+                }
+            }
+            Button("Custom…") { showSheet = true }
+        } label: {
+            Chip(
+                icon: "hourglass",
+                content: AnyView(
+                    Text(secondsString(delay))
+                        .font(.callout.monospacedDigit())
+                        .lineLimit(1)
+                )
+            )
+            .frame(width: measuredWidth)
+            .contentShape(Rectangle())
+            .readWidth()
+        }
+    }
+}
+
+private struct TextModeChip: View {
+    @Binding var textDisplayModeRaw: Int
+    let langs: LessonLanguages
+    let measuredWidth: CGFloat
+    let content: AnyView       // prebuilt (to reduce generic depth)
+    let axLabel: String        // prebuilt (to reduce closures)
+    var body: some View {
+        Button {
+            textDisplayModeRaw = (textDisplayModeRaw + 1) % 3
+        } label: {
+            Chip(icon: "captions.bubble", content: content)
+                .frame(width: measuredWidth)
+                .readWidth()
+        }
+        .accessibilityLabel(axLabel)
+        .accessibilityHint("Cycles between both, target-only, and translation-only.")
+    }
+}
+
+private struct PlaybackChip: View {
+    let measuredWidth: CGFloat
+    let content: AnyView       // prebuilt
+    let axLabel: String        // prebuilt
+    let onTap: () -> Void
+    var body: some View {
+        Button(action: onTap) {
+            Chip(icon: "speaker.wave.2.fill", content: content)
+                .frame(width: measuredWidth)
+                .readWidth()
+        }
+        .accessibilityLabel(axLabel)
+        .accessibilityHint("Cycles between target, translation, and dual playback modes.")
+    }
+}
+
+
 // MARK: - Transcript List & Rows
 
 private struct SegmentRow: View {
@@ -732,12 +833,32 @@ private struct SegmentRow: View {
     let displayMode: TextDisplayMode
     let rowID: String
     let onTap: () -> Void
+    let fontComfortMode: FontComfortMode   // ← add this
 
     var body: some View {
-        // In single-language modes, use a slightly larger size and thicker weight.
+        // Typography rules:
+        // - Standard: (your current)
+        //     Dual -> PT: .headline(.regular), EN: .subheadline(.regular)
+        //     Single -> .headline(.medium) with a touch more line spacing
+        // - Comfy: slightly larger + slightly bolder
+        //     Dual -> PT: .title3(.medium), EN: .body(.regular)
+        //     Single -> .title3(.medium) with a touch more line spacing
         let isSingleLanguage = (displayMode != .both)
-        let primaryFont: Font = .headline
-        let primaryWeight: Font.Weight = isSingleLanguage ? .medium : .regular
+        let comfy = (fontComfortMode == .comfy)
+
+        let primaryFont: Font = {
+            if comfy { return .title3 }
+            return .headline
+        }()
+
+        let primaryWeight: Font.Weight = {
+            if isSingleLanguage { return .medium }          // subtle emphasis
+            return comfy ? .medium : .regular               // dual: medium in comfy, regular in standard
+        }()
+
+        // Secondary line only shows in dual mode
+        let secondaryFont: Font = comfy ? .body : .subheadline
+        let secondaryWeight: Font.Weight = .regular
 
         HStack(spacing: 0) {
             /*
@@ -754,7 +875,7 @@ private struct SegmentRow: View {
                     Text(segment.pt_text)
                         .font(primaryFont.weight(primaryWeight))
                         .foregroundColor(.primary)
-                        .lineSpacing(isSingleLanguage ? 6 : 5)
+                        .lineSpacing(isSingleLanguage ? (comfy ? 7 : 6) : 5)
                 }
 
                 // Translation text (promote when shown alone, but lighter weight)
@@ -763,11 +884,11 @@ private struct SegmentRow: View {
                     Text(segment.en_text)
                         .font(
                             isPrimaryTranslation
-                            ? primaryFont.weight(primaryWeight)    // larger + thicker in single-language
-                            : .subheadline.weight(.regular)        // secondary in dual mode
+                            ? primaryFont.weight(primaryWeight)     // single-language -> same as primary
+                            : secondaryFont.weight(secondaryWeight) // dual mode -> secondary style
                         )
                         .foregroundStyle(isPrimaryTranslation ? .primary : .secondary)
-                        .lineSpacing(isPrimaryTranslation ? 6 : 5)
+                        .lineSpacing(isPrimaryTranslation ? (comfy ? 7 : 6) : 5)
                 }
             }
         }
@@ -790,13 +911,15 @@ private struct SegmentRow: View {
 
 
 
+
 private struct ParagraphBox: View {
     let group: ParaGroup
     let folderName: String
     let displayMode: TextDisplayMode
     let playingSegmentID: Int?
     let onTap: (DisplaySegment) -> Void
-
+    let fontComfortMode: FontComfortMode
+    
     var body: some View {
         // padding values used for the colored strips
         let verticalPad: CGFloat = 10
@@ -810,7 +933,8 @@ private struct ParagraphBox: View {
                     isPlaying: playingSegmentID == seg.originalID,
                     displayMode: displayMode,
                     rowID: "\(folderName)#\(seg.originalID)",
-                    onTap: { onTap(seg) }
+                    onTap: { onTap(seg) },
+                    fontComfortMode: fontComfortMode
                 )
             }
         }
@@ -931,6 +1055,7 @@ private struct TranscriptList: View {
     let playingSegmentID: Int?
     let headerTitle: String?
     let onTap: (DisplaySegment) -> Void
+    let fontComfortMode: FontComfortMode
 
     var body: some View {
         ScrollView {
@@ -948,7 +1073,8 @@ private struct TranscriptList: View {
                         folderName: folderName,
                         displayMode: displayMode,
                         playingSegmentID: playingSegmentID,
-                        onTap: onTap
+                        onTap: onTap,
+                        fontComfortMode: fontComfortMode
                     )
                 }
             }
