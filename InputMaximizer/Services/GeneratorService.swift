@@ -577,6 +577,7 @@ private extension GeneratorService {
             2) Blank line
             3) Body text
             4) Only use a full stops '.' to indicate the end of a sentence.
+            5) Only add newlines after full stops '.' if a new paragraph begins.
 
             """
 

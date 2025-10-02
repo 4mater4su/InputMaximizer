@@ -506,6 +506,8 @@ struct LessonSelectionView: View {
                         if folderStore.folders.isEmpty {
                             Text("No folders yet. Tap **New Folder** to group lessons.")
                                 .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)   //  center
+                                .frame(maxWidth: .infinity)        //  take full width
                         } else {
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                                 ForEach(folderStore.folders) { folder in
@@ -546,6 +548,7 @@ struct LessonSelectionView: View {
                             Text("No unfiled lessons. Everything is already in folders.")
                                 .multilineTextAlignment(.center)
                                 .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity)
                                 .padding(.top, 40)
                         } else {
                             ForEach(unfiledLessons) { lesson in
