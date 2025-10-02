@@ -738,11 +738,13 @@ private struct SegmentRow: View {
         let isSingleLanguage = (displayMode != .both)
         let primaryWeight: Font.Weight = isSingleLanguage ? .regular : .semibold
 
-        HStack(spacing: 10) {
+        HStack(spacing: 0) {
+            /*
             Rectangle()
                 .fill(isPlaying ? Color.accentColor : .clear)
                 .frame(width: 3)
                 .cornerRadius(2)
+            */
 
             VStack(alignment: .leading, spacing: 5) {
 
@@ -751,7 +753,7 @@ private struct SegmentRow: View {
                     Text(segment.pt_text)
                         .font(.headline.weight(primaryWeight))
                         .foregroundColor(.primary)
-                        .lineSpacing(2)
+                        .lineSpacing(5)
                 }
 
                 // Translation text (promote when shown alone, but lighter weight)
@@ -762,11 +764,13 @@ private struct SegmentRow: View {
                               ? .headline.weight(primaryWeight)  // primary but lighter in single-language mode
                               : .subheadline)                     // secondary in dual mode
                         .foregroundStyle(isPrimaryTranslation ? .primary : .secondary)
-                        .lineSpacing(2)
+                        .lineSpacing(5)
                 }
             }
         }
-        .padding(10)
+        .padding(.top, 5)
+        .padding(.bottom, 5)
+        .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isPlaying ? Color.selectionAccent : Color.surface)
         /*
@@ -775,7 +779,7 @@ private struct SegmentRow: View {
                 .stroke(Color.hairline.opacity(0.15), lineWidth: 1)
         )
          */
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 0, style: .continuous))
         .id(rowID)
         .onTapGesture(perform: onTap)
     }
@@ -790,7 +794,7 @@ private struct ParagraphBox: View {
     let onTap: (DisplaySegment) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(group.segments) { seg in
                 SegmentRow(
                     segment: seg,
@@ -801,11 +805,99 @@ private struct ParagraphBox: View {
                 )
             }
         }
-        .padding(12)
+        .padding(.top, 10)
+        .padding(.bottom, 10)
+        .padding(.horizontal, 0)
         .frame(maxWidth: .infinity, alignment: .leading)   // 👈 force full width
         .cardBackground() // unified card look
     }
 }
+
+// Old config with more space and line
+/*
+
+ private struct SegmentRow: View {
+     let segment: DisplaySegment
+     let isPlaying: Bool
+     let displayMode: TextDisplayMode
+     let rowID: String
+     let onTap: () -> Void
+
+     var body: some View {
+         // In single-language modes, use a lighter (regular) weight.
+         let isSingleLanguage = (displayMode != .both)
+         let primaryWeight: Font.Weight = isSingleLanguage ? .regular : .semibold
+
+         HStack(spacing: 10) {
+             Rectangle()
+                 .fill(isPlaying ? Color.accentColor : .clear)
+                 .frame(width: 3)
+                 .cornerRadius(2)
+
+             VStack(alignment: .leading, spacing: 5) {
+
+                 // Target text
+                 if displayMode != .translationOnly {
+                     Text(segment.pt_text)
+                         .font(.headline.weight(primaryWeight))
+                         .foregroundColor(.primary)
+                         .lineSpacing(2)
+                 }
+
+                 // Translation text (promote when shown alone, but lighter weight)
+                 if displayMode != .targetOnly {
+                     let isPrimaryTranslation = (displayMode == .translationOnly)
+                     Text(segment.en_text)
+                         .font(isPrimaryTranslation
+                               ? .headline.weight(primaryWeight)  // primary but lighter in single-language mode
+                               : .subheadline)                     // secondary in dual mode
+                         .foregroundStyle(isPrimaryTranslation ? .primary : .secondary)
+                         .lineSpacing(2)
+                 }
+             }
+         }
+         .padding(10)
+         .frame(maxWidth: .infinity, alignment: .leading)
+         .background(isPlaying ? Color.selectionAccent : Color.surface)
+         /*
+         .overlay(
+             RoundedRectangle(cornerRadius: 10, style: .continuous)
+                 .stroke(Color.hairline.opacity(0.15), lineWidth: 1)
+         )
+          */
+         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+         .id(rowID)
+         .onTapGesture(perform: onTap)
+     }
+ }
+
+
+ private struct ParagraphBox: View {
+     let group: ParaGroup
+     let folderName: String
+     let displayMode: TextDisplayMode
+     let playingSegmentID: Int?
+     let onTap: (DisplaySegment) -> Void
+
+     var body: some View {
+         VStack(alignment: .leading, spacing: 12) {
+             ForEach(group.segments) { seg in
+                 SegmentRow(
+                     segment: seg,
+                     isPlaying: playingSegmentID == seg.originalID,
+                     displayMode: displayMode,
+                     rowID: "\(folderName)#\(seg.originalID)",
+                     onTap: { onTap(seg) }
+                 )
+             }
+         }
+         .padding(12)
+         .frame(maxWidth: .infinity, alignment: .leading)   // 👈 force full width
+         .cardBackground() // unified card look
+     }
+ }
+
+ */
 
 private struct TranscriptList: View {
     let groups: [ParaGroup]
