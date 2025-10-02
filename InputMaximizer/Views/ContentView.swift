@@ -650,34 +650,21 @@ struct ContentView: View {
 
         // MARK: - Toolbar
         .toolbar {
-
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: CHIP_GAP) {
-                    ComfortToggleChip(
-                        mode: $fontComfortModeRaw,
-                        measuredWidth: chipMeasuredWidth
-                    )
-
-                    DelayMenuChip(
-                        delay: $storedDelay,
-                        presets: delayPresets,
-                        measuredWidth: chipMeasuredWidth,
-                        secondsString: secondsString,
-                        showSheet: $showDelaySheet
-                    )
-    
-                    TextModeChip(
-                        textDisplayModeRaw: $textDisplayModeRaw,
-                        langs: lessonLangs,
-                        measuredWidth: chipMeasuredWidth,
-                        content: textModeChipContent,
-                        axLabel: textModeAXLabel
-                    )
-                    PlaybackChip(
-                        measuredWidth: chipMeasuredWidth,
-                        content: playbackChipContent,
-                        axLabel: playbackAXLabel
-                    ) {
+                ToolbarChips(
+                    fontComfortModeRaw: $fontComfortModeRaw,
+                    storedDelay: $storedDelay,
+                    textDisplayModeRaw: $textDisplayModeRaw,
+                    delayPresets: delayPresets,
+                    secondsString: secondsString,
+                    showDelaySheet: $showDelaySheet,
+                    langs: lessonLangs,
+                    measuredWidth: chipMeasuredWidth,
+                    playbackAXLabel: playbackAXLabel,
+                    textModeAXLabel: textModeAXLabel,
+                    textModeChipContent: textModeChipContent,
+                    playbackChipContent: playbackChipContent,
+                    onTogglePlayback: {
                         let next: AudioManager.PlaybackMode = {
                             switch audioManager.playbackMode {
                             case .target: return .translation
@@ -688,11 +675,11 @@ struct ContentView: View {
                         audioManager.setPlaybackMode(next)
                         audioManager.playInContinuousLane(from: audioManager.currentIndex)
                     }
-                }
-                .padding(.trailing, 8)
+                )
+                // keep your width measuring
                 .onPreferenceChange(WidthPrefKey.self) { newMax in
                     Task { @MainActor in
-                        let minW: CGFloat = 108
+                        let minW: CGFloat = 100  // slightly smaller so more likely to fit
                         let maxW: CGFloat = 150
                         let clamped = min(max(newMax, minW), maxW)
                         if abs(clamped - chipMeasuredWidth) > 0.5 {
@@ -702,7 +689,6 @@ struct ContentView: View {
                 }
             }
         }
-
         
         .sheet(isPresented: $showDelaySheet) {
             NavigationStack {
@@ -723,6 +709,131 @@ struct ContentView: View {
         }
     }
 }
+
+private struct ToolbarChips: View {
+    // bindings & values from ContentView
+    @Binding var fontComfortModeRaw: Int
+    @Binding var storedDelay: Double
+    @Binding var textDisplayModeRaw: Int
+    let delayPresets: [Double]
+    let secondsString: (Double) -> String
+    @Binding var showDelaySheet: Bool
+
+    let langs: LessonLanguages
+    let measuredWidth: CGFloat
+
+    // playback bits
+    let playbackAXLabel: String
+    let textModeAXLabel: String
+    let textModeChipContent: AnyView
+    let playbackChipContent: AnyView
+    let onTogglePlayback: () -> Void
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            // Wide — show all four chips
+            HStack(spacing: CHIP_GAP) {
+                ComfortToggleChip(mode: $fontComfortModeRaw, measuredWidth: measuredWidth)
+                DelayMenuChip(delay: $storedDelay,
+                              presets: delayPresets,
+                              measuredWidth: measuredWidth,
+                              secondsString: secondsString,
+                              showSheet: $showDelaySheet)
+                TextModeChip(textDisplayModeRaw: $textDisplayModeRaw,
+                             langs: langs,
+                             measuredWidth: measuredWidth,
+                             content: textModeChipContent,
+                             axLabel: textModeAXLabel)
+                PlaybackChip(measuredWidth: measuredWidth,
+                             content: playbackChipContent,
+                             axLabel: playbackAXLabel,
+                             onTap: onTogglePlayback)
+            }
+
+            // Medium — keep two most-used, put the rest in a menu
+            HStack(spacing: CHIP_GAP) {
+                TextModeChip(textDisplayModeRaw: $textDisplayModeRaw,
+                             langs: langs,
+                             measuredWidth: measuredWidth,
+                             content: textModeChipContent,
+                             axLabel: textModeAXLabel)
+                PlaybackChip(measuredWidth: measuredWidth,
+                             content: playbackChipContent,
+                             axLabel: playbackAXLabel,
+                             onTap: onTogglePlayback)
+
+                // --- MEDIUM fallback
+                Menu {
+                    // TEXT APPEARANCE — simple button
+                    let current = FontComfortMode(rawValue: fontComfortModeRaw) ?? .standard
+                    Button(current == .standard ? "Enable Comfy text" : "Disable Comfy text") {
+                        var m = current; m.toggle(); fontComfortModeRaw = m.rawValue
+                    }
+
+                    // PLAYBACK PAUSE — submenu
+                    Menu {
+                        Text("Set the pause between segments")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .disabled(true)
+
+                        Picker("Pause", selection: $storedDelay) {
+                            ForEach(delayPresets, id: \.self) { v in
+                                Text(secondsString(v)).tag(v)
+                            }
+                        }
+                        Button("Custom…") { showDelaySheet = true }
+                    } label: {
+                        Label("Playback pause", systemImage: "hourglass")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .imageScale(.large)
+                }
+
+
+            }
+
+            // --- NARROW fallback (single Menu) ---
+            Menu {
+                // QUICK ACTIONS
+                Section {
+                    Button(textModeAXLabel) { textDisplayModeRaw = (textDisplayModeRaw + 1) % 3 }
+                    Button(playbackAXLabel) { onTogglePlayback() }
+                }
+
+                // TEXT APPEARANCE — simple button
+                let current = FontComfortMode(rawValue: fontComfortModeRaw) ?? .standard
+                Button(current == .standard ? "Enable Comfy text" : "Disable Comfy text") {
+                    var m = current; m.toggle(); fontComfortModeRaw = m.rawValue
+                }
+
+                // PLAYBACK PAUSE — submenu
+                Menu {
+                    Text("Set the pause between segments")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .disabled(true)
+
+                    Picker("Pause", selection: $storedDelay) {
+                        ForEach(delayPresets, id: \.self) { v in
+                            Text(secondsString(v)).tag(v)
+                        }
+                    }
+                    Button("Custom…") { showDelaySheet = true }
+                } label: {
+                    Label("Playback pause", systemImage: "hourglass")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .imageScale(.large)
+            }
+
+
+        }
+    }
+}
+
 
 // MARK: - Toolbar Chip Subviews (keep compiler happy)
 
