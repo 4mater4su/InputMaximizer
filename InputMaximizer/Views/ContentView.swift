@@ -144,7 +144,24 @@ private struct LangPill: View {
 struct ContentView: View {
     @EnvironmentObject private var audioManager: AudioManager
     @Environment(\.dismiss) private var dismiss
+    
+    @EnvironmentObject private var generator: GeneratorService
+    @EnvironmentObject private var store: LessonStore
 
+    @State private var toastMessage: String? = nil
+    @State private var toastIsSuccess: Bool = false
+    @State private var toastAutoDismissTask: Task<Void, Never>? = nil
+
+    private func showToast(message: String, success: Bool) {
+        toastAutoDismissTask?.cancel()
+        toastMessage = message
+        toastIsSuccess = success
+        toastAutoDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if !Task.isCancelled { withAnimation { toastMessage = nil } }
+        }
+    }
+    
     @State private var showDelaySheet = false
     private let delayPresets: [Double] = [0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
     
@@ -623,6 +640,22 @@ struct ContentView: View {
                 }
             }
         }
+        .onChange(of: generator.isBusy, initial: false) { _, isBusy in
+            guard !isBusy else { return }
+            let status = generator.status.lowercased()
+
+            if let id = generator.lastLessonID,
+               let lesson = store.lessons.first(where: { $0.id == id || $0.folderName == id }) {
+                withAnimation(.spring()) {
+                    showToast(message: "Lesson created: \(lesson.title). Tap to open.", success: true)
+                }
+            } else if status.hasPrefix("error") {
+                withAnimation(.spring()) { showToast(message: "Generation failed. Tap to review.", success: false) }
+            } else if status.contains("cancelled") {
+                withAnimation(.spring()) { showToast(message: "Generation cancelled.", success: false) }
+            }
+        }
+        
         .onChange(of: currentLessonIndex, initial: false) { _, _ in
             let base = audioManager.previewSegments(for: currentLesson.folderName)
             displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
@@ -643,6 +676,29 @@ struct ContentView: View {
             audioManager.segmentDelay = newValue
         }
 
+        .overlay(alignment: .top) {
+            if let message = toastMessage {
+                ToastBanner(message: message, isSuccess: toastIsSuccess) {
+                    if let id = generator.lastLessonID {
+                        if let idxInLocal = lessons.firstIndex(where: { $0.id == id || $0.folderName == id }) {
+                            // Open locally
+                            currentLessonIndex = idxInLocal
+                            let base = audioManager.previewSegments(for: lessons[idxInLocal].folderName)
+                            displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
+                            lessonLangs = LessonLanguageResolver.resolve(for: lessons[idxInLocal])
+                        } else {
+                            // Not in local list → tell Selection to open it, then leave this screen
+                            NotificationCenter.default.post(name: .openGeneratedLesson,
+                                                            object: nil,
+                                                            userInfo: ["id": id])
+                            dismiss()
+                        }
+                    }
+                    withAnimation { toastMessage = nil }
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)

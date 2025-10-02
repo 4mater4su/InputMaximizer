@@ -653,6 +653,14 @@ struct LessonSelectionView: View {
                     }
                 }
             }
+            
+            .onReceive(NotificationCenter.default.publisher(for: .openGeneratedLesson)) { notif in
+                guard let id = notif.userInfo?["id"] as? String else { return }
+                store.load()
+                if let lesson = store.lessons.first(where: { $0.id == id || $0.folderName == id }) {
+                    selectedLesson = lesson
+                }
+            }
 
             .overlay(alignment: .top) {
                 if let message = toastMessage {
