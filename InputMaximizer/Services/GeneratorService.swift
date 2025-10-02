@@ -626,7 +626,7 @@ private extension GeneratorService {
             Target language: \(targetLang)
 
             Translate the text below. Preserve the sentence boundaries exactly
-            (one target sentence per source sentence, same order).
+            (one target sentence per source sentence, same order). No new lines after full stop.
 
             \(text)
             """
