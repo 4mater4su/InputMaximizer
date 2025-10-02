@@ -734,9 +734,10 @@ private struct SegmentRow: View {
     let onTap: () -> Void
 
     var body: some View {
-        // In single-language modes, use a lighter (regular) weight.
+        // In single-language modes, use a slightly larger size and thicker weight.
         let isSingleLanguage = (displayMode != .both)
-        let primaryWeight: Font.Weight = isSingleLanguage ? .regular : .semibold
+        let primaryFont: Font = .headline
+        let primaryWeight: Font.Weight = isSingleLanguage ? .medium : .regular
 
         HStack(spacing: 0) {
             /*
@@ -751,20 +752,22 @@ private struct SegmentRow: View {
                 // Target text
                 if displayMode != .translationOnly {
                     Text(segment.pt_text)
-                        .font(.headline.weight(primaryWeight))
+                        .font(primaryFont.weight(primaryWeight))
                         .foregroundColor(.primary)
-                        .lineSpacing(5)
+                        .lineSpacing(isSingleLanguage ? 6 : 5)
                 }
 
                 // Translation text (promote when shown alone, but lighter weight)
                 if displayMode != .targetOnly {
                     let isPrimaryTranslation = (displayMode == .translationOnly)
                     Text(segment.en_text)
-                        .font(isPrimaryTranslation
-                              ? .headline.weight(primaryWeight)  // primary but lighter in single-language mode
-                              : .subheadline)                     // secondary in dual mode
+                        .font(
+                            isPrimaryTranslation
+                            ? primaryFont.weight(primaryWeight)    // larger + thicker in single-language
+                            : .subheadline.weight(.regular)        // secondary in dual mode
+                        )
                         .foregroundStyle(isPrimaryTranslation ? .primary : .secondary)
-                        .lineSpacing(5)
+                        .lineSpacing(isPrimaryTranslation ? 6 : 5)
                 }
             }
         }
@@ -786,6 +789,7 @@ private struct SegmentRow: View {
 }
 
 
+
 private struct ParagraphBox: View {
     let group: ParaGroup
     let folderName: String
@@ -794,6 +798,11 @@ private struct ParagraphBox: View {
     let onTap: (DisplaySegment) -> Void
 
     var body: some View {
+        // padding values used for the colored strips
+        let verticalPad: CGFloat = 10
+        let isFirstPlaying = (group.segments.first?.originalID == playingSegmentID)
+        let isLastPlaying  = (group.segments.last?.originalID  == playingSegmentID)
+
         VStack(alignment: .leading, spacing: 0) {
             ForEach(group.segments) { seg in
                 SegmentRow(
@@ -805,13 +814,29 @@ private struct ParagraphBox: View {
                 )
             }
         }
-        .padding(.top, 10)
-        .padding(.bottom, 10)
-        .padding(.horizontal, 0)
-        .frame(maxWidth: .infinity, alignment: .leading)   // 👈 force full width
-        .cardBackground() // unified card look
+        .padding(.top, verticalPad)
+        .padding(.bottom, verticalPad)
+        .overlay(alignment: .top) {
+            if isFirstPlaying {
+                // Fill the top padding with the playing color
+                Color.selectionAccent
+                    .frame(height: verticalPad)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if isLastPlaying {
+                // Fill the bottom padding with the playing color
+                Color.selectionAccent
+                    .frame(height: verticalPad)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardBackground()
     }
 }
+
 
 // Old config with more space and line
 /*
