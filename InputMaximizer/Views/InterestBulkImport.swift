@@ -22,11 +22,10 @@ struct InterestBulkImportView: View {
     // Template peek state
     @State private var showTemplatePeek = false
     @State private var didCopyTemplate = false
-    @State private var templatePeekPinned = false
 
-    // Keyboard + Info
-    @FocusState private var editorFocused: Bool
-    @State private var showInfoCard = false
+    // Keyboard focus
+    @FocusState private var editorFocused: Bool         // TextEditor
+    @FocusState private var filterFocused: Bool         // Filter TextField
 
     // Preview UX
     @State private var showOnlyNew = false
@@ -78,9 +77,7 @@ struct InterestBulkImportView: View {
         let onlyNew = showOnlyNew
 
         if q.isEmpty {
-            return onlyNew
-            ? list.filter { keys.contains($0.label.lowercased()) }
-            : list
+            return onlyNew ? list.filter { keys.contains($0.label.lowercased()) } : list
         } else {
             return list.filter { opt in
                 let label = opt.label.lowercased()
@@ -93,78 +90,129 @@ struct InterestBulkImportView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
-                // === Form (Paste + Options + Summary) ===
-                Form {
-                    Section("Paste list") {
-                        TextEditor(text: $pastedText)
-                            .frame(minHeight: 180)
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.15)))
-                            .font(.callout.monospaced())
-                            .focused($editorFocused)
+            // SINGLE SCROLL VIEW
+            ScrollView {
+                LazyVStack(spacing: 16) {
 
-                        HStack(spacing: 12) {
-                            Button {
-                                UIPasteboard.general.string = InterestBulkImportView.template
-                                didCopyTemplate = true
-                                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                                    showTemplatePeek = true
-                                }
-                                Task {
-                                    try? await Task.sleep(nanoseconds: 4_000_000_000) // ~4s
-                                    if !templatePeekPinned {
-                                        withAnimation(.easeInOut(duration: 0.25)) { showTemplatePeek = false }
+                    // === Info at the very top ===
+                    InfoBannerCard()
+
+                    // === Paste section ===
+                    SectionCard(title: "Paste list") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            TextEditor(text: $pastedText)
+                                .frame(minHeight: 180)
+                                .padding(8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+                                )
+                                .font(.callout.monospaced())
+                                .focused($editorFocused)
+
+                            HStack(spacing: 12) {
+                                Button {
+                                    UIPasteboard.general.string = InterestBulkImportView.template
+                                    didCopyTemplate = true
+                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                                        showTemplatePeek = true
                                     }
-                                    try? await Task.sleep(nanoseconds: 600_000_000)
-                                    didCopyTemplate = false
+                                    Task {
+                                        // brief peek then auto-hide (user can close with X)
+                                        try? await Task.sleep(nanoseconds: 4_000_000_000) // ~4s
+                                        if showTemplatePeek {
+                                            withAnimation(.easeInOut(duration: 0.25)) { showTemplatePeek = false }
+                                        }
+                                        try? await Task.sleep(nanoseconds: 600_000_000)
+                                        didCopyTemplate = false
+                                    }
+                                } label: {
+                                    Label(didCopyTemplate ? "Copied" : "Copy Template",
+                                          systemImage: didCopyTemplate ? "checkmark.circle.fill" : "doc.on.doc")
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.9)
+                                        .labelStyle(.titleAndIcon)
+                                        .frame(maxWidth: .infinity) // equal width
                                 }
-                            } label: {
-                                Label(didCopyTemplate ? "Copied" : "Copy Template",
-                                      systemImage: didCopyTemplate ? "checkmark.circle.fill" : "doc.on.doc")
-                            }
-                            .buttonStyle(.plain)
+                                .buttonStyle(.bordered)
 
-                            Spacer(minLength: 8)
-
-                            Button {
-                                pastedText = InterestBulkImportView.example
-                            } label: {
-                                Label("Paste Example", systemImage: "text.badge.plus")
+                                Button {
+                                    pastedText = InterestBulkImportView.example
+                                } label: {
+                                    Label("Paste Example", systemImage: "text.badge.plus")
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.9)
+                                        .labelStyle(.titleAndIcon)
+                                        .frame(maxWidth: .infinity) // equal width
+                                }
+                                .buttonStyle(.bordered)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
 
-                    Section("Options") {
-                        Toggle("Replace existing", isOn: $replaceExisting)
-                        Toggle("Deduplicate by label", isOn: $dedupe)
+                    // === Options ===
+                    SectionCard(title: "Options") {
+                        VStack(spacing: 12) {
+                            Toggle("Replace existing", isOn: $replaceExisting)
+                            Toggle("Deduplicate by label", isOn: $dedupe)
+                        }
                     }
 
-                    Section("Preview Summary") {
+                    // === Preview summary ===
+                    SectionCard(title: "Preview Summary") {
                         let parsedCount = parsed.count
                         let finalCount = mergedPreview.count
                         let newCount = newKeys.count
 
                         PreviewSummaryView(parsedCount: parsedCount,
-                                               finalCount: finalCount,
-                                               newCount: newCount)
+                                           finalCount: finalCount,
+                                           newCount: newCount)
+                    }
+
+                    // === Controls + Preview list ===
+                    SectionCard(noTitle: true) {
+                        // Toggle first
+                        Toggle(isOn: $showOnlyNew) {
+                            HStack(spacing: 6) {
+                                Text("Show only NEW")
+                                Text("\(newKeys.count)")
+                                    .font(.caption2.monospacedDigit())
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(.tint.opacity(0.15), in: Capsule())
+                            }
+                        }
+                        .toggleStyle(SwitchToggleStyle(tint: .accentColor))
+
+                        // Filter UNDER the toggle
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass").opacity(0.6)
+                            TextField("Filter preview…", text: $previewSearch)
+                                .textFieldStyle(.plain)
+                                .disableAutocorrection(true)
+                                .autocapitalization(.none)
+                                .submitLabel(.done)
+                                .focused($filterFocused)
+                                .onSubmit { filterFocused = false }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .accessibilityLabel("Filter preview")
+
+                        // The list itself (no inner ScrollView)
+                        LazyVStack(spacing: 10) {
+                            ForEach(filteredPreview, id: \.label) { opt in
+                                PreviewRow(opt: opt, isNew: newKeys.contains(opt.label.lowercased()))
+                            }
+                        }
+                        .padding(.top, 4)
                     }
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .scrollContentBackground(.hidden)
-                .background(Color.appBackground)
-
-                // === Preview Header Controls ===
-                PreviewControls(showOnlyNew: $showOnlyNew, searchText: $previewSearch, total: mergedPreview.count, newTotal: newKeys.count)
-
-                // === Sophisticated Preview OUTSIDE the Form ===
-                PreviewList(
-                    items: filteredPreview,
-                    isNew: { newKeys.contains($0.label.lowercased()) }
-                )
-                .frame(maxWidth: .infinity)
-                .background(Color.appBackground)
+                .padding(.vertical, 12)
+                .padding(.horizontal)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .background(Color.appBackground)
             .navigationTitle("Bulk Import Interests")
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarBackground(Color.appBackground, for: .navigationBar)
@@ -186,36 +234,28 @@ struct InterestBulkImportView: View {
                     }
                     .disabled(parsed.isEmpty)
                 }
-                // Info button
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showInfoCard = true
-                    } label: {
-                        Image(systemName: "info.circle")
-                    }
-                    .popover(isPresented: $showInfoCard) {
-                        BulkImportInfoCard()
-                            .padding()
-                            .frame(maxWidth: 520)
-                    }
-                }
-                // Keyboard toolbar
+                // Keyboard toolbar (works for TextEditor AND Filter TextField)
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("Done") { editorFocused = false }
-                        .keyboardShortcut(.defaultAction)
+                    Button("Done") {
+                        editorFocused = false
+                        filterFocused = false
+                    }
+                    .keyboardShortcut(.defaultAction)
                 }
             }
-            // Tap anywhere to dismiss keyboard without eating button taps
+            // Tap background to dismiss keyboard
             .simultaneousGesture(TapGesture().onEnded {
-                if editorFocused { editorFocused = false }
+                if editorFocused || filterFocused {
+                    editorFocused = false
+                    filterFocused = false
+                }
             })
             // Template peek
             .overlay(alignment: .top) {
                 if showTemplatePeek {
                     TemplatePeek(
                         text: Self.template,
-                        isPinned: $templatePeekPinned,
                         onClose: {
                             withAnimation(.easeInOut(duration: 0.2)) { showTemplatePeek = false }
                         }
@@ -250,7 +290,96 @@ struct InterestBulkImportView: View {
     """
 }
 
-// MARK: - Preview Controls
+// MARK: - Info Banner (top of view)
+
+private struct InfoBannerCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle")
+                    .imageScale(.large)
+                Text("About Bulk Import")
+                    .font(.headline)
+                Spacer()
+            }
+
+            Text("Paste a list of interests to add many at once. You can use one per line, a JSON array of strings, or CSV/TSV (first column only). Optional attributes like “| enabled=false” are supported.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            // Pro tip highlighted
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "sparkles")
+                    .imageScale(.medium)
+                    .padding(.top, 2)
+                Text("Pro tip: Copy the template, paste it into an AI chatbot, and ask it to generate interests in the same format. Then paste the output here to import instantly.")
+                    .font(.footnote)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+            .background(
+                ZStack {
+                    LinearGradient(
+                        colors: [Color.accentColor.opacity(0.18), Color.accentColor.opacity(0.06)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            )
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(.systemBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Section Card (form-like without UITableView/UICollectionView)
+
+private struct SectionCard<Content: View>: View {
+    var title: String?
+    var noTitle: Bool = false
+    @ViewBuilder var content: Content
+
+    init(title: String? = nil, noTitle: Bool = false, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.noTitle = noTitle
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !noTitle, let title {
+                Text(title)
+                    .font(.headline)
+                    .padding(.horizontal, 6)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                content
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+            )
+        }
+    }
+}
+
+// MARK: - Preview Controls (moved filter under toggle)
 
 private struct PreviewControls: View {
     @Binding var showOnlyNew: Bool
@@ -259,7 +388,7 @@ private struct PreviewControls: View {
     let newTotal: Int
 
     var body: some View {
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: $showOnlyNew) {
                 HStack(spacing: 6) {
                     Text("Show only NEW")
@@ -270,8 +399,6 @@ private struct PreviewControls: View {
                 }
             }
             .toggleStyle(SwitchToggleStyle(tint: .accentColor))
-
-            Spacer()
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").opacity(0.6)
@@ -284,66 +411,6 @@ private struct PreviewControls: View {
             .padding(.vertical, 8)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
-        .padding(.horizontal)
-        .padding(.vertical, 10)
-        .background(Color.appBackground)
-    }
-}
-
-// MARK: - Preview (outside Form)
-
-private struct PreviewList: View {
-    let items: [AspectOption]
-    let isNew: (AspectOption) -> Bool
-
-    var body: some View {
-        VStack(spacing: 8) {
-            // Fancy header bar with counts
-            HStack {
-                Text("Preview")
-                    .font(.headline)
-                Spacer()
-                Text("\(items.count) item\(items.count == 1 ? "" : "s")")
-                    .font(.footnote.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal)
-
-            // Plain ScrollView to avoid UICollectionView loops
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(items, id: \.label) { opt in
-                        PreviewRow(opt: opt, isNew: isNew(opt))
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 12)
-                .transaction { $0.animation = nil } // no implicit animations
-            }
-            .background(Color.appBackground)
-        }
-        .padding(.top, 8)
-    }
-}
-
-// MARK: - Count Badge
-
-private struct CountBadge: View {
-    let title: String
-    let count: Int
-    var tinted: Bool = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(title)
-            Text("\(count)")
-                .font(.caption2.monospacedDigit())
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background((tinted ? Color.accentColor : Color.secondary).opacity(0.15), in: Capsule())
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
 }
 
@@ -402,8 +469,26 @@ private struct PreviewRow: View {
     }
 }
 
+// MARK: - Count Badge + Summary
 
-// MARK: - Preview Summary View
+private struct CountBadge: View {
+    let title: String
+    let count: Int
+    var tinted: Bool = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+            Text("\(count)")
+                .font(.caption2.monospacedDigit())
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background((tinted ? Color.accentColor : Color.secondary).opacity(0.15), in: Capsule())
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+}
 
 private struct PreviewSummaryView: View {
     let parsedCount: Int
@@ -443,12 +528,10 @@ private struct PreviewSummaryView: View {
     }
 }
 
-
-// MARK: - Template Peek Overlay
+// MARK: - Template Peek Overlay (X to close; no "Keep open")
 
 private struct TemplatePeek: View {
     let text: String
-    @Binding var isPinned: Bool
     var onClose: () -> Void
 
     var body: some View {
@@ -461,15 +544,6 @@ private struct TemplatePeek: View {
                 }
 
                 Spacer()
-
-                Button {
-                    withAnimation(.snappy) { isPinned.toggle() }
-                } label: {
-                    Label(isPinned ? "Keep open: On" : "Keep open: Off",
-                          systemImage: isPinned ? "pin.fill" : "pin")
-                        .labelStyle(.titleAndIcon)
-                }
-                .buttonStyle(.borderless)
 
                 Button(action: onClose) {
                     Image(systemName: "xmark.circle.fill")
@@ -506,98 +580,6 @@ private struct TemplatePeek: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .accessibilityElement(children: .contain)
         .accessibilitySortPriority(1)
-    }
-}
-
-// MARK: - Bulk Import Info Card (with AI tip)
-
-private struct BulkImportInfoCard: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "tray.and.arrow.down")
-                    .imageScale(.large)
-                Text("About Bulk Import")
-                    .font(.headline)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Paste a list")
-                            .font(.subheadline.bold())
-                        Text("Add one interest per line. You can also paste a JSON array of strings or CSV/TSV—only the first column is used.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "text.alignleft").font(.caption2)
-                }
-
-                Divider()
-
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Use the template")
-                            .font(.subheadline.bold())
-                        Text("Tap “Copy Template” to see the supported format. Optional attributes like “| enabled=false” are supported.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "doc.on.doc").font(.caption2)
-                }
-
-                Divider()
-
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Options")
-                            .font(.subheadline.bold())
-                        Text("“Replace existing” discards current interests. “Deduplicate by label” keeps only one per label (case-insensitive).")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "slider.horizontal.3").font(.caption2)
-                }
-
-                Divider()
-
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Preview")
-                            .font(.subheadline.bold())
-                        Text("All items are shown. Newly parsed items are marked “NEW” and placed at the top. The checkmark means the item will be enabled.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "eye").font(.caption2)
-                }
-
-                Divider()
-
-                // NEW: AI tip
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Pro tip")
-                            .font(.subheadline.bold())
-                        Text("Copy the template and paste it into an AI chatbot to generate lots of interest ideas in the same format. Then paste the output back here to import instantly.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "sparkles").font(.caption2)
-                }
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(.systemBackground))
-                .shadow(radius: 8, y: 4)
-        )
     }
 }
 
