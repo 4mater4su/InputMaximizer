@@ -8,7 +8,7 @@
 import SwiftUI
 import Foundation
 
-// MARK: - Bulk import sheet for Interests
+// MARK: - Bulk import sheet for Interests (GeneratorView-aligned cards)
 
 struct InterestBulkImportView: View {
     @Binding var interestRow: AspectRow
@@ -90,35 +90,42 @@ struct InterestBulkImportView: View {
 
     var body: some View {
         NavigationView {
-            // SINGLE SCROLL VIEW
+            // SINGLE SCROLL VIEW with app-wide background
             ScrollView {
-                LazyVStack(spacing: 16) {
+                LazyVStack(spacing: 12) {
 
-                    // === Info at the very top ===
+                    // === Info card (top) ===
                     InfoBannerCard()
 
-                    // === Paste section ===
-                    SectionCard(title: "Paste list") {
+                    // === Paste card ===
+                    Card(titleSystemImage: "square.and.pencil", title: "Bulk Import") {
                         VStack(alignment: .leading, spacing: 12) {
+                            Text("Paste list")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
                             TextEditor(text: $pastedText)
                                 .frame(minHeight: 180)
                                 .padding(8)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+                                        .fill(Color(uiColor: .systemBackground))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
                                 )
                                 .font(.callout.monospaced())
                                 .focused($editorFocused)
 
                             HStack(spacing: 12) {
                                 Button {
-                                    UIPasteboard.general.string = InterestBulkImportView.template
+                                    UIPasteboard.general.string = Self.template
                                     didCopyTemplate = true
                                     withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                                         showTemplatePeek = true
                                     }
                                     Task {
-                                        // brief peek then auto-hide (user can close with X)
                                         try? await Task.sleep(nanoseconds: 4_000_000_000) // ~4s
                                         if showTemplatePeek {
                                             withAnimation(.easeInOut(duration: 0.25)) { showTemplatePeek = false }
@@ -132,80 +139,94 @@ struct InterestBulkImportView: View {
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.9)
                                         .labelStyle(.titleAndIcon)
-                                        .frame(maxWidth: .infinity) // equal width
+                                        .frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(.bordered)
 
                                 Button {
-                                    pastedText = InterestBulkImportView.example
+                                    pastedText = Self.example
                                 } label: {
                                     Label("Paste Example", systemImage: "text.badge.plus")
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.9)
                                         .labelStyle(.titleAndIcon)
-                                        .frame(maxWidth: .infinity) // equal width
+                                        .frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(.bordered)
                             }
                         }
                     }
 
-                    // === Options ===
-                    SectionCard(title: "Options") {
-                        VStack(spacing: 12) {
+                    // === Options card ===
+                    Card(titleSystemImage: "slider.horizontal.3", title: "Options") {
+                        VStack(alignment: .leading, spacing: 12) {
                             Toggle("Replace existing", isOn: $replaceExisting)
                             Toggle("Deduplicate by label", isOn: $dedupe)
                         }
                     }
 
-                    // === Preview summary ===
-                    SectionCard(title: "Preview Summary") {
+                    // === Preview summary card ===
+                    Card(titleSystemImage: "eye", title: "Preview Summary") {
                         let parsedCount = parsed.count
                         let finalCount = mergedPreview.count
                         let newCount = newKeys.count
 
-                        PreviewSummaryView(parsedCount: parsedCount,
-                                           finalCount: finalCount,
-                                           newCount: newCount)
+                        PreviewSummaryView(
+                            parsedCount: parsedCount,
+                            finalCount: finalCount,
+                            newCount: newCount
+                        )
                     }
 
-                    // === Controls + Preview list ===
-                    SectionCard(noTitle: true) {
-                        // Toggle first
-                        Toggle(isOn: $showOnlyNew) {
-                            HStack(spacing: 6) {
-                                Text("Show only NEW")
-                                Text("\(newKeys.count)")
-                                    .font(.caption2.monospacedDigit())
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(.tint.opacity(0.15), in: Capsule())
+                    // === Preview controls + list (single card) ===
+                    Card(noHeader: true) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            // Toggle first
+                            Toggle(isOn: $showOnlyNew) {
+                                HStack(spacing: 6) {
+                                    Text("Show only NEW")
+                                    Text("\(newKeys.count)")
+                                        .font(.caption2.monospacedDigit())
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(.tint.opacity(0.15), in: Capsule())
+                                }
                             }
-                        }
-                        .toggleStyle(SwitchToggleStyle(tint: .accentColor))
+                            .toggleStyle(SwitchToggleStyle(tint: .accentColor))
 
-                        // Filter UNDER the toggle
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass").opacity(0.6)
-                            TextField("Filter preview…", text: $previewSearch)
-                                .textFieldStyle(.plain)
-                                .disableAutocorrection(true)
-                                .autocapitalization(.none)
-                                .submitLabel(.done)
-                                .focused($filterFocused)
-                                .onSubmit { filterFocused = false }
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .accessibilityLabel("Filter preview")
-
-                        // The list itself (no inner ScrollView)
-                        LazyVStack(spacing: 10) {
-                            ForEach(filteredPreview, id: \.label) { opt in
-                                PreviewRow(opt: opt, isNew: newKeys.contains(opt.label.lowercased()))
+                            // Filter UNDER the toggle
+                            HStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass").opacity(0.6)
+                                TextField("Filter preview…", text: $previewSearch)
+                                    .textFieldStyle(.plain)
+                                    .disableAutocorrection(true)
+                                    .autocapitalization(.none)
+                                    .submitLabel(.done)
+                                    .focused($filterFocused)
+                                    .onSubmit { filterFocused = false }
                             }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .accessibilityLabel("Filter preview")
+
+                            // Counts row
+                            HStack {
+                                Text("Preview")
+                                    .font(.headline)
+                                Spacer()
+                                Text("\(filteredPreview.count) item\(filteredPreview.count == 1 ? "" : "s")")
+                                    .font(.footnote.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            // The list itself (no inner ScrollView)
+                            LazyVStack(spacing: 10) {
+                                ForEach(filteredPreview, id: \.label) { opt in
+                                    PreviewRow(opt: opt, isNew: newKeys.contains(opt.label.lowercased()))
+                                }
+                            }
+                            .padding(.top, 4)
                         }
-                        .padding(.top, 4)
                     }
                 }
                 .padding(.vertical, 12)
@@ -234,12 +255,13 @@ struct InterestBulkImportView: View {
                     }
                     .disabled(parsed.isEmpty)
                 }
-                // Keyboard toolbar (works for TextEditor AND Filter TextField)
+                // Keyboard toolbar — dismisses both fields
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Done") {
                         editorFocused = false
                         filterFocused = false
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                     }
                     .keyboardShortcut(.defaultAction)
                 }
@@ -251,7 +273,7 @@ struct InterestBulkImportView: View {
                     filterFocused = false
                 }
             })
-            // Template peek
+            // Template peek with only X to close
             .overlay(alignment: .top) {
                 if showTemplatePeek {
                     TemplatePeek(
@@ -290,6 +312,55 @@ struct InterestBulkImportView: View {
     """
 }
 
+// MARK: - Reusable Card (matches GeneratorView cards)
+
+private struct Card<Content: View>: View {
+    var titleSystemImage: String? = nil
+    var title: String? = nil
+    var noHeader: Bool = false
+    @ViewBuilder var content: Content
+
+    init(titleSystemImage: String? = nil, title: String? = nil, noHeader: Bool = false, @ViewBuilder content: () -> Content) {
+        self.titleSystemImage = titleSystemImage
+        self.title = title
+        self.noHeader = noHeader
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !noHeader, let title {
+                HStack(spacing: 10) {
+                    if let titleSystemImage {
+                        Image(systemName: titleSystemImage)
+                            .imageScale(.medium)
+                    }
+                    Text(title).font(.headline)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+
+                Divider().opacity(0.15)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                content
+            }
+            .padding(14)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+    }
+}
+
 // MARK: - Info Banner (top of view)
 
 private struct InfoBannerCard: View {
@@ -303,11 +374,11 @@ private struct InfoBannerCard: View {
                 Spacer()
             }
 
-            Text("Paste a list of interests to add many at once. You can use one per line, a JSON array of strings, or CSV/TSV (first column only). Optional attributes like “| enabled=false” are supported.")
+            Text("Paste a list of interests to add many at once. Use one per line, a JSON array of strings, or CSV/TSV (first column only). Optional attributes like “| enabled=false” are supported.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            // Pro tip highlighted
+            // Pro tip highlighted (slightly more vivid but still app-native)
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "sparkles")
                     .imageScale(.medium)
@@ -333,88 +404,17 @@ private struct InfoBannerCard: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(.systemBackground))
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
         )
+        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
     }
 }
 
-// MARK: - Section Card (form-like without UITableView/UICollectionView)
-
-private struct SectionCard<Content: View>: View {
-    var title: String?
-    var noTitle: Bool = false
-    @ViewBuilder var content: Content
-
-    init(title: String? = nil, noTitle: Bool = false, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.noTitle = noTitle
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if !noTitle, let title {
-                Text(title)
-                    .font(.headline)
-                    .padding(.horizontal, 6)
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                content
-            }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(.secondarySystemBackground))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-            )
-        }
-    }
-}
-
-// MARK: - Preview Controls (moved filter under toggle)
-
-private struct PreviewControls: View {
-    @Binding var showOnlyNew: Bool
-    @Binding var searchText: String
-    let total: Int
-    let newTotal: Int
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle(isOn: $showOnlyNew) {
-                HStack(spacing: 6) {
-                    Text("Show only NEW")
-                    Text("\(newTotal)")
-                        .font(.caption2.monospacedDigit())
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(.tint.opacity(0.15), in: Capsule())
-                }
-            }
-            .toggleStyle(SwitchToggleStyle(tint: .accentColor))
-
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").opacity(0.6)
-                TextField("Filter preview…", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .disableAutocorrection(true)
-                    .autocapitalization(.none)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-    }
-}
-
-// MARK: - Preview Row
+// MARK: - Preview Row + Summary + Badges
 
 private struct PreviewRow: View {
     let opt: AspectOption
@@ -468,8 +468,6 @@ private struct PreviewRow: View {
         .contentShape(Rectangle())
     }
 }
-
-// MARK: - Count Badge + Summary
 
 private struct CountBadge: View {
     let title: String
@@ -528,7 +526,7 @@ private struct PreviewSummaryView: View {
     }
 }
 
-// MARK: - Template Peek Overlay (X to close; no "Keep open")
+// MARK: - Template Peek (X to close)
 
 private struct TemplatePeek: View {
     let text: String
