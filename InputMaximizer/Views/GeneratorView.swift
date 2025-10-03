@@ -1344,7 +1344,7 @@ private struct SegmentationInfoCard: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Sentences")
                             .font(.subheadline.bold())
-                        Text("Splits the text into single-sentence chunks. Good for bite-sized call-and-response and quick review.")
+                        Text("Splits the text into single-sentence chunks.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -1356,7 +1356,7 @@ private struct SegmentationInfoCard: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Paragraphs")
                             .font(.subheadline.bold())
-                        Text("Keeps multi-sentence blocks together for more context and natural flow—ideal for longer listening and shadowing.")
+                        Text("Keeps multi-sentence blocks together for more context and natural flow.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -1368,7 +1368,7 @@ private struct SegmentationInfoCard: View {
                 Image(systemName: "lightbulb")
                     .imageScale(.small)
                     .foregroundStyle(.secondary)
-                Text("Segmentation controls how sentences or paragraphs are paired with audio clips.")
+                Text("Choose how text is divided for speech: generate one audio clip per sentence, or one per paragraph.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

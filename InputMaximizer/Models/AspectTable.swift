@@ -351,7 +351,7 @@ extension AspectTable {
             AspectOption(label: "Astrobiology"),
             AspectOption(label: "Martial Arts Philosophy"),
             AspectOption(label: "Machine Conciousness"),
-            AspectOption(label: "Futurist Architecture"),
+            AspectOption(label: "Futuristic Architecture"),
             AspectOption(label: "Biohacking"),
             AspectOption(label: "Mythical Creatures"),
             AspectOption(label: "Ancient Astronomy"),
