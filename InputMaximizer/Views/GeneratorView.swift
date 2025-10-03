@@ -203,6 +203,7 @@ struct GeneratorView: View {
 
     enum PromptCategory: String, CaseIterable, Identifiable {
         case all = "All"
+        case sleep = "Sleep"
         case voyage = "Voyage"
         case city = "City"
         case wild = "Wild"
@@ -221,6 +222,25 @@ struct GeneratorView: View {
 
     private let promptsByCategory: [PromptCategory: [String]] = [
 
+        // --- Sleep (soothing dream voyages, bedtime journeys) ---
+        .sleep: [
+            "Write a calming bedtime story where the listener boards a gentle starship that hums quietly as it glides past constellations. The journey begins above misty wetlands and drifts through the night sky toward a tranquil planet of rolling hills and glowing lakes.",
+            
+            "Describe a peaceful voyage on the back of a giant turtle drifting across a moonlit ocean. The stars shimmer above, the waves move in a steady rhythm, and each moment invites rest and stillness.",
+            
+            "Write a bedtime journey aboard a slow-floating airship sailing above lantern-lit cities. The engines breathe softly, the lights below flicker like fireflies, and the horizon stretches endlessly in calm night air.",
+            
+            "Guide the listener through a dreamlike walk across a meadow of bioluminescent flowers. Each step stirs a soft glow, and the air is filled with gentle, otherworldly music that encourages deep relaxation.",
+            
+            "Tell a soothing story of drifting through quiet canals in a starlit city built on water. The boat glides under arched bridges, moonlight ripples on the surface, and the sounds of the world fade into silence.",
+            
+            "Imagine a gentle journey on the back of a sky-dragon who moves slowly through the clouds. Its wings beat with calm rhythm, carrying the listener past constellations and toward a dawn-colored horizon.",
+            
+            "Describe a tranquil bedtime walk through a luminous forest at night. Fireflies flicker between the trees, streams murmur softly, and the path seems to lead endlessly deeper into calm and safety.",
+            
+            "Write a bedtime voyage aboard a dream-train that travels not across land, but through shifting dreamscapes. Each stop reveals a peaceful world—valleys of starlight, oceans of glass, fields that hum with lullabies."
+        ],
+        
         // --- Voyage (journeys, movement, routes) ---
         .voyage: [
             "Daydreaming in a train to Istanbul, wondering how all our lives are connected",
