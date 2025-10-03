@@ -345,25 +345,22 @@ extension AspectTable {
     static func defaultInterestsRow() -> AspectRow {
         AspectRow(title: "Interests", options: [
             AspectOption(label: "Freediving"),
-            AspectOption(label: "Parkour"),
-            AspectOption(label: "Underground Techno"),
+            AspectOption(label: "Techno"),
+            AspectOption(label: "Shamanic Practices"),
             AspectOption(label: "Cave Art"),
             AspectOption(label: "Astrobiology"),
-            AspectOption(label: "Surrealist Cinema"),
-            AspectOption(label: "Tattoo Culture"),
-            AspectOption(label: "Foraging"),
             AspectOption(label: "Martial Arts Philosophy"),
-            AspectOption(label: "Circus Performance"),
-            AspectOption(label: "Street Art"),
+            AspectOption(label: "Machine Conciousness"),
             AspectOption(label: "Futurist Architecture"),
             AspectOption(label: "Biohacking"),
-            AspectOption(label: "Shamanic Practices"),
             AspectOption(label: "Mythical Creatures"),
-            AspectOption(label: "Caving"),
-            AspectOption(label: "Lockpicking"),
             AspectOption(label: "Ancient Astronomy"),
             AspectOption(label: "VR Worlds"),
-            AspectOption(label: "Robotics")
+            AspectOption(label: "Dreamtime Navigation"),
+            AspectOption(label: "Posthuman Ethics"),
+            AspectOption(label: "Sacred Geometry in Nature"),
+            AspectOption(label: "Lost Civilizations"),
+            AspectOption(label: "Philosophy of Immortality"),
         ])
     }
 

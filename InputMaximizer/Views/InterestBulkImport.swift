@@ -299,14 +299,14 @@ struct InterestBulkImportView: View {
     # Optional attributes after a '|', e.g. enabled=false
     - Northern lights
     - Tea rituals | enabled=true
-    - Living maps | enabled=false
+    - Heavy metal | enabled=false
     """
 
     static let example: String =
     """
-    - Morning capoeira
-    - Everyday balance
-    - Meditative parkour
+    - Gravity
+    - Exoplanets
+    - Parkour
     - Whale songs | enabled=false
     - Ancient libraries
     """
