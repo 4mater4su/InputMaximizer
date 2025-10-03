@@ -20,6 +20,12 @@ extension GeneratorService.Request.LanguageLevel: Identifiable {
     public var id: String { rawValue }
 }
 
+typealias TranslationStyle = GeneratorService.Request.TranslationStyle
+
+extension GeneratorService.Request.TranslationStyle: Identifiable {
+    public var id: String { rawValue }
+}
+
 // MARK: - Persisted settings
 
 private struct GeneratorSettings: Codable, Equatable {
@@ -30,6 +36,7 @@ private struct GeneratorSettings: Codable, Equatable {
     var transLanguage: String
     var languageLevel: String
     var speechSpeed: String
+    var translationStyle: String
 }
 
 private extension GeneratorSettings {
@@ -40,7 +47,8 @@ private extension GeneratorSettings {
         genLanguage: String,
         transLanguage: String,
         languageLevel: LanguageLevel,
-        speechSpeed: GeneratorView.SpeechSpeed
+        speechSpeed: GeneratorView.SpeechSpeed,
+        translationStyle: TranslationStyle
     ) -> GeneratorSettings {
         .init(
             mode: mode.rawValue,
@@ -49,7 +57,8 @@ private extension GeneratorSettings {
             genLanguage: genLanguage,
             transLanguage: transLanguage,
             languageLevel: languageLevel.rawValue,
-            speechSpeed: speechSpeed.rawValue
+            speechSpeed: speechSpeed.rawValue,
+            translationStyle: translationStyle.rawValue
         )
     }
 }
@@ -110,6 +119,8 @@ struct GeneratorView: View {
 
     @State private var showSegmentationInfo = false
     @State private var showModeInfo = false
+    @State private var showTranslationStyleInfo = false
+
     
     @State private var lengthPreset: LengthPreset = .medium
 
@@ -148,7 +159,6 @@ struct GeneratorView: View {
     @State private var interestRow: AspectRow = AspectTable.defaultInterestsRow()
     @State private var showConfigurator = false
 
-    // --- Add to GeneratorView state ---
     @State private var knownLessonIDs = Set<String>()
     @State private var newlyCreatedLesson: Lesson?     // lesson to show in the toast
     @State private var showToast: Bool = false
@@ -187,6 +197,7 @@ struct GeneratorView: View {
 
     @State private var speechSpeed: SpeechSpeed = .slow
 
+    @State private var translationStyle: TranslationStyle = .idiomatic
     
     // MARK: - Prompt categories (I Ching trigrams)
 
@@ -475,7 +486,8 @@ struct GeneratorView: View {
             genLanguage: genLanguage,
             transLanguage: transLanguage,
             languageLevel: languageLevel,
-            speechSpeed: speechSpeed
+            speechSpeed: speechSpeed,
+            translationStyle: translationStyle
         )
         if let data = try? JSONEncoder().encode(payload) {
             generatorSettingsData = data
@@ -503,6 +515,10 @@ struct GeneratorView: View {
         // CEFR & speech speed
         if let lvl = LanguageLevel(rawValue: payload.languageLevel) { languageLevel = lvl }
         if let spd = SpeechSpeed(rawValue: payload.speechSpeed) { speechSpeed = spd }
+        
+        // Translation style
+        if let ts = TranslationStyle(rawValue: payload.translationStyle) { translationStyle = ts }
+
     }
     
     private func loadTable(from data: Data, fallback: AspectTable) -> AspectTable {
@@ -624,7 +640,7 @@ struct GeneratorView: View {
                 let reqMode: GeneratorService.Request.GenerationMode = (mode == .prompt) ? .prompt : .random
                 let reqSeg: GeneratorService.Request.Segmentation = (segmentation == .paragraphs) ? .paragraphs : .sentences
 
-                let req = GeneratorService.Request(
+                var req = GeneratorService.Request(
                     languageLevel: languageLevel,
                     mode: reqMode,
                     userPrompt: userPrompt,
@@ -636,6 +652,7 @@ struct GeneratorView: View {
                     userChosenTopic: randomTopic.isEmpty ? nil : randomTopic, // wrap to nil if empty
                     topicPool: nil
                 )
+                req.translationStyle = translationStyle
 
                 generator.start(req, lessonStore: lessonStore)
             } label: {
@@ -728,6 +745,7 @@ struct GeneratorView: View {
                         .accessibilityLabel("Segment by")
                     }
 
+
                     AdvancedSpacer()
 
                     AdvancedItem(
@@ -771,7 +789,25 @@ struct GeneratorView: View {
                         .padding(.horizontal, 2)       // inside the segmented picker container
                         .labelsHidden()
                     }
+                    
+                    AdvancedSpacer()
+
+                    AdvancedItem(
+                        title: "Translation style",
+                        infoAction: { showTranslationStyleInfo = true } // NEW binding below
+                    ) {
+                        Picker("Translation style", selection: $translationStyle) {
+                            Text("Literal").tag(TranslationStyle.literal)
+                            Text("Idiomatic").tag(TranslationStyle.idiomatic)
+                        }
+                        .pickerStyle(.segmented)
+                        .contentShape(Rectangle())
+                        .padding(.horizontal, 2)
+                        .labelsHidden()
+                    }
+                    
                 }
+                
                 .modifier(RegularWidthPopover(isPresented: $showSegmentationInfo) {
                     SegmentationInfoCard()
                         .frame(maxWidth: 360)
@@ -783,6 +819,20 @@ struct GeneratorView: View {
                 )) {
                     SegmentationInfoCard()
                         .presentationDetents([.fraction(0.4), .medium])
+                        .presentationDragIndicator(.visible)
+                }
+                
+                .modifier(RegularWidthPopover(isPresented: $showTranslationStyleInfo) {
+                    TranslationStyleInfoCard()
+                        .frame(maxWidth: 360)
+                        .padding()
+                })
+                .sheet(isPresented: Binding(
+                    get: { hSize == .compact && showTranslationStyleInfo },
+                    set: { showTranslationStyleInfo = $0 }
+                )) {
+                    TranslationStyleInfoCard()
+                        .presentationDetents([.fraction(0.35), .medium])
                         .presentationDragIndicator(.visible)
                 }
             }
@@ -852,6 +902,7 @@ struct GeneratorView: View {
         .onChange(of: transLanguage, initial: false)   { _, _ in saveGeneratorSettings() }
         .onChange(of: languageLevel, initial: false)   { _, _ in saveGeneratorSettings() }
         .onChange(of: speechSpeed, initial: false)     { _, _ in saveGeneratorSettings() }
+        .onChange(of: translationStyle, initial: false) { _, _ in saveGeneratorSettings() }
 
         // Persist aspect table & interests
         .onChange(of: styleTable, initial: false) { _, newValue in
@@ -1278,7 +1329,6 @@ private struct ModeInfoCard: View {
     }
 }
 
-
 private struct SegmentationInfoCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1294,7 +1344,7 @@ private struct SegmentationInfoCard: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Sentences")
                             .font(.subheadline.bold())
-                        Text("Splits the text into sentence-sized segments. Great for quicker call-and-response practice.")
+                        Text("Splits the text into single-sentence chunks. Good for bite-sized call-and-response and quick review.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -1306,12 +1356,23 @@ private struct SegmentationInfoCard: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Paragraphs")
                             .font(.subheadline.bold())
-                        Text("Keeps multi-sentence blocks together for natural flow and context. Ideal for longer listening and shadowing.")
+                        Text("Keeps multi-sentence blocks together for more context and natural flow—ideal for longer listening and shadowing.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                 } icon: { Image(systemName: "rectangle.3.offgrid").font(.caption2) }
             }
+
+            // Moved tip lives in the card
+            HStack(spacing: 8) {
+                Image(systemName: "lightbulb")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+                Text("Segmentation controls how sentences or paragraphs are paired with audio clips.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 10)
         }
         .padding(16)
         .background(
@@ -1321,6 +1382,51 @@ private struct SegmentationInfoCard: View {
         )
     }
 }
+
+private struct TranslationStyleInfoCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "character.book.closed")
+                    .imageScale(.large)
+                Text("About Translation Style")
+                    .font(.headline)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Literal")
+                            .font(.subheadline.bold())
+                        Text("Closer to word-for-word. Preserves original order and grammar to make vocab mapping easy, but can sound stiff or unnatural.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: { Image(systemName: "text.justify") }
+
+                Divider()
+
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Idiomatic")
+                            .font(.subheadline.bold())
+                        Text("Natural phrasing. Reorders or rewrites where needed so it reads as a native would write it—meaning over form.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: { Image(systemName: "quote.bubble") }
+            }
+
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(.systemBackground))
+                .shadow(radius: 8, y: 4)
+        )
+    }
+}
+
+
 
 // MARK: - Languages card
 

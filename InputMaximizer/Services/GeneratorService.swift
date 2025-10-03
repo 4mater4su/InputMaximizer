@@ -51,6 +51,9 @@ final class GeneratorService: ObservableObject {
         enum SpeechSpeed: String { case regular, slow }
         enum LanguageLevel: String, Codable, CaseIterable { case A1, A2, B1, B2, C1, C2 }
         
+        enum TranslationStyle: String, Codable, CaseIterable { case literal, idiomatic }
+
+        
         var languageLevel: LanguageLevel = .B1   // sensible default
 
         var mode: GenerationMode
@@ -62,6 +65,8 @@ final class GeneratorService: ObservableObject {
         var segmentation: Segmentation
         var lengthWords: Int
         var speechSpeed: SpeechSpeed = .regular
+        
+        var translationStyle: TranslationStyle = .idiomatic
         
         // Random topic inputs from the UI
         var userChosenTopic: String? = nil         // if user pressed “Randomize” we pass it here
@@ -591,7 +596,7 @@ private extension GeneratorService {
             return try await chatViaProxy(body)
         }
 
-        func translateParagraphs(_ text: String, to targetLang: String) async throws -> String {
+        func translateParagraphs(_ text: String, to targetLang: String, style: Request.TranslationStyle) async throws -> String {
             let ps = Self.paragraphs(text)
             if ps.isEmpty { return "" }
 
@@ -599,34 +604,53 @@ private extension GeneratorService {
             try await withThrowingTaskGroup(of: (Int, String).self) { group in
                 for (i, p) in ps.enumerated() {
                     group.addTask {
-                        let t = try await translate(p, to: targetLang)
+                        let t = try await translate(p, to: targetLang, style: style)
                         return (i, t.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
                 }
-                for try await (i, t) in group {
-                    results[i] = t
-                }
+                for try await (i, t) in group { results[i] = t }
             }
             return results.joined(separator: "\n\n")
         }
 
-        func translate(_ text: String, to targetLang: String) async throws -> String {
-            let system = """
-            Translate as literally as possible into the requested language.
+        func translate(_ text: String, to targetLang: String, style: Request.TranslationStyle) async throws -> String {
+            let system: String
+            switch style {
+            case .literal:
+                system = """
+                Translate as literally as possible into the requested language.
 
-            Sentence alignment (must):
-            • Keep a 1:1 mapping with the source: SAME number of sentences, SAME order.
-            • Do not merge, split, add, or drop sentences.
+                Sentence alignment (must):
+                • Keep a 1:1 mapping with the source: SAME number of sentences, SAME order.
+                • Do not merge, split, add, or drop sentences.
 
-            Translation style:
-            • Use word-for-word translation where feasible, keeping the original sentence structure.
-            • Prefer literal vocabulary choices over idiomatic expressions.
-            • Do not adjust grammar or phrasing to sound more natural unless absolutely required for comprehensibility.
+                Translation style:
+                • Use word-for-word translation where feasible, keeping the original sentence structure.
+                • Prefer literal vocabulary choices over idiomatic expressions.
+                • Do not adjust grammar or phrasing to sound more natural unless absolutely required for comprehensibility.
 
-            Formatting:
-            • Return plain text only (no quotes, bullets, numbering, or metadata).
-            • Use normal sentence punctuation for the target language.
-            """
+                Formatting:
+                • Return plain text only (no quotes, bullets, numbering, or metadata).
+                • Use normal sentence punctuation for the target language.
+                """
+            case .idiomatic:
+                system = """
+                Translate naturally and idiomatically into the requested language.
+
+                Sentence alignment (must):
+                • Keep a 1:1 mapping with the source: SAME number of sentences, SAME order.
+                • Do not merge, split, add, or drop sentences.
+
+                Translation style:
+                • Prefer idiomatic, natural-sounding phrasing over word-for-word mappings.
+                • Adjust grammar and word order to what a native speaker would write.
+                • Avoid unnatural calques unless needed to preserve meaning precisely.
+
+                Formatting:
+                • Return plain text only (no quotes, bullets, numbering, or metadata).
+                • Use normal sentence punctuation for the target language.
+                """
+            }
 
             let user = """
             Target language: \(targetLang)
@@ -646,6 +670,7 @@ private extension GeneratorService {
             ]
             return try await chatViaProxy(body)
         }
+
 
 
         // ---------- Two-phase credit hold (reserve → commit/cancel) ----------
@@ -720,7 +745,7 @@ private extension GeneratorService {
 
             let secondaryText: String = sameLang
                 ? bodyPrimary
-                : try await translateParagraphs(bodyPrimary, to: req.transLanguage)
+                : try await translateParagraphs(bodyPrimary, to: req.transLanguage, style: req.translationStyle)
 
             // ---- Build segments ----
             var segsPrimary: [String] = []
