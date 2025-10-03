@@ -7,31 +7,49 @@
 
 import SwiftUI
 
+// MARK: - AspectConfiguratorView
+
 struct AspectConfiguratorView: View {
     @Binding var styleTable: AspectTable
     @Binding var interestRow: AspectRow
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.editMode) private var editMode
 
-    @State private var showResetConfirm = false
+    @State private var showResetStyleConfirm = false
+    @State private var showResetInterestsConfirm = false
     @State private var showBulkImport = false
+
+    // New row prompt
+    @State private var showNewRowPrompt = false
+    @State private var newRowTitle = ""
 
     var body: some View {
         NavigationView {
             List {
                 // ===== Style Table =====
                 Section {
-                    ForEach($styleTable.rows) { $row in
-                        AspectRowEditor(row: $row)
+                    // Iterate by VALUE, derive binding by ID to avoid stale indices.
+                    ForEach(styleTable.rows) { row in
+                        AspectRowEditor(row: bindingForRow(row))
                             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                             .listRowSeparator(.hidden)
                             .cardBackground()
                             .padding(.vertical, 4)
+                            // Safe swipe delete: delete by ID
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    deleteRow(withID: row.id)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                     }
-                    .onDelete { styleTable.rows.remove(atOffsets: $0) }
+                    // Edit-mode multi-delete, implemented via IDs (not direct indices)
+                    .onDelete(perform: deleteRows)
 
                     HStack(spacing: 12) {
                         Button {
-                            styleTable.rows.append(AspectRow(title: "New Row", options: []))
+                            showNewRowPrompt = true
                         } label: {
                             Label("Add Row", systemImage: "plus")
                         }
@@ -66,11 +84,15 @@ struct AspectConfiguratorView: View {
                         Menu {
                             Button("Enable All") {
                                 interestRow.isActive = true
-                                interestRow.options = interestRow.options.map { var o = $0; o.enabled = true; return o }
+                                interestRow.options = interestRow.options.map {
+                                    var o = $0; o.enabled = true; return o
+                                }
                             }
                             Button("Disable All", role: .destructive) {
                                 interestRow.isActive = false
-                                interestRow.options = interestRow.options.map { var o = $0; o.enabled = false; return o }
+                                interestRow.options = interestRow.options.map {
+                                    var o = $0; o.enabled = false; return o
+                                }
                             }
                         } label: {
                             Label("Bulk Actions", systemImage: "line.3.horizontal.decrease.circle")
@@ -107,39 +129,107 @@ struct AspectConfiguratorView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        Button("Reset to Defaults", role: .destructive) {
-                            showResetConfirm = true
+                        Button("Reset Style Aspects…", role: .destructive) {
+                            showResetStyleConfirm = true
+                        }
+                        Button("Reset Interests…", role: .destructive) {
+                            showResetInterestsConfirm = true
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
-                    }
-                    .confirmationDialog(
-                        "Reset to defaults?",
-                        isPresented: $showResetConfirm,
-                        titleVisibility: .visible
-                    ) {
-                        Button("Reset All", role: .destructive) {
-                            styleTable = .defaults()
-                            interestRow = AspectTable.defaultInterestsRow()
-                        }
-                        Button("Cancel", role: .cancel) { }
                     }
                 }
             }
             .sheet(isPresented: $showBulkImport) {
                 InterestBulkImportView(interestRow: $interestRow)
             }
+
+            // Separate confirmations (style vs interests)
+            .confirmationDialog(
+                "Reset style aspects to defaults?",
+                isPresented: $showResetStyleConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Reset Style Aspects", role: .destructive) {
+                    styleTable = .defaults()
+                }
+                Button("Cancel", role: .cancel) { }
+            }
+
+            .confirmationDialog(
+                "Reset interests to defaults?",
+                isPresented: $showResetInterestsConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Reset Interests", role: .destructive) {
+                    interestRow = AspectTable.defaultInterestsRow()
+                }
+                Button("Cancel", role: .cancel) { }
+            }
+
+            // Name-on-add (iOS 17+). If you support iOS 16-, replace with a small sheet.
+            .alert("New Row Name", isPresented: $showNewRowPrompt) {
+                TextField("e.g. Tone, Format, Persona", text: $newRowTitle)
+                Button("Add") {
+                    let title = newRowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    styleTable.rows.append(AspectRow(title: title.isEmpty ? "New Row" : title, options: []))
+                    newRowTitle = ""
+                }
+                Button("Cancel", role: .cancel) {
+                    newRowTitle = ""
+                }
+            } message: {
+                Text("Enter a name for the new style row.")
+            }
         }
+    }
+
+    // MARK: Helpers
+
+    /// Create a binding for a row by stable ID to avoid stale indices after deletes.
+    private func bindingForRow(_ row: AspectRow) -> Binding<AspectRow> {
+        Binding<AspectRow>(
+            get: {
+                styleTable.rows.first(where: { $0.id == row.id }) ?? row
+            },
+            set: { newValue in
+                if let idx = styleTable.rows.firstIndex(where: { $0.id == row.id }) {
+                    styleTable.rows[idx] = newValue
+                }
+            }
+        )
     }
 
     private func enabledCount(in table: AspectTable) -> Int {
         table.rows.reduce(0) { $0 + $1.options.filter { $0.enabled }.count }
     }
+
+    /// Edit-mode multi-delete by IDs (robust to list mutations).
+    private func deleteRows(at offsets: IndexSet) {
+        let ids = offsets.compactMap { index in
+            styleTable.rows.indices.contains(index) ? styleTable.rows[index].id : nil
+        }
+        guard !ids.isEmpty else { return }
+        styleTable.rows.removeAll { ids.contains($0.id) }
+    }
+
+    /// Swipe-to-delete by ID (no captured index).
+    private func deleteRow(withID id: AspectRow.ID) {
+        if let idx = styleTable.rows.firstIndex(where: { $0.id == id }) {
+            styleTable.rows.remove(at: idx)
+        }
+    }
 }
+
+// MARK: - AspectRowEditor
 
 struct AspectRowEditor: View {
     @Binding var row: AspectRow
     @State private var newOptionText: String = ""
+    @Environment(\.editMode) private var editMode
+
+    // Confirm delete for options
+    @State private var pendingDeleteOptionID: AspectOption.ID?
 
     // adaptive wrap with nice minimum width
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 240), spacing: 8, alignment: .leading)]
@@ -149,8 +239,15 @@ struct AspectRowEditor: View {
 
             // Header
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(row.title)
-                    .font(.headline)
+                if editMode?.wrappedValue.isEditing == true {
+                    TextField("Row name", text: $row.title)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.headline)
+                } else {
+                    Text(row.title)
+                        .font(.headline)
+                }
+
                 Spacer()
                 Toggle(isOn: $row.isActive) {
                     Text("Include")
@@ -201,24 +298,52 @@ struct AspectRowEditor: View {
             }
             .disabled(!row.isActive)
 
-            // Chips grid
+            // Chips grid — iterate by ID (no indices).
             LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                ForEach(row.options.indices, id: \.self) { idx in
-                    let opt = row.options[idx]
+                ForEach(row.options) { option in
+                    let isOnBinding = Binding<Bool>(
+                        get: { bindingForOption(option).wrappedValue.enabled },
+                        set: { newValue in
+                            var updated = bindingForOption(option).wrappedValue
+                            updated.enabled = newValue
+                            bindingForOption(option).wrappedValue = updated
+                        }
+                    )
+
                     Chip(
-                        text: opt.label,
-                        isOn: Binding(
-                            get: { row.options[idx].enabled },
-                            set: { row.options[idx].enabled = $0 }
-                        ),
+                        text: option.label,
+                        isOn: isOnBinding,
                         isEnabled: row.isActive,
-                        onDelete: { row.options.remove(at: idx) }
+                        onDelete: {
+                            // Ask for confirmation instead of deleting right away
+                            pendingDeleteOptionID = option.id
+                        }
                     )
                 }
             }
             .padding(.top, 2)
         }
         .padding(12)
+        // Confirm delete option dialog
+        .confirmationDialog(
+            "Delete this option?",
+            isPresented: Binding(
+                get: { pendingDeleteOptionID != nil },
+                set: { newValue in if !newValue { pendingDeleteOptionID = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let id = pendingDeleteOptionID,
+                   let idx = row.options.firstIndex(where: { $0.id == id }) {
+                    row.options.remove(at: idx)
+                }
+                pendingDeleteOptionID = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteOptionID = nil
+            }
+        }
     }
 
     private func addOption() {
@@ -226,6 +351,20 @@ struct AspectRowEditor: View {
         guard !trimmed.isEmpty else { return }
         row.options.append(AspectOption(label: trimmed))
         newOptionText = ""
+    }
+
+    /// Binding for an option by stable ID.
+    private func bindingForOption(_ option: AspectOption) -> Binding<AspectOption> {
+        Binding<AspectOption>(
+            get: {
+                row.options.first(where: { $0.id == option.id }) ?? option
+            },
+            set: { newValue in
+                if let idx = row.options.firstIndex(where: { $0.id == option.id }) {
+                    row.options[idx] = newValue
+                }
+            }
+        )
     }
 }
 
