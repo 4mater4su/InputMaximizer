@@ -613,6 +613,54 @@ private extension GeneratorService {
             return results.joined(separator: "\n\n")
         }
 
+        func verifyAndFixTranslation(
+            source: String,
+            draft: String,
+            targetLang: String,
+            style: Request.TranslationStyle
+        ) async throws -> String {
+
+            // Keep the same alignment rules you already enforce.
+            let system = """
+            You are a bilingual proofreader.
+            Task: Check the draft translation for untranslated or stray source-language words
+            (e.g., function words like 'and/because', common content words, or phrases).
+            If any are present, replace them with natural equivalents in the target language.
+
+            Hard requirements:
+            • Keep EXACT sentence alignment with the source (same number and order of sentences).
+            • Do NOT merge, split, add, or drop sentences.
+            • Return plain text only (no quotes, bullets, numbering, or metadata).
+
+            When it is correct to keep a token in the source language (proper nouns, brand names,
+            code, established loanwords), leave it as-is.
+
+            Translation style to respect: \(style == .idiomatic ? "idiomatic/natural" : "literal/faithful").
+            """
+
+            let user = """
+            Target language: \(targetLang)
+
+            Source (SENTENCE-BOUNDARIES MUST BE PRESERVED):
+            \(source)
+
+            Draft translation (to check and correct if needed; KEEP the SAME sentence count/order):
+            \(draft)
+            """
+
+            let body: [String: Any] = [
+                "model": "gpt-5-nano",
+                "messages": [
+                    ["role": "system", "content": system],
+                    ["role": "user",   "content": user]
+                ]
+            ]
+
+            let fixed = try await chatViaProxy(body)
+            return fixed.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        
         func translate(_ text: String, to targetLang: String, style: Request.TranslationStyle) async throws -> String {
             let system: String
             switch style {
@@ -665,12 +713,23 @@ private extension GeneratorService {
                 "model": "gpt-5-nano",
                 "messages": [
                     ["role": "system", "content": system],
-                    ["role": "user", "content": user]
+                    ["role": "user",   "content": user]
                 ]
             ]
-            return try await chatViaProxy(body)
-        }
 
+            // First pass
+            let draft = try await chatViaProxy(body)
+
+            // Second pass: verify & fix any untranslated tokens while keeping alignment
+            let fixed = try await verifyAndFixTranslation(
+                source: text,
+                draft: draft,
+                targetLang: targetLang,
+                style: style
+            )
+
+            return fixed
+        }
 
 
         // ---------- Two-phase credit hold (reserve → commit/cancel) ----------

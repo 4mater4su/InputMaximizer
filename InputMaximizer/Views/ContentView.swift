@@ -169,6 +169,14 @@ struct ContentView: View {
     @State private var currentLessonIndex: Int
     let selectedLesson: Lesson
 
+    private var isTargetChinese: Bool {
+        lessonLangs.targetCode.lowercased().hasPrefix("zh")
+    }
+
+    private var isTranslationChinese: Bool {
+        lessonLangs.translationCode.lowercased().hasPrefix("zh")
+    }
+    
     @AppStorage("fontComfortMode") private var fontComfortModeRaw: Int = FontComfortMode.standard.rawValue
     private var fontComfortMode: FontComfortMode {
         get { FontComfortMode(rawValue: fontComfortModeRaw) ?? .standard }
@@ -559,7 +567,9 @@ struct ContentView: View {
                             audioManager.playInContinuousLane(from: idx)
                         }
                     },
-                    fontComfortMode: fontComfortMode
+                    fontComfortMode: fontComfortMode,
+                    isTargetChinese: isTargetChinese,
+                    isTranslationChinese: isTranslationChinese
                 )
                 .onChange(of: audioManager.currentIndex, initial: false) { _, _ in
                     guard let id = playingScrollID else { return }
@@ -1000,7 +1010,9 @@ private struct SegmentRow: View {
     let displayMode: TextDisplayMode
     let rowID: String
     let onTap: () -> Void
-    let fontComfortMode: FontComfortMode   // ← add this
+    let fontComfortMode: FontComfortMode
+    let isTargetChinese: Bool
+    let isTranslationChinese: Bool
 
     var body: some View {
         // Typography rules:
@@ -1013,17 +1025,20 @@ private struct SegmentRow: View {
         let isSingleLanguage = (displayMode != .both)
         let comfy = (fontComfortMode == .comfy)
 
+        // TARGET (always primary in dual mode)
         let primaryFont: Font = {
-            if comfy { return .title3 }
+            if comfy {
+                return isTargetChinese ? .title : .title3   // zh → title1, en → title3
+            }
             return .headline
         }()
 
         let primaryWeight: Font.Weight = {
-            if isSingleLanguage { return .medium }          // subtle emphasis
-            return comfy ? .medium : .regular               // dual: medium in comfy, regular in standard
+            if isSingleLanguage { return .medium }
+            return comfy ? .medium : .regular
         }()
 
-        // Secondary line only shows in dual mode
+        // Secondary base for dual-mode translation
         let secondaryFont: Font = comfy ? .body : .subheadline
         let secondaryWeight: Font.Weight = .regular
 
@@ -1039,25 +1054,41 @@ private struct SegmentRow: View {
 
                 // Target text
                 if displayMode != .translationOnly {
+                    let targetFont: Font = {
+                        if comfy {
+                            return isTargetChinese ? .title : .title3
+                        }
+                        return .headline
+                    }()
+
                     Text(segment.pt_text)
-                        .font(primaryFont.weight(primaryWeight))
+                        .font(targetFont.weight(primaryWeight))
                         .foregroundColor(.primary)
-                        .lineSpacing(isSingleLanguage ? (comfy ? 7 : 6) : 5)
+                        .lineSpacing(isSingleLanguage ? (comfy ? 8 : 6) : 5)
                 }
 
                 // Translation text (promote when shown alone, but lighter weight)
                 if displayMode != .targetOnly {
                     let isPrimaryTranslation = (displayMode == .translationOnly)
+
+                    let translationFont: Font = {
+                        if comfy {
+                            return isTranslationChinese ? .title : .title3
+                        }
+                        return .headline
+                    }()
+
                     Text(segment.en_text)
                         .font(
                             isPrimaryTranslation
-                            ? primaryFont.weight(primaryWeight)     // single-language -> same as primary
-                            : secondaryFont.weight(secondaryWeight) // dual mode -> secondary style
+                            ? translationFont.weight(primaryWeight)      // translation-only → bump if zh
+                            : secondaryFont.weight(secondaryWeight)      // dual mode → secondary style
                         )
                         .foregroundStyle(isPrimaryTranslation ? .primary : .secondary)
-                        .lineSpacing(isPrimaryTranslation ? (comfy ? 7 : 6) : 5)
+                        .lineSpacing(isPrimaryTranslation ? (comfy ? 8 : 6) : 5)
                 }
             }
+
         }
         .padding(.top, 5)
         .padding(.bottom, 5)
@@ -1086,6 +1117,8 @@ private struct ParagraphBox: View {
     let playingSegmentID: Int?
     let onTap: (DisplaySegment) -> Void
     let fontComfortMode: FontComfortMode
+    let isTargetChinese: Bool
+    let isTranslationChinese: Bool
     
     var body: some View {
         // padding values used for the colored strips
@@ -1101,7 +1134,9 @@ private struct ParagraphBox: View {
                     displayMode: displayMode,
                     rowID: "\(folderName)#\(seg.originalID)",
                     onTap: { onTap(seg) },
-                    fontComfortMode: fontComfortMode
+                    fontComfortMode: fontComfortMode,
+                    isTargetChinese: isTargetChinese,
+                    isTranslationChinese: isTranslationChinese
                 )
             }
         }
@@ -1223,6 +1258,8 @@ private struct TranscriptList: View {
     let headerTitle: String?
     let onTap: (DisplaySegment) -> Void
     let fontComfortMode: FontComfortMode
+    let isTargetChinese: Bool
+    let isTranslationChinese: Bool
 
     var body: some View {
         ScrollView {
@@ -1241,7 +1278,9 @@ private struct TranscriptList: View {
                         displayMode: displayMode,
                         playingSegmentID: playingSegmentID,
                         onTap: onTap,
-                        fontComfortMode: fontComfortMode
+                        fontComfortMode: fontComfortMode,
+                        isTargetChinese: isTargetChinese,
+                        isTranslationChinese: isTranslationChinese
                     )
                 }
             }
