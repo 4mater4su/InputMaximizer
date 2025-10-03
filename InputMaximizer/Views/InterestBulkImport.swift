@@ -28,7 +28,7 @@ struct InterestBulkImportView: View {
     @FocusState private var filterFocused: Bool         // Filter TextField
 
     // Preview UX
-    @State private var showOnlyNew = false
+    @State private var showOnlyNew = true
     @State private var previewSearch = ""
 
     // Parsing
@@ -500,22 +500,6 @@ private struct PreviewSummaryView: View {
                 CountBadge(title: "After merge", count: finalCount)
                 CountBadge(title: "NEW", count: newCount, tinted: true)
             }
-
-            HStack(spacing: 12) {
-                Label("Enabled", systemImage: "checkmark.circle")
-                Label("Disabled", systemImage: "circle")
-                HStack(spacing: 6) {
-                    Text("NEW")
-                        .font(.caption2.weight(.bold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(.tint.opacity(0.18), in: Capsule())
-                        .overlay(Capsule().stroke(.tint.opacity(0.35), lineWidth: 0.5))
-                    Text("newly parsed")
-                }
-                .font(.caption)
-            }
-            .foregroundStyle(.secondary)
 
             if parsedCount == 0 {
                 Text("No items detected. Use the template format or paste a JSON array / CSV first column.")
