@@ -612,11 +612,16 @@ private extension GeneratorService {
 
         func translate(_ text: String, to targetLang: String) async throws -> String {
             let system = """
-            Translate naturally and idiomatically into the requested language.
+            Translate as literally as possible into the requested language.
 
             Sentence alignment (must):
             • Keep a 1:1 mapping with the source: SAME number of sentences, SAME order.
             • Do not merge, split, add, or drop sentences.
+
+            Translation style:
+            • Use word-for-word translation where feasible, keeping the original sentence structure.
+            • Prefer literal vocabulary choices over idiomatic expressions.
+            • Do not adjust grammar or phrasing to sound more natural unless absolutely required for comprehensibility.
 
             Formatting:
             • Return plain text only (no quotes, bullets, numbering, or metadata).
