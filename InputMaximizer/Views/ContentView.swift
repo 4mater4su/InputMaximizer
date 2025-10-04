@@ -1089,11 +1089,14 @@ private struct SegmentRow: View {
             }
             return .headline
         }()
-
+        
         let primaryWeight: Font.Weight = {
-            if isSingleLanguage { return .medium }
+            // Single-language (targetOnly / translationOnly) → lighter
+            if isSingleLanguage { return .regular }
+            // Dual mode: comfy gets a touch more weight, standard stays regular
             return comfy ? .medium : .regular
         }()
+
 
         // Secondary base for dual-mode translation
         let secondaryFont: Font = comfy ? .body : .subheadline
