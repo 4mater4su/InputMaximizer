@@ -63,6 +63,7 @@ private extension GeneratorSettings {
     }
 }
 
+
 struct GeneratorView: View {
     @EnvironmentObject private var purchases: PurchaseManager
     @State private var showBuyCredits = false
@@ -742,6 +743,24 @@ struct GeneratorView: View {
                 .padding(.top, 42)
                 .buttonStyle(.plain)  // <— prevents the whole row from being a tappable button
 
+                // Suggestions shown under Mode card
+                if !generator.nextPromptSuggestions.isEmpty {
+                    NextPromptSuggestionsView(
+                        suggestions: generator.nextPromptSuggestions,
+                        onPick: { picked in
+                            // Copy into the editor and switch to Prompt mode
+                            mode = .prompt
+                            userPrompt = picked
+                            // Optional: focus editor
+                            // promptIsFocused = true
+                        }
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
+                
             }
             .listRowInsets(EdgeInsets())            // edge-to-edge for the card
             .listRowBackground(Color.clear)
@@ -1130,6 +1149,92 @@ private struct AdvancedSpacer: View {
             .frame(height: 8)     // …acting as vertical spacer
     }
 }
+
+
+private struct NextPromptSuggestionsView: View {
+    let suggestions: [String]
+    var onPick: (String) -> Void
+
+    @State private var isExpanded: Bool = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+
+            // HEADER — centered title + trailing chevron
+            Button {
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                ZStack {
+                    // Centered label
+                    Text("Try one of these next:")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    // Trailing chevron
+                    HStack {
+                        Spacer()
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                // Make tap target tall and center vertically
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
+                .contentShape(Rectangle())
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+            }
+            .buttonStyle(.plain)
+
+            // CONTENT — smoother open/close transition
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(suggestions.prefix(3)), id: \.self) { s in
+                        Button {
+                            onPick(s)
+                        } label: {
+                            Text(s)
+                                .font(.footnote)
+                                .multilineTextAlignment(.leading)
+                                .lineLimit(2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 12)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.accentColor)
+                    }
+                }
+                .padding(.bottom, 12)
+                .padding(.horizontal, 12)
+                // softer, more natural expansion
+                .transition(
+                    .scale(scale: 0.98, anchor: .top)
+                    .combined(with: .opacity)
+                )
+            }
+        }
+        .padding(.top, 12)
+        .padding(.horizontal, 10)     // keep your custom inner padding
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
+        )
+        .padding(.horizontal, 24)     // keep your outer padding
+        // drive all animations off the toggle for extra smoothness
+        .animation(.spring(response: 0.34, dampingFraction: 0.88), value: isExpanded)
+    }
+}
+
+
 
 
 // MARK: - Mode + Input card

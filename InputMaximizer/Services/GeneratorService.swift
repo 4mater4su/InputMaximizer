@@ -26,6 +26,8 @@ final class GeneratorService: ObservableObject {
     @Published var lastLessonID: String?
     
     @Published var outOfCredits = false
+    
+    @Published var nextPromptSuggestions: [String] = []
 
     static func fetchServerBalance() async throws -> Int {
         try await proxy.balance(deviceId: DeviceID.current)
@@ -44,6 +46,13 @@ final class GeneratorService: ObservableObject {
     private let background = BackgroundActivityManager()
     
     private var currentBgTaskId: UIBackgroundTaskIdentifier = .invalid
+    
+    // NEW: precomputed suggestions (kept hidden until generation completes)
+    private var nextPromptSuggestionsBuffer: [String] = []
+
+    // NEW: background work that prepares suggestions early
+    private var suggestionsWork: Task<Void, Never>?
+
     
     struct Request: Equatable, Sendable {
         enum GenerationMode: String { case random, prompt }
@@ -81,9 +90,21 @@ final class GeneratorService: ObservableObject {
         status = "Starting…"
         lastLessonID = nil
 
+        nextPromptSuggestions = []
+
+        // NEW: reset and precompute suggestions in the background (hidden for now)
+        nextPromptSuggestionsBuffer = []
+        suggestionsWork?.cancel()
+        suggestionsWork = Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            let ideas = (try? await Self.suggestNextPrompts(from: req)) ?? []
+            // Store in buffer only; UI will reveal after generation completes
+            self.nextPromptSuggestionsBuffer = ideas
+        }
+
         background.end(currentBgTaskId)
         currentBgTaskId = background.begin(name: "LessonGeneration")
-        
+
         // Inherit @MainActor so capturing `self` is legal in Swift 6.
         currentTask = Task(priority: .userInitiated) { @MainActor [weak self] in
             guard let self else { return }
@@ -98,10 +119,28 @@ final class GeneratorService: ObservableObject {
                 self.status = "Done. Open the lesson list and select."
                 self.isBusy = false
                 lessonStore.load()
+
+                // NEW: reveal the already-precomputed suggestions without waiting
+                self.nextPromptSuggestions = self.nextPromptSuggestionsBuffer
+                self.nextPromptSuggestionsBuffer = []
+                self.suggestionsWork = nil
+
             } catch is CancellationError {
+                // NEW: stop background suggestions; clear buffer on cancel
+                self.suggestionsWork?.cancel()
+                self.suggestionsWork = nil
+                self.nextPromptSuggestionsBuffer = []
+                self.nextPromptSuggestions = []
+
                 self.status = "Cancelled."
                 self.isBusy = false
             } catch {
+                // NEW: stop background suggestions; clear buffer on failure
+                self.suggestionsWork?.cancel()
+                self.suggestionsWork = nil
+                self.nextPromptSuggestionsBuffer = []
+                self.nextPromptSuggestions = []    // keep UI clean on failure
+
                 if let ns = error as NSError?, ns.domain == "Credits", ns.code == 402 {
                     self.outOfCredits = true
                 }
@@ -114,11 +153,18 @@ final class GeneratorService: ObservableObject {
         }
     }
 
+
     func cancel() {
         currentTask?.cancel()
         currentTask = nil
         isBusy = false
         status = "Cancelled."
+
+        // NEW: stop background suggestions; clear buffer
+        suggestionsWork?.cancel()
+        suggestionsWork = nil
+        nextPromptSuggestionsBuffer = []
+
         
         // Also end the background task if it’s still active.
         background.end(currentBgTaskId)
@@ -462,6 +508,126 @@ private extension GeneratorService {
         let ps = Self.paragraphs(txt)
         return ps.map { sentences($0).count }
     }
+    
+    // Generate three diverse next prompts in the *helper* language
+    static func suggestNextPrompts(from req: Request) async throws -> [String] {
+
+        // --- Seed we want to move away from ---
+        let seed: String = {
+            switch req.mode {
+            case .prompt:
+                return req.userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            case .random:
+                let t = (req.userChosenTopic ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                return t.isEmpty ? "(no topic provided)" : t
+            }
+        }()
+
+        // --- Ask for 3 prompts in helper language (transLanguage), not target ---
+        func llmAsk(diversityBooster: String) async throws -> [String] {
+            let user = """
+            You create short, self-contained WRITING PROMPTS for language-learning text generation.
+
+            Output language: \(req.transLanguage)   // helper language ONLY
+            Count: exactly 3 prompts.
+            Length per prompt: one sentence, ≤ 22–25 words.
+            Formatting: return ONLY a strict JSON array of 3 strings (no numbering, no commentary).
+
+            Diversity requirements (very important):
+            • Each prompt must take a distinctly different direction from the others AND from the user's previous seed.
+            • Change at least TWO of these axes per prompt: purpose (inform/explain/persuade/narrate), genre/form, setting/place, time/era, perspective/POV, audience, tone/register.
+            • Avoid reusing the same key nouns/verbs/themes from the seed unless necessary for sense.
+            • No meta-instructions, no references to “the previous prompt/seed”.
+
+            User’s previous seed (to diverge from):
+            \(seed)
+
+            \(diversityBooster)
+            """
+
+            let body: [String: Any] = [
+                "model": "gpt-5-nano",
+                "messages": [
+                    ["role": "system", "content": "Generate three SHORT, highly distinct prompts in the requested language. Output JSON array of 3 strings only."],
+                    ["role": "user",   "content": user]
+                ]
+            ]
+
+            let raw = try await chatViaProxy(body)
+
+            if let data = raw.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
+                return arr.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            }
+
+            // Fallback if model returns lines
+            let lines = raw
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty && !$0.hasPrefix("- ") && !$0.hasPrefix("•") }
+
+            return Array(lines.prefix(3))
+        }
+
+        // --- Lightweight lexical overlap check to enforce diversity ---
+        func tokenize(_ s: String) -> Set<String> {
+            let lowered = s.lowercased()
+            let comps = lowered.components(separatedBy: CharacterSet.alphanumerics.inverted)
+            let stop: Set<String> = ["the","a","an","and","or","but","so","to","in","on","of","for","with","by","at","from","as","is","are","be","was","were","that","this","it","its","into","about","over","under","through"]
+            return Set(comps.filter { !$0.isEmpty && !stop.contains($0) })
+        }
+
+        func jaccard(_ a: Set<String>, _ b: Set<String>) -> Double {
+            if a.isEmpty && b.isEmpty { return 0 }
+            let inter = a.intersection(b).count
+            let union = a.union(b).count
+            return union == 0 ? 0 : Double(inter) / Double(union)
+        }
+
+        // Filter prompts that are too similar to the seed or to each other
+        func enforceDiversity(_ prompts: [String], seedTokens: Set<String>, maxOverlapSeed: Double = 0.35, maxOverlapPeer: Double = 0.5) -> [String] {
+            var picked: [String] = []
+            var pickedTokens: [Set<String>] = []
+
+            for p in prompts {
+                let t = tokenize(p)
+                // far enough from seed?
+                guard jaccard(t, seedTokens) <= maxOverlapSeed else { continue }
+                // far enough from already picked prompts?
+                let tooClose = pickedTokens.contains { jaccard(t, $0) > maxOverlapPeer }
+                if !tooClose { picked.append(p); pickedTokens.append(t) }
+                if picked.count == 3 { break }
+            }
+            return picked
+        }
+
+        // --- Try once; if too similar, try a stronger instruction once more ---
+        let seedTokens = tokenize(seed)
+
+        let first = try await llmAsk(diversityBooster:
+            "Push strongly into different directions for each prompt. Prefer NEW settings/genres/purposes not implied by the seed."
+        )
+        
+        var filtered = enforceDiversity(first,
+                                        seedTokens: seedTokens,
+                                        maxOverlapSeed: 0.30,
+                                        maxOverlapPeer: 0.40)
+
+        if filtered.count < 3 {
+            let second = try await llmAsk(diversityBooster:
+                "Your previous set was not diverse enough. Now generate three NEW prompts that are RADICALLY different from both the seed and typical variations. Change genre, purpose, and setting simultaneously."
+            )
+            // Merge and re-filter
+            filtered = enforceDiversity(first + second, seedTokens: seedTokens)
+        }
+
+        // Ensure we return exactly 3 if possible
+        return Array(filtered.prefix(3))
+    }
+
+
+    
     
     // MARK: - The whole pipeline, headless
     /// Returns the `lessonID` written to disk.
