@@ -1230,24 +1230,38 @@ private struct KeywordsView: View {
         List {
             Section {
                 ForEach(Array(pairs.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(item.0).font(.body).lineLimit(2)
-                        Spacer(minLength: 12)
-                        Text(item.1).font(.body).foregroundStyle(.secondary).lineLimit(2)
+                    HStack(alignment: .top, spacing: 16) {
+                        // LEFT: target phrase
+                        Text(item.0)
+                            .font(.body)
+                            .frame(maxWidth: .infinity, alignment: .leading)   // take half the row
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)       // allow wrapping
+
+                        // RIGHT: translation
+                        Text(item.1)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)   // take the other half
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)       // allow wrapping
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 6)
                 }
             } header: {
-                HStack {
-                    Text(titleTarget).font(.caption).bold()
-                    Spacer()
-                    Text(titleTrans).font(.caption).bold()
+                HStack(spacing: 16) {
+                    Text(titleTarget).font(.caption.bold())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(titleTrans).font(.caption.bold())
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
+        .listStyle(.insetGrouped)  // optional: nicer grouping on iOS
         .navigationTitle("Keywords & Phrases")
     }
 }
+
 
 
 
