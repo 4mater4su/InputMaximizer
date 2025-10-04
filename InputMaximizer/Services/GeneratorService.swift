@@ -762,6 +762,47 @@ private extension GeneratorService {
             return try await chatViaProxy(body)
         }
 
+        // --- Keyword extractor (target → helper language) ---
+        // Returns a minimal plain-text list, one pair per line: "<target>\t<translation>"
+        func extractKeywordPairs(targetText: String,
+                                        targetLang: String,
+                                        translationLang: String) async throws -> String {
+            let system = """
+            Extract the most relevant KEYWORDS and SHORT PHRASES from the user's TARGET-LANGUAGE text,
+            then provide a concise translation into the requested helper language.
+
+            Output rules (strict):
+            • Output ONLY lines of the form: <target>\t<translation>
+            • One pair per line. No numbering, bullets, or extra commentary.
+            • Prefer 1–4 word spans (or compact characters for CJK). Avoid full sentences.
+            • Deduplicate. Include both single keywords and a few useful collocations.
+            • 24–40 lines for a ~300–500 word text; scale proportionally if much shorter/longer.
+            """
+
+            let user = """
+            Target language name: \(targetLang)
+            Translation language name: \(translationLang)
+
+            Text to analyze (target language):
+            \(targetText)
+            """
+
+            let body: [String: Any] = [
+                "model": "gpt-5-nano",
+                "messages": [
+                    ["role": "system", "content": system],
+                    ["role": "user",   "content": user]
+                ]
+            ]
+
+            let raw = try await chatViaProxy(body)
+            return raw
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        
         func translateParagraphs(_ text: String, to targetLang: String, style: Request.TranslationStyle) async throws -> String {
             let ps = Self.paragraphs(text)
             if ps.isEmpty { return "" }
@@ -778,7 +819,7 @@ private extension GeneratorService {
             }
             return results.joined(separator: "\n\n")
         }
-
+        
         func verifyAndFixTranslation(
             source: String,
             draft: String,
@@ -1077,6 +1118,7 @@ private extension GeneratorService {
             try save(metaData, to: metaURL)
 
             
+            
             // update lessons.json in Documents
             // Replace the Manifest struct in runGeneration with:
             struct Manifest: Codable {
@@ -1111,6 +1153,21 @@ private extension GeneratorService {
             let out = try JSONEncoder().encode(list)
             try save(out, to: manifestURL)
 
+            
+            // ---- Extract & save keywords/phrases (minimal pairs list) ----
+            await progress("Extracting keywords & phrases…")
+
+            let pairsTxt = try await extractKeywordPairs(
+                targetText: bodyPrimary,                // analyze the target-language body
+                targetLang: req.genLanguage,
+                translationLang: req.transLanguage
+            )
+
+            // Store as plain text with one pair per line (TAB as the separator).
+            let keywordsURL = base.appendingPathComponent("keywords_\(lessonID).txt")
+            try save((pairsTxt + "\n").data(using: .utf8)!, to: keywordsURL)
+
+            
             // ---- Commit the credit hold only after success ----
             try await Self.proxy.jobCommit(deviceId: deviceId, jobId: jobId)
 

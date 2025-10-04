@@ -148,6 +148,10 @@ struct ContentView: View {
     @EnvironmentObject private var generator: GeneratorService
     @EnvironmentObject private var store: LessonStore
 
+    @State private var showKeywords = false
+    @State private var loadedKeywordPairs: [(String,String)] = []
+
+    
     @State private var toastMessage: String? = nil
     @State private var toastIsSuccess: Bool = false
     @State private var toastAutoDismissTask: Task<Void, Never>? = nil
@@ -208,6 +212,44 @@ struct ContentView: View {
         _lessonLangs = State(initialValue: LessonLanguageResolver.resolve(for: selectedLesson))
     }
 
+    // MARK: - Keywords loader
+    private func loadKeywordPairs(for folder: String) {
+        let base = FileManager.docsLessonsDir.appendingPathComponent(folder, isDirectory: true)
+        let lessonID = folder
+        let url = base.appendingPathComponent("keywords_\(lessonID).txt")
+        guard let data = try? Data(contentsOf: url),
+              let txt = String(data: data, encoding: .utf8)
+        else {
+            loadedKeywordPairs = []
+            return
+        }
+
+        var out: [(String,String)] = []
+        for raw in txt.split(separator: "\n") {
+            let line = String(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            if let tab = line.firstIndex(of: "\t") {
+                let a = String(line[..<tab]).trimmingCharacters(in: .whitespaces)
+                let b = String(line[line.index(after: tab)...]).trimmingCharacters(in: .whitespaces)
+                if !a.isEmpty, !b.isEmpty { out.append((a,b)) }
+            } else if line.contains(" — ") {
+                let parts = line.components(separatedBy: " — ")
+                if parts.count >= 2 {
+                    out.append((parts[0].trimmingCharacters(in: .whitespaces),
+                                parts[1].trimmingCharacters(in: .whitespaces)))
+                }
+            } else if line.contains(" - ") {
+                let parts = line.components(separatedBy: " - ")
+                if parts.count >= 2 {
+                    out.append((parts[0].trimmingCharacters(in: .whitespaces),
+                                parts[1].trimmingCharacters(in: .whitespaces)))
+                }
+            }
+        }
+        loadedKeywordPairs = out
+    }
+
+    
     // MARK: - Derived
     private var currentLesson: Lesson { lessons[currentLessonIndex] }
 
@@ -569,7 +611,12 @@ struct ContentView: View {
                     },
                     fontComfortMode: fontComfortMode,
                     isTargetChinese: isTargetChinese,
-                    isTranslationChinese: isTranslationChinese
+                    isTranslationChinese: isTranslationChinese,
+                    
+                    onShowKeywords: {                       // NEW
+                        loadKeywordPairs(for: currentLesson.folderName)
+                        showKeywords = true
+                    }
                 )
                 .onChange(of: audioManager.currentIndex, initial: false) { _, _ in
                     guard let id = playingScrollID else { return }
@@ -771,6 +818,16 @@ struct ContentView: View {
                         Button("Done") { showDelaySheet = false }
                     }
                 }
+            }
+        }
+        
+        .sheet(isPresented: $showKeywords) {
+            NavigationStack {
+                KeywordsView(
+                    titleTarget: lessonLangs.targetShort,
+                    titleTrans: lessonLangs.translationShort,
+                    pairs: loadedKeywordPairs
+                )
             }
         }
     }
@@ -1026,7 +1083,7 @@ private struct SegmentRow: View {
         let comfy = (fontComfortMode == .comfy)
 
         // TARGET (always primary in dual mode)
-        let primaryFont: Font = {
+        let _: Font = {
             if comfy {
                 return isTargetChinese ? .title : .title3   // zh → title1, en → title3
             }
@@ -1163,6 +1220,36 @@ private struct ParagraphBox: View {
     }
 }
 
+// --- Minimal keywords list view ---
+private struct KeywordsView: View {
+    let titleTarget: String    // e.g., "PT-BR"
+    let titleTrans: String     // e.g., "EN"
+    let pairs: [(String,String)]
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(Array(pairs.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(item.0).font(.body).lineLimit(2)
+                        Spacer(minLength: 12)
+                        Text(item.1).font(.body).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    .padding(.vertical, 2)
+                }
+            } header: {
+                HStack {
+                    Text(titleTarget).font(.caption).bold()
+                    Spacer()
+                    Text(titleTrans).font(.caption).bold()
+                }
+            }
+        }
+        .navigationTitle("Keywords & Phrases")
+    }
+}
+
+
 
 // Old config with more space and line
 /*
@@ -1260,6 +1347,7 @@ private struct TranscriptList: View {
     let fontComfortMode: FontComfortMode
     let isTargetChinese: Bool
     let isTranslationChinese: Bool
+    let onShowKeywords: () -> Void
 
     var body: some View {
         ScrollView {
@@ -1283,6 +1371,23 @@ private struct TranscriptList: View {
                         isTranslationChinese: isTranslationChinese
                     )
                 }
+                
+                // Footer button: open the keywords/phrases view
+                Button {
+                    onShowKeywords()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "list.bullet.rectangle.portrait")
+                        Text("Show keywords & phrases")
+                            .font(.callout.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal)
+                .padding(.bottom, 10)
             }
             .id(folderName)           // reset layout identity on lesson change
             .padding(.horizontal)     // only horizontal padding
