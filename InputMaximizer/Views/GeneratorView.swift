@@ -81,6 +81,9 @@ struct GeneratorView: View {
     
     @AppStorage("generatorPromptV1") private var userPrompt: String = ""
     @AppStorage("generatorRandomTopicV1") private var randomTopic: String = ""
+    
+    // Persist next prompt suggestions
+    @AppStorage("generatorNextPromptSuggestionsV1") private var persistedSuggestions: Data = Data()
 
     // Persisted toggle for the Advanced dropdown
     @AppStorage("generatorAdvancedExpandedV1") private var advancedExpandedStore: Bool = false
@@ -561,8 +564,185 @@ struct GeneratorView: View {
         (try? JSONEncoder().encode(row)) ?? Data()
     }
     
+    private func saveSuggestions(_ suggestions: [String]) -> Data {
+        (try? JSONEncoder().encode(suggestions)) ?? Data()
+    }
+    
+    private func loadSuggestions(from data: Data, fallback: [String]) -> [String] {
+        guard !data.isEmpty, let decoded = try? JSONDecoder().decode([String].self, from: data) else {
+            return fallback
+        }
+        return decoded
+    }
+    
     private var allSupportedLanguages: [String] { supportedLanguages }
     
+    // Computed property for current suggestions
+    private var currentSuggestions: [String] {
+        if !generator.nextPromptSuggestions.isEmpty {
+            return generator.nextPromptSuggestions
+        } else {
+            return loadSuggestions(from: persistedSuggestions, fallback: [])
+        }
+    }
+    
+    @ViewBuilder private func modeSection() -> some View {
+        Section {
+            ModeCard(
+                mode: $mode,
+                userPrompt: $userPrompt,
+                selectedPromptCategory: $selectedPromptCategory,
+                randomTopic: $randomTopic,
+                showConfigurator: $showConfigurator,
+                pickRandomPresetPrompt: { pickRandomPresetPrompt() },
+                buildRandomTopic: { buildRandomTopic() },
+                promptFocus: $promptIsFocused,
+                showModeInfo: $showModeInfo
+            )
+            .padding(.top, 42)
+            .buttonStyle(.plain)
+
+            // Suggestions shown under Mode card
+            if !currentSuggestions.isEmpty {
+                NextPromptSuggestionsView(
+                    suggestions: currentSuggestions,
+                    onPick: { picked in
+                        // Copy into the editor and switch to Prompt mode
+                        mode = .prompt
+                        userPrompt = picked
+                        // Clear persisted suggestions when user picks one
+                        persistedSuggestions = Data()
+                    }
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+    }
+    
+    @ViewBuilder private func advancedSection() -> some View {
+        Section {
+            AdvancedCard(expanded: advancedExpandedBinding, title: "Advanced Options") {
+                AdvancedItem(
+                    title: "Segmentation",
+                    infoAction: { showSegmentationInfo = true }
+                ) {
+                    Picker("Segment by", selection: $segmentation) {
+                        ForEach(Array(Segmentation.allCases), id: \.self) { s in
+                            Text(s.rawValue).tag(s)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, 2)
+                    .accessibilityLabel("Segment by")
+                }
+
+                AdvancedSpacer()
+
+                AdvancedItem(
+                    title: "Length",
+                    trailing: "~\(lengthPreset.words) words"
+                ) {
+                    Picker("", selection: $lengthPreset) {
+                        ForEach(LengthPreset.allCases) { preset in
+                            Text(preset.label).tag(preset)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, 2)
+                    .labelsHidden()
+                }
+
+                AdvancedSpacer()
+
+                AdvancedItem(title: "Speech speed") {
+                    Picker("Speech speed", selection: $speechSpeed) {
+                        Text("Regular").tag(SpeechSpeed.regular)
+                        Text("Slow").tag(SpeechSpeed.slow)
+                    }
+                    .pickerStyle(.segmented)
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, 2)
+                    .labelsHidden()
+                }
+
+                AdvancedSpacer()
+
+                AdvancedItem(title: "Language level (CEFR)") {
+                    Picker("Level", selection: $languageLevel) {
+                        ForEach(Array(LanguageLevel.allCases), id: \.self) { level in
+                            Text(level.rawValue).tag(level)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, 2)
+                    .labelsHidden()
+                }
+                
+                AdvancedSpacer()
+
+                AdvancedItem(
+                    title: "Translation style",
+                    infoAction: { showTranslationStyleInfo = true }
+                ) {
+                    Picker("Translation style", selection: $translationStyle) {
+                        Text("Literal").tag(TranslationStyle.literal)
+                        Text("Idiomatic").tag(TranslationStyle.idiomatic)
+                    }
+                    .pickerStyle(.segmented)
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, 2)
+                    .labelsHidden()
+                }
+            }
+            .modifier(RegularWidthPopover(isPresented: $showSegmentationInfo) {
+                SegmentationInfoCard()
+                    .frame(maxWidth: 360)
+                    .padding()
+            })
+            .sheet(isPresented: Binding(
+                get: { hSize == .compact && showSegmentationInfo },
+                set: { showSegmentationInfo = $0 }
+            )) {
+                SegmentationInfoCard()
+                    .presentationDetents([.fraction(0.4), .medium])
+                    .presentationDragIndicator(.visible)
+            }
+            .modifier(RegularWidthPopover(isPresented: $showTranslationStyleInfo) {
+                TranslationStyleInfoCard()
+                    .frame(maxWidth: 360)
+                    .padding()
+            })
+            .sheet(isPresented: Binding(
+                get: { hSize == .compact && showTranslationStyleInfo },
+                set: { showTranslationStyleInfo = $0 }
+            )) {
+                TranslationStyleInfoCard()
+                    .presentationDetents([.fraction(0.35), .medium])
+                    .presentationDragIndicator(.visible)
+            }
+        }
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+    }
+    
+    @ViewBuilder private func languageSection() -> some View {
+        Section {
+            LanguageCard(
+                genLanguage: $genLanguage,
+                transLanguage: $transLanguage,
+                allSupportedLanguages: allSupportedLanguages
+            )
+        }
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+    }
 
     @ViewBuilder private func segmentationSection() -> some View {
         Section {
@@ -721,175 +901,10 @@ struct GeneratorView: View {
     
     // MARK: - UI
     var body: some View {
-        
-        // local alias so the body stays readable
-        let advanced = advancedExpandedBinding
-        
         Form {
-            
-            // --- Mode + Input as a single card ---
-            Section {
-                ModeCard(
-                    mode: $mode,
-                    userPrompt: $userPrompt,
-                    selectedPromptCategory: $selectedPromptCategory,
-                    randomTopic: $randomTopic,
-                    showConfigurator: $showConfigurator,
-                    pickRandomPresetPrompt: { pickRandomPresetPrompt() },
-                    buildRandomTopic: { buildRandomTopic() },
-                    promptFocus: $promptIsFocused,
-                    showModeInfo: $showModeInfo
-                )
-                .padding(.top, 42)
-                .buttonStyle(.plain)  // <— prevents the whole row from being a tappable button
-
-                // Suggestions shown under Mode card
-                if !generator.nextPromptSuggestions.isEmpty {
-                    NextPromptSuggestionsView(
-                        suggestions: generator.nextPromptSuggestions,
-                        onPick: { picked in
-                            // Copy into the editor and switch to Prompt mode
-                            mode = .prompt
-                            userPrompt = picked
-                            // Optional: focus editor
-                            // promptIsFocused = true
-                        }
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-
-                
-            }
-            .listRowInsets(EdgeInsets())            // edge-to-edge for the card
-            .listRowBackground(Color.clear)
-            
-            // --- Advanced group as a single card ---
-            Section {
-                AdvancedCard(expanded: advanced, title: "Advanced Options") {
-
-                    AdvancedItem(
-                        title: "Segmentation",
-                        infoAction: { showSegmentationInfo = true }
-                    ) {
-                        Picker("Segment by", selection: $segmentation) {
-                            ForEach(Array(Segmentation.allCases), id: \.self) { s in
-                                Text(s.rawValue).tag(s)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .contentShape(Rectangle())     // keeps taps easy
-                        .padding(.horizontal, 2)       // inside the segmented picker container
-                        .accessibilityLabel("Segment by")
-                    }
-
-
-                    AdvancedSpacer()
-
-                    AdvancedItem(
-                        title: "Length",
-                        trailing: "~\(lengthPreset.words) words"
-                    ) {
-                        Picker("", selection: $lengthPreset) {
-                            ForEach(LengthPreset.allCases) { preset in
-                                Text(preset.label).tag(preset)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .contentShape(Rectangle())     // keeps taps easy
-                        .padding(.horizontal, 2)       // inside the segmented picker container
-                        .labelsHidden()
-                    }
-
-                    AdvancedSpacer()
-
-                    AdvancedItem(title: "Speech speed") {
-                        Picker("Speech speed", selection: $speechSpeed) {
-                            Text("Regular").tag(SpeechSpeed.regular)
-                            Text("Slow").tag(SpeechSpeed.slow)
-                        }
-                        .pickerStyle(.segmented)
-                        .contentShape(Rectangle())     // keeps taps easy
-                        .padding(.horizontal, 2)       // inside the segmented picker container
-                        .labelsHidden()
-                    }
-
-                    AdvancedSpacer()
-
-                    AdvancedItem(title: "Language level (CEFR)") {
-                        Picker("Level", selection: $languageLevel) {
-                            ForEach(Array(LanguageLevel.allCases), id: \.self) { level in
-                                Text(level.rawValue).tag(level)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .contentShape(Rectangle())     // keeps taps easy
-                        .padding(.horizontal, 2)       // inside the segmented picker container
-                        .labelsHidden()
-                    }
-                    
-                    AdvancedSpacer()
-
-                    AdvancedItem(
-                        title: "Translation style",
-                        infoAction: { showTranslationStyleInfo = true } // NEW binding below
-                    ) {
-                        Picker("Translation style", selection: $translationStyle) {
-                            Text("Literal").tag(TranslationStyle.literal)
-                            Text("Idiomatic").tag(TranslationStyle.idiomatic)
-                        }
-                        .pickerStyle(.segmented)
-                        .contentShape(Rectangle())
-                        .padding(.horizontal, 2)
-                        .labelsHidden()
-                    }
-                    
-                }
-                
-                .modifier(RegularWidthPopover(isPresented: $showSegmentationInfo) {
-                    SegmentationInfoCard()
-                        .frame(maxWidth: 360)
-                        .padding()
-                })
-                .sheet(isPresented: Binding(
-                    get: { hSize == .compact && showSegmentationInfo },
-                    set: { showSegmentationInfo = $0 }
-                )) {
-                    SegmentationInfoCard()
-                        .presentationDetents([.fraction(0.4), .medium])
-                        .presentationDragIndicator(.visible)
-                }
-                
-                .modifier(RegularWidthPopover(isPresented: $showTranslationStyleInfo) {
-                    TranslationStyleInfoCard()
-                        .frame(maxWidth: 360)
-                        .padding()
-                })
-                .sheet(isPresented: Binding(
-                    get: { hSize == .compact && showTranslationStyleInfo },
-                    set: { showTranslationStyleInfo = $0 }
-                )) {
-                    TranslationStyleInfoCard()
-                        .presentationDetents([.fraction(0.35), .medium])
-                        .presentationDragIndicator(.visible)
-                }
-            }
-            .listRowInsets(EdgeInsets())               // removes the default insets
-            .listRowBackground(Color.clear)            // removes the default grouped bg
-
-            
-            Section {
-                LanguageCard(
-                    genLanguage: $genLanguage,
-                    transLanguage: $transLanguage,
-                    allSupportedLanguages: allSupportedLanguages
-                )
-
-            }
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
-            
+            modeSection()
+            advancedSection()
+            languageSection()
             actionSection()
         }
         .scrollContentBackground(.hidden)
@@ -949,6 +964,21 @@ struct GeneratorView: View {
         }
         .onChange(of: interestRow, initial: false) { _, newValue in
             interestRowJSON = saveRow(newValue)
+        }
+        
+        // Persist next prompt suggestions when they are generated
+        .onChange(of: generator.nextPromptSuggestions, initial: false) { _, newSuggestions in
+            if !newSuggestions.isEmpty {
+                persistedSuggestions = saveSuggestions(newSuggestions)
+            }
+        }
+        
+        // Clear persisted suggestions when generation starts
+        .onChange(of: generator.isBusy, initial: false) { _, isBusy in
+            if isBusy {
+                // Clear persisted suggestions when starting new generation
+                persistedSuggestions = Data()
+            }
         }
 
         // Detect newly added lessons to show the toast
