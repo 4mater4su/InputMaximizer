@@ -168,6 +168,7 @@ struct GeneratorView: View {
     
     @FocusState private var promptIsFocused: Bool
     
+    @State private var suggestionsExpanded: Bool = true
     
     // TEMP: always-on fallback suggestions for NextPromptSuggestionsView
     private let defaultSuggestionsAlwaysOn: [String] = [
@@ -747,42 +748,65 @@ struct GeneratorView: View {
         
         Form {
             
-            // --- Mode + Input as a single card ---
+            // --- Mode + Input (+ Suggestions) as a single row ---
             Section {
-                ModeCard(
-                    mode: $mode,
-                    userPrompt: $userPrompt,
-                    selectedPromptCategory: $selectedPromptCategory,
-                    randomTopic: $randomTopic,
-                    showConfigurator: $showConfigurator,
-                    pickRandomPresetPrompt: { pickRandomPresetPrompt() },
-                    buildRandomTopic: { buildRandomTopic() },
-                    promptFocus: $promptIsFocused,
-                    showModeInfo: $showModeInfo
-                )
-                .padding(.top, 42)
-                .buttonStyle(.plain)  // <— prevents the whole row from being a tappable button
+                VStack(spacing: 0) {
+                    ModeCard(
+                        mode: $mode,
+                        userPrompt: $userPrompt,
+                        selectedPromptCategory: $selectedPromptCategory,
+                        randomTopic: $randomTopic,
+                        showConfigurator: $showConfigurator,
+                        pickRandomPresetPrompt: { pickRandomPresetPrompt() },
+                        buildRandomTopic: { buildRandomTopic() },
+                        promptFocus: $promptIsFocused,
+                        showModeInfo: $showModeInfo
+                    )
+                    .padding(.top, 42)
+                    .buttonStyle(.plain)
 
-                NextPromptSuggestionsView(
-                    suggestions: suggestionsForUI,
-                    onPick: { picked in
-                        // Keep the existing integration behavior
-                        mode = .prompt
-                        userPrompt = picked
-                        // Optional: focus editor if you like
-                        // promptIsFocused = true
+                    // Suggestions only render when expanded
+                    if suggestionsExpanded {
+                        NextPromptSuggestionsView(
+                            isExpanded: $suggestionsExpanded,
+                            suggestions: suggestionsForUI,
+                            onPick: { picked in
+                                mode = .prompt
+                                userPrompt = picked
+                            }
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
-                )
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                // Reserve bottom space when hidden (so overlay isn’t clipped)
+                .padding(.bottom, suggestionsExpanded ? 0 : 30)
 
-
-                
+                // Centered chevron-down toggle, styled like the Advanced Options card header
+                .overlay(alignment: .bottom) {
+                    if !suggestionsExpanded {
+                        Button {
+                            withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
+                                suggestionsExpanded = true
+                            }
+                        } label: {
+                            Image(systemName: "chevron.down")
+                                .imageScale(.medium)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 6)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .offset(y: 4) // small push below card shadow
+                        .accessibilityLabel("Show next prompt suggestions")
+                    }
+                }
             }
-            .listRowInsets(EdgeInsets())            // edge-to-edge for the card
+            .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
-            
+
+
             // --- Advanced group as a single card ---
             Section {
                 AdvancedCard(expanded: advanced, title: "Advanced Options") {
@@ -1170,30 +1194,20 @@ private struct AdvancedSpacer: View {
 
 
 private struct NextPromptSuggestionsView: View {
+    @Binding var isExpanded: Bool
     let suggestions: [String]
     var onPick: (String) -> Void
-
-    @State private var isExpanded: Bool = true
 
     var body: some View {
         VStack(spacing: 0) {
 
-            // HEADER — centered title + trailing chevron
+            // HEADER — toggle chevron
             Button {
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
                     isExpanded.toggle()
                 }
             } label: {
                 ZStack {
-                    /*
-                    // Centered label
-                    Text("Try one of these next:")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                     */
-
-                    // Trailing chevron
                     HStack {
                         Spacer()
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
@@ -1201,25 +1215,20 @@ private struct NextPromptSuggestionsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                // Make tap target tall and center vertically
-                .frame(maxWidth: .infinity, minHeight: 10, alignment: .center)
+                // Make the header *flat* when collapsed so it doesn't add vertical height.
+                .frame(maxWidth: .infinity, minHeight: isExpanded ? 10 : 0, alignment: .center)
                 .contentShape(Rectangle())
-                .padding(.vertical, 10)
+                .padding(.vertical, isExpanded ? 10 : 0)
                 .padding(.horizontal, 0)
-
-                // 🔹 Match the body background
                 .background(Color.appBackground)
             }
             .buttonStyle(.plain)
 
-
-            // CONTENT — smoother open/close transition
+            // CONTENT — only present when expanded
             if isExpanded {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(Array(suggestions.prefix(3)), id: \.self) { s in
-                        Button {
-                            onPick(s)
-                        } label: {
+                        Button { onPick(s) } label: {
                             Text(s)
                                 .font(.footnote)
                                 .multilineTextAlignment(.leading)
@@ -1235,30 +1244,19 @@ private struct NextPromptSuggestionsView: View {
                 }
                 .padding(.bottom, 0)
                 .padding(.horizontal, 12)
-                // softer, more natural expansion
-                .transition(
-                    .scale(scale: 0.98, anchor: .top)
-                    .combined(with: .opacity)
-                )
+                .transition(.scale(scale: 0.98, anchor: .top).combined(with: .opacity))
             }
         }
         .padding(.top, 0)
-        .padding(.horizontal, 0)     // keep your custom inner padding
+        .padding(.horizontal, 0)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.appBackground)
         )
-        /*
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
-        )
-        */
-        //.padding(.horizontal, 24)     // keep your outer padding
-        // drive all animations off the toggle for extra smoothness
         .animation(.spring(response: 0.34, dampingFraction: 0.88), value: isExpanded)
     }
 }
+
 
 
 
