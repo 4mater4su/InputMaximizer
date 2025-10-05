@@ -168,8 +168,8 @@ struct GeneratorView: View {
     
     @FocusState private var promptIsFocused: Bool
     
-    @State private var suggestionsExpanded: Bool = true
-    
+    @AppStorage("generatorSuggestionsExpandedV1") private var suggestionsExpanded: Bool = true
+
     // TEMP: always-on fallback suggestions for NextPromptSuggestionsView
     private let defaultSuggestionsAlwaysOn: [String] = [
         "Write a short scene about meeting a stranger in a café.",
@@ -178,7 +178,7 @@ struct GeneratorView: View {
     ]
 
     // If you want to be able to flip this off later, keep a flag:
-    private let debugAlwaysUseDefaults = true
+    private let debugAlwaysUseDefaults = false
 
     private var suggestionsForUI: [String] {
         if debugAlwaysUseDefaults { return defaultSuggestionsAlwaysOn }
