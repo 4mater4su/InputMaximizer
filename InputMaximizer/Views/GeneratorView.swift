@@ -1167,11 +1167,13 @@ private struct NextPromptSuggestionsView: View {
                 }
             } label: {
                 ZStack {
+                    /*
                     // Centered label
                     Text("Try one of these next:")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
+                     */
 
                     // Trailing chevron
                     HStack {
@@ -1182,12 +1184,16 @@ private struct NextPromptSuggestionsView: View {
                     }
                 }
                 // Make tap target tall and center vertically
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
+                .frame(maxWidth: .infinity, minHeight: 10, alignment: .center)
                 .contentShape(Rectangle())
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
+                .padding(.vertical, 0)
+                .padding(.horizontal, 0)
+
+                // 🔹 Match the body background
+                .background(Color.appBackground)
             }
             .buttonStyle(.plain)
+
 
             // CONTENT — smoother open/close transition
             if isExpanded {
@@ -1219,16 +1225,18 @@ private struct NextPromptSuggestionsView: View {
             }
         }
         .padding(.top, 12)
-        .padding(.horizontal, 10)     // keep your custom inner padding
+        .padding(.horizontal, 0)     // keep your custom inner padding
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                .fill(Color.appBackground)
         )
+        /*
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
         )
-        .padding(.horizontal, 24)     // keep your outer padding
+        */
+        //.padding(.horizontal, 24)     // keep your outer padding
         // drive all animations off the toggle for extra smoothness
         .animation(.spring(response: 0.34, dampingFraction: 0.88), value: isExpanded)
     }

@@ -526,24 +526,26 @@ private extension GeneratorService {
         // --- Ask for 3 prompts in helper language (transLanguage), not target ---
         func llmAsk(diversityBooster: String) async throws -> [String] {
             let user = """
-            You create short, self-contained WRITING PROMPTS for language-learning text generation.
+                        You create short, self-contained WRITING PROMPTS for language-learning text generation.
 
-            Output language: \(req.transLanguage)   // helper language ONLY
-            Count: exactly 3 prompts.
-            Length per prompt: one sentence, ≤ 22–25 words.
-            Formatting: return ONLY a strict JSON array of 3 strings (no numbering, no commentary).
+                        Output language: \(req.transLanguage)   // helper language ONLY
+                        Count: exactly 3 prompts.
+                        Length per prompt: one sentence, ≤ 22–25 words.
+                        Formatting: return ONLY a strict JSON array of 3 strings (no numbering, no commentary).
 
-            Diversity requirements (very important):
-            • Each prompt must take a distinctly different direction from the others AND from the user's previous seed.
-            • Change at least TWO of these axes per prompt: purpose (inform/explain/persuade/narrate), genre/form, setting/place, time/era, perspective/POV, audience, tone/register.
-            • Avoid reusing the same key nouns/verbs/themes from the seed unless necessary for sense.
-            • No meta-instructions, no references to “the previous prompt/seed”.
+                        Diversity requirements (very important):
+                        • The FIRST prompt must be a natural continuation or extension of the user's previous seed, keeping its tone, theme, and style consistent.
+                        • The SECOND and THIRD prompts must take distinctly different directions from both the seed and each other.
+                        • Change at least TWO of these axes per prompt (for prompts 2–3): purpose (inform/explain/persuade/narrate), genre/form, setting/place, time/era, perspective/POV, audience, tone/register.
+                        • Avoid reusing the same key nouns/verbs/themes from the seed in prompts 2–3 unless necessary for sense.
+                        • No meta-instructions, no references to “the previous prompt/seed”.
 
-            User’s previous seed (to diverge from):
-            \(seed)
+                        User’s previous seed (to continue/diverge from):
+                        \(seed)
 
-            \(diversityBooster)
-            """
+                        \(diversityBooster)
+                        """
+
 
             let body: [String: Any] = [
                 "model": "gpt-5-nano",
