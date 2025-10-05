@@ -1186,7 +1186,7 @@ private struct NextPromptSuggestionsView: View {
                 // Make tap target tall and center vertically
                 .frame(maxWidth: .infinity, minHeight: 10, alignment: .center)
                 .contentShape(Rectangle())
-                .padding(.vertical, 0)
+                .padding(.vertical, 10)
                 .padding(.horizontal, 0)
 
                 // 🔹 Match the body background
@@ -1215,7 +1215,7 @@ private struct NextPromptSuggestionsView: View {
                         .tint(.accentColor)
                     }
                 }
-                .padding(.bottom, 12)
+                .padding(.bottom, 0)
                 .padding(.horizontal, 12)
                 // softer, more natural expansion
                 .transition(
@@ -1224,7 +1224,7 @@ private struct NextPromptSuggestionsView: View {
                 )
             }
         }
-        .padding(.top, 12)
+        .padding(.top, 0)
         .padding(.horizontal, 0)     // keep your custom inner padding
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
