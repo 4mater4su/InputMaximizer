@@ -167,6 +167,26 @@ struct GeneratorView: View {
     @State private var toastHideWork: DispatchWorkItem?
     
     @FocusState private var promptIsFocused: Bool
+    
+    
+    // TEMP: always-on fallback suggestions for NextPromptSuggestionsView
+    private let defaultSuggestionsAlwaysOn: [String] = [
+        "Write a short scene about meeting a stranger in a café.",
+        "Describe a childhood memory using vivid sensory details.",
+        "Tell a mini travel diary from a night train across Europe."
+    ]
+
+    // If you want to be able to flip this off later, keep a flag:
+    private let debugAlwaysUseDefaults = true
+
+    private var suggestionsForUI: [String] {
+        if debugAlwaysUseDefaults { return defaultSuggestionsAlwaysOn }
+        // (When you want to restore dynamic behavior, make this the fallback)
+        let s = generator.nextPromptSuggestions
+        return s.isEmpty ? defaultSuggestionsAlwaysOn : s
+    }
+
+    
 
     private let supportedLanguages: [String] = [
         "Afrikaans","Arabic","Armenian","Azerbaijani","Belarusian","Bosnian","Bulgarian","Catalan","Chinese (Simplified)","Chinese (Traditional)","Croatian",
@@ -743,22 +763,20 @@ struct GeneratorView: View {
                 .padding(.top, 42)
                 .buttonStyle(.plain)  // <— prevents the whole row from being a tappable button
 
-                // Suggestions shown under Mode card
-                if !generator.nextPromptSuggestions.isEmpty {
-                    NextPromptSuggestionsView(
-                        suggestions: generator.nextPromptSuggestions,
-                        onPick: { picked in
-                            // Copy into the editor and switch to Prompt mode
-                            mode = .prompt
-                            userPrompt = picked
-                            // Optional: focus editor
-                            // promptIsFocused = true
-                        }
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
+                NextPromptSuggestionsView(
+                    suggestions: suggestionsForUI,
+                    onPick: { picked in
+                        // Keep the existing integration behavior
+                        mode = .prompt
+                        userPrompt = picked
+                        // Optional: focus editor if you like
+                        // promptIsFocused = true
+                    }
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+
 
                 
             }
