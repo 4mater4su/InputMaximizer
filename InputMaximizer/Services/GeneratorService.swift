@@ -771,6 +771,11 @@ private extension GeneratorService {
             Extract the most relevant KEYWORDS and SHORT PHRASES from the user's TARGET-LANGUAGE text,
             then provide a concise translation into the requested helper language.
 
+            - Exclude words that are identical or nearly identical in both languages (cognates).
+            - Exclude names of people, places, and other proper nouns.
+            - Focus on words and phrases that are important for understanding the meaning and are not obvious to a beginner.
+            - Prefer verbs, nouns, and adjectives.
+            
             Output rules (strict):
             • Output ONLY lines of the form: <target>\t<translation>
             • One pair per line. No numbering, bullets, or extra commentary.
