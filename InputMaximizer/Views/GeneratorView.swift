@@ -1329,33 +1329,29 @@ private struct ModeCard: View {
                         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
 
                         HStack(spacing: 8) {
+                            // Match random mode button styling
                             Button(action: pickRandomPresetPrompt) {
                                 Label("Randomize", systemImage: "die.face.5")
                                     .lineLimit(1)
-                                    .minimumScaleFactor(0.75)
-                                    .layoutPriority(1)          // <- keep this from being squeezed first
+                                    .fixedSize(horizontal: true, vertical: false)
                             }
                             .buttonStyle(.bordered)
 
-                            
                             Spacer(minLength: 8)
-                            
+
+                            // Category as a bordered "button-like" menu, same visual weight
                             Menu {
                                 Picker("Category", selection: $selectedPromptCategory) {
                                     ForEach(GeneratorView.PromptCategory.allCases) { Text($0.rawValue).tag($0) }
                                 }
                             } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "line.3.horizontal.decrease.circle")
-                                    Text(selectedPromptCategory.rawValue)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)   // <- shorten this first if needed
-                                        .minimumScaleFactor(0.75)
-                                }
+                                Label(selectedPromptCategory.rawValue, systemImage: "line.3.horizontal.decrease.circle")
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
                             }
                             .buttonStyle(.bordered)
-                            
                         }
+
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 } else {
