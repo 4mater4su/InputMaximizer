@@ -23,6 +23,15 @@ private struct DisplaySegment: Identifiable {
     let en_text: String
 }
 
+// Keyword pair with paragraph information
+private struct KeywordPair: Identifiable {
+    let id = UUID()
+    let target: String
+    let translation: String
+    let paragraph: Int
+    let firstOccurrenceIndex: Int  // for ordering within paragraph
+}
+
 // Group model for paragraph rendering (now uses DisplaySegment)
 private struct ParaGroup: Identifiable {
     let id: Int          // paragraph index
@@ -149,7 +158,7 @@ struct ContentView: View {
     @EnvironmentObject private var store: LessonStore
 
     @State private var showKeywords = false
-    @State private var loadedKeywordPairs: [(String,String)] = []
+    @State private var loadedKeywordPairs: [KeywordPair] = []
 
     
     @State private var toastMessage: String? = nil
@@ -224,29 +233,88 @@ struct ContentView: View {
             return
         }
 
-        var out: [(String,String)] = []
+        // Parse keyword pairs from file
+        var rawPairs: [(String, String)] = []
         for raw in txt.split(separator: "\n") {
             let line = String(raw).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
+            
             if let tab = line.firstIndex(of: "\t") {
                 let a = String(line[..<tab]).trimmingCharacters(in: .whitespaces)
                 let b = String(line[line.index(after: tab)...]).trimmingCharacters(in: .whitespaces)
-                if !a.isEmpty, !b.isEmpty { out.append((a,b)) }
+                if !a.isEmpty, !b.isEmpty { rawPairs.append((a, b)) }
             } else if line.contains(" — ") {
                 let parts = line.components(separatedBy: " — ")
                 if parts.count >= 2 {
-                    out.append((parts[0].trimmingCharacters(in: .whitespaces),
-                                parts[1].trimmingCharacters(in: .whitespaces)))
+                    rawPairs.append((parts[0].trimmingCharacters(in: .whitespaces),
+                                   parts[1].trimmingCharacters(in: .whitespaces)))
                 }
             } else if line.contains(" - ") {
                 let parts = line.components(separatedBy: " - ")
                 if parts.count >= 2 {
-                    out.append((parts[0].trimmingCharacters(in: .whitespaces),
-                                parts[1].trimmingCharacters(in: .whitespaces)))
+                    rawPairs.append((parts[0].trimmingCharacters(in: .whitespaces),
+                                   parts[1].trimmingCharacters(in: .whitespaces)))
                 }
             }
         }
-        loadedKeywordPairs = out
+        
+        // Map keywords to paragraphs and order by first occurrence
+        var keywordPairs: [KeywordPair] = []
+        var unmappedKeywords: [(String, String)] = []
+        
+        for (target, translation) in rawPairs {
+            // Find which paragraph this keyword first appears in
+            var firstParagraph = 0
+            var firstOccurrenceIndex = Int.max
+            
+            for (paraIndex, group) in groupedByParagraph.enumerated() {
+                for (segIndex, segment) in group.segments.enumerated() {
+                    // Check if keyword appears in this segment (case-insensitive)
+                    if segment.pt_text.localizedCaseInsensitiveContains(target) {
+                        if segIndex < firstOccurrenceIndex {
+                            firstParagraph = paraIndex
+                            firstOccurrenceIndex = segIndex
+                        }
+                        break // Found in this paragraph, move to next paragraph
+                    }
+                }
+            }
+            
+            // If we found the keyword, add it with paragraph info
+            if firstOccurrenceIndex != Int.max {
+                keywordPairs.append(KeywordPair(
+                    target: target,
+                    translation: translation,
+                    paragraph: firstParagraph,
+                    firstOccurrenceIndex: firstOccurrenceIndex
+                ))
+            } else {
+                // Store unmapped keywords for fallback
+                unmappedKeywords.append((target, translation))
+            }
+        }
+        
+        // If we have mapped keywords, use them
+        if !keywordPairs.isEmpty {
+            // Sort by paragraph first, then by first occurrence within paragraph
+            loadedKeywordPairs = keywordPairs.sorted { pair1, pair2 in
+                if pair1.paragraph != pair2.paragraph {
+                    return pair1.paragraph < pair2.paragraph
+                }
+                return pair1.firstOccurrenceIndex < pair2.firstOccurrenceIndex
+            }
+        } else {
+            // Fallback: if no keywords could be mapped to paragraphs, 
+            // create a single paragraph group with all keywords
+            loadedKeywordPairs = unmappedKeywords.enumerated().map { (index, pair) in
+                KeywordPair(
+                    target: pair.0,
+                    translation: pair.1,
+                    paragraph: 0,
+                    firstOccurrenceIndex: index
+                )
+            }
+        }
     }
 
     
@@ -1237,37 +1305,53 @@ private struct ParagraphBox: View {
 private struct KeywordsView: View {
     let titleTarget: String    // e.g., "PT-BR"
     let titleTrans: String     // e.g., "EN"
-    let pairs: [(String,String)]
+    let pairs: [KeywordPair]
     @Environment(\.dismiss) private var dismiss
+
+    // Group keywords by paragraph
+    private var groupedKeywords: [(Int, [KeywordPair])] {
+        let groups = Dictionary(grouping: pairs, by: { $0.paragraph })
+        return groups.sorted { $0.key < $1.key }
+    }
 
     var body: some View {
         List {
-            Section {
-                ForEach(Array(pairs.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .top, spacing: 16) {
-                        // LEFT: target phrase
-                        Text(item.0)
-                            .font(.body)
-                            .frame(maxWidth: .infinity, alignment: .leading)   // take half the row
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)       // allow wrapping
+            ForEach(groupedKeywords, id: \.0) { paragraphIndex, paragraphPairs in
+                Section {
+                    ForEach(paragraphPairs) { pair in
+                        HStack(alignment: .top, spacing: 16) {
+                            // LEFT: target phrase
+                            Text(pair.target)
+                                .font(.body)
+                                .frame(maxWidth: .infinity, alignment: .leading)   // take half the row
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)       // allow wrapping
 
-                        // RIGHT: translation
-                        Text(item.1)
-                            .font(.body)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)   // take the other half
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)       // allow wrapping
+                            // RIGHT: translation
+                            Text(pair.translation)
+                                .font(.body)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)   // take the other half
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)       // allow wrapping
+                        }
+                        .padding(.vertical, 6)
                     }
-                    .padding(.vertical, 6)
-                }
-            } header: {
-                HStack(spacing: 16) {
-                    Text(titleTarget).font(.caption.bold())
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(titleTrans).font(.caption.bold())
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                } header: {
+                    if paragraphIndex == 0 {
+                        // Show column headers only for the first paragraph
+                        HStack(spacing: 16) {
+                            Text(titleTarget).font(.caption.bold())
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(titleTrans).font(.caption.bold())
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else {
+                        // Show paragraph number for subsequent paragraphs
+                        Text("Paragraph \(paragraphIndex + 1)")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
