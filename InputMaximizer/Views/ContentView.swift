@@ -1238,6 +1238,7 @@ private struct KeywordsView: View {
     let titleTarget: String    // e.g., "PT-BR"
     let titleTrans: String     // e.g., "EN"
     let pairs: [(String,String)]
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
@@ -1272,6 +1273,15 @@ private struct KeywordsView: View {
         }
         .listStyle(.insetGrouped)  // optional: nicer grouping on iOS
         .navigationTitle("Keywords & Phrases")
+        .gesture(
+            DragGesture()
+                .onEnded { value in
+                    // Swipe from left to right (positive translation.width)
+                    if value.translation.width > 50 && abs(value.translation.height) < 100 {
+                        dismiss()
+                    }
+                }
+        )
     }
 }
 
