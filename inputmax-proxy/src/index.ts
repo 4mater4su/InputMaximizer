@@ -11,6 +11,9 @@ export interface Env {
 
   REVIEW_CODE: string;          // e.g. "APPREVIEW2025" (set via wrangler secret)
   REVIEW_GRANT_AMOUNT: string;  // e.g. "20" (as string; set via wrangler secret)
+
+  /** Optional; default 3 */
+  INITIAL_GRANT?: string;
 }
 
 /* ================================
@@ -65,6 +68,27 @@ async function setBalance(env: Env, deviceId: string, v: number) {
 async function addCredits(env: Env, deviceId: string, delta: number) {
   const current = await getBalance(env, deviceId);
   await setBalance(env, deviceId, current + delta);
+}
+
+async function ensureInitialGrant(env: Env, deviceId: string) {
+  const markerKey = `device:${deviceId}:initial_granted`;
+  const already = await env.CREDITS.get(markerKey);
+  if (already) return;
+
+  const current = await getBalance(env, deviceId);
+  if (current > 0) {
+    await env.CREDITS.put(markerKey, String(Date.now()));
+    return;
+  }
+
+  const grant = parseInt(env.INITIAL_GRANT || "3", 10) || 3;
+  if (grant <= 0) {
+    await env.CREDITS.put(markerKey, String(Date.now()));
+    return;
+  }
+
+  await addCredits(env, deviceId, grant);
+  await env.CREDITS.put(markerKey, String(Date.now()));
 }
 
 function json(status: number, data: any) {
@@ -329,6 +353,8 @@ export default {
       // --- Credits: balance ---
       if (req.method === "GET" && path === "/credits/balance") {
         const deviceId = requireDeviceId(req);
+        await ensureInitialGrant(env, deviceId);
+
         const balance = await getBalance(env, deviceId);
         const reservedRaw = await env.CREDITS.get(`device:${deviceId}:reserved`);
         const reserved = reservedRaw ? parseInt(reservedRaw, 10) || 0 : 0;
@@ -393,6 +419,8 @@ export default {
       // --- Jobs: start (place a hold) ---
       if (req.method === "POST" && path === "/jobs/start") {
         const deviceId = requireDeviceId(req);
+        await ensureInitialGrant(env, deviceId);
+
         const body = await parseJSON<{ amount?: number; jobId?: string; ttlSeconds?: number }>(req);
         const amount = Math.max(1, Math.floor(body.amount ?? 1));
         const jobId = (body.jobId || crypto.randomUUID()).trim();
