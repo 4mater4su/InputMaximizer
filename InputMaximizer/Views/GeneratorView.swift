@@ -185,6 +185,7 @@ struct GeneratorView: View {
         if debugAlwaysUseDefaults { return defaultSuggestionsAlwaysOn }
         // (When you want to restore dynamic behavior, make this the fallback)
         let s = generator.nextPromptSuggestions
+        //return s.isEmpty ? defaultSuggestionsAlwaysOn : s
         return s.isEmpty ? defaultSuggestionsAlwaysOn : s
     }
 

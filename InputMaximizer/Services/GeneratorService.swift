@@ -485,24 +485,81 @@ private extension GeneratorService {
         var s = txt.replacingOccurrences(of: "\r\n", with: "\n")
                    .replacingOccurrences(of: "\r", with: "\n")
         while s.contains("\n\n\n") { s = s.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
+
         return s.components(separatedBy: "\n\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .map { p in
-                if let last = p.last, ".!?".contains(last) { return p }
-                return p + "."
-            }
+            .map { ensureTerminalPunctuationKeepingClosing($0) }   // <- use helper from above
     }
 
-    static func sentences(_ txt: String) -> [String] {
-        txt.split(whereSeparator: { ".!?".contains($0) })
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .map { s in
-                if s.hasSuffix(".") || s.hasSuffix("!") || s.hasSuffix("?") { return s }
-                return s + "."
-            }
+    static func sentences(_ text: String) -> [String] {
+        // Sentence enders, then optional closing quotes/brackets
+        // Handles ., !, ?, …, and clusters like ?! — keeps trailing ” ’ " » ) ]
+        let pattern = #"(.*?)([\.!?…]+[\"“”'’»\)\]]*)\s+"#
+        let ns = text as NSString
+        let rx = try! NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
+
+        var result: [String] = []
+        var idx = 0
+
+        for m in rx.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
+            let r = NSRange(location: idx, length: m.range.upperBound - idx)
+            let s = ns.substring(with: r).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !s.isEmpty { result.append(s) }
+            idx = m.range.upperBound
+        }
+
+        // Tail (if any) – trim; if non-empty and not punctuated, add a period *before* closing quotes
+        let tail = ns.substring(from: idx).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty {
+            result.append(ensureTerminalPunctuationKeepingClosing(tail))
+        }
+        return result
     }
+    
+    // —— Quote-aware sentence splitter for validation (keeps end marks + closers) ——
+    static func sentenceSplitKeepingClosers(_ text: String) -> [String] {
+        let pattern = #"(.*?)([\.!?…]+[\"“”'’»\)\]]*)(\s+|$)"#
+        let ns = text as NSString
+        let rx = try! NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
+
+        var out: [String] = []
+        var i = 0
+        for m in rx.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let r = NSRange(location: i, length: m.range.upperBound - i)
+            let s = ns.substring(with: r).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !s.isEmpty { out.append(s) }
+            i = m.range.upperBound
+        }
+        let tail = ns.substring(from: i).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty { out.append(tail) }
+        return out
+    }
+
+    static func sentenceCount(_ s: String) -> Int {
+        sentenceSplitKeepingClosers(s).count
+    }
+
+
+    // Adds '.' before closing quotes/brackets if missing
+    private static func ensureTerminalPunctuationKeepingClosing(_ s: String) -> String {
+        let closers = CharacterSet(charactersIn: "\"“”'’»)]")
+        let trims = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = trims.unicodeScalars.last else { return trims }
+        if CharacterSet(charactersIn: ".!?…").contains(last) { return trims }
+        // If last char is a closer, insert '.' before the trailing closer run
+        if closers.contains(last) {
+            var scalars = Array(trims.unicodeScalars)
+            var i = scalars.count - 1
+            while i >= 0, closers.contains(scalars[i]) { i -= 1 }
+            if i >= 0, !CharacterSet(charactersIn: ".!?…").contains(scalars[i]) {
+                scalars.insert(".", at: i + 1)
+            }
+            return String(String.UnicodeScalarView(scalars))
+        }
+        return trims + "."
+    }
+
 
     static func sentencesPerParagraph(_ txt: String) -> [Int] {
         let ps = Self.paragraphs(txt)
@@ -749,8 +806,8 @@ private extension GeneratorService {
             1) First line: short TITLE only (no quotes)
             2) Blank line
             3) Body text
-            4) Only use a full stops '.' to indicate the end of a sentence.
-            5) Only add newlines after full stops '.' if a new paragraph begins.
+            4) Use normal sentence punctuation (. ! ? …). If a sentence ends with a quote or bracket, put the punctuation BEFORE the closing mark, e.g., “…”.
+            5) Do NOT insert newlines inside a paragraph; separate sentences with a single space only. Start a new paragraph only when needed and separate paragraphs with exactly one blank line.
 
             """
 
@@ -876,74 +933,113 @@ private extension GeneratorService {
 
         
         func translate(_ text: String, to targetLang: String, style: Request.TranslationStyle) async throws -> String {
-            let system: String
-            switch style {
-            case .literal:
-                system = """
-                Translate as literally as possible into the requested language.
+            // First pass (asks the model to keep boundaries)
+            let draft = try await firstPassTranslate(text, to: targetLang, style: style)
 
-                Sentence alignment (must):
-                • Keep a 1:1 mapping with the source: SAME number of sentences, SAME order.
-                • Do not merge, split, add, or drop sentences.
+            // Validate sentence counts per paragraph. If off, repair.
+            let srcN = GeneratorService.sentenceCount(text)
+            let dstN = GeneratorService.sentenceCount(draft)
 
-                Translation style:
-                • Use word-for-word translation where feasible, keeping the original sentence structure.
-                • Prefer literal vocabulary choices over idiomatic expressions.
-                • Do not adjust grammar or phrasing to sound more natural unless absolutely required for comprehensibility.
-
-                Formatting:
-                • Return plain text only (no quotes, bullets, numbering, or metadata).
-                • Use normal sentence punctuation for the target language.
-                """
-            case .idiomatic:
-                system = """
-                Translate naturally and idiomatically into the requested language.
-
-                Sentence alignment (must):
-                • Keep a 1:1 mapping with the source: SAME number of sentences, SAME order.
-                • Do not merge, split, add, or drop sentences.
-
-                Translation style:
-                • Prefer idiomatic, natural-sounding phrasing over word-for-word mappings.
-                • Adjust grammar and word order to what a native speaker would write.
-                • Avoid unnatural calques unless needed to preserve meaning precisely.
-
-                Formatting:
-                • Return plain text only (no quotes, bullets, numbering, or metadata).
-                • Use normal sentence punctuation for the target language.
-                """
+            let aligned: String
+            if srcN != dstN {
+                aligned = try await repairSentenceAlignment(
+                    source: text,
+                    targetLang: targetLang,
+                    style: style,
+                    expectedSentenceCount: srcN,
+                    badDraft: draft
+                )
+            } else {
+                aligned = draft
             }
+
+            // Your existing check that fixes stray source-language tokens WITHOUT changing counts
+            let fixed = try await verifyAndFixTranslation(
+                source: text,
+                draft: aligned,
+                targetLang: targetLang,
+                style: style
+            )
+            return fixed
+        }
+
+        func firstPassTranslate(_ text: String, to targetLang: String, style: Request.TranslationStyle) async throws -> String {
+            let system: String = (style == .literal)
+            ? """
+              Translate as literally as possible.
+              KEEP EXACT sentence alignment (same number and order as the source).
+              Within a paragraph, NEVER insert newlines; separate sentences with a single space only.
+              If a closing quote/bracket is followed by a comma and more text (e.g., “…?”,), CONTINUE the SAME sentence.
+              Return PLAIN TEXT only.
+              """
+            : """
+              Translate naturally and idiomatically.
+              KEEP EXACT sentence alignment (same number and order as the source).
+              Within a paragraph, NEVER insert newlines; separate sentences with a single space only.
+              If a closing quote/bracket is followed by a comma and more text (e.g., “…?”,), CONTINUE the SAME sentence.
+              Return PLAIN TEXT only.
+              """
 
             let user = """
             Target language: \(targetLang)
-
-            Translate the text below. Preserve the sentence boundaries exactly
-            (one target sentence per source sentence, same order). No new lines after full stop.
+            Translate the text below. Preserve sentence boundaries exactly (1 target sentence per source sentence, same order).
 
             \(text)
             """
 
-            let body: [String: Any] = [
+            let body: [String:Any] = [
                 "model": "gpt-5-nano",
                 "messages": [
-                    ["role": "system", "content": system],
-                    ["role": "user",   "content": user]
+                    ["role":"system","content": system],
+                    ["role":"user","content": user]
                 ]
             ]
-
-            // First pass
-            let draft = try await chatViaProxy(body)
-
-            // Second pass: verify & fix any untranslated tokens while keeping alignment
-            let fixed = try await verifyAndFixTranslation(
-                source: text,
-                draft: draft,
-                targetLang: targetLang,
-                style: style
-            )
-
-            return fixed
+            return try await GeneratorService.chatViaProxy(body)
         }
+
+        func repairSentenceAlignment(
+            source: String,
+            targetLang: String,
+            style: Request.TranslationStyle,
+            expectedSentenceCount: Int,
+            badDraft: String
+        ) async throws -> String {
+
+            // Number the source sentences to give hard boundaries
+            let srcSentences = GeneratorService.sentenceSplitKeepingClosers(source)
+            let numbered = srcSentences.enumerated()
+                .map { "[\($0.offset+1)] \($0.element)" }
+                .joined(separator: " ")
+
+            let system = """
+            ALIGN the translation to the SOURCE sentence boundaries.
+            Output MUST contain EXACTLY \(expectedSentenceCount) sentences, same order and meaning.
+            Do NOT omit content. No newlines inside the paragraph; separate sentences with a single SPACE.
+            If a quoted question/exclamation is followed by a comma and more text, keep it in the SAME sentence.
+            Return PLAIN TEXT only.
+            Translation style: \(style == .idiomatic ? "idiomatic/natural" : "literal/faithful")
+            """
+
+            let user = """
+            Source (numbered for boundaries):
+            \(numbered)
+
+            Problematic draft (wrong boundaries):
+            \(badDraft)
+
+            Produce a corrected translation with EXACTLY \(expectedSentenceCount) sentences.
+            """
+
+            let body: [String:Any] = [
+                "model":"gpt-5-nano",
+                "messages":[
+                    ["role":"system","content": system],
+                    ["role":"user","content": user]
+                ]
+            ]
+            return try await GeneratorService.chatViaProxy(body)
+        }
+
 
 
         // ---------- Two-phase credit hold (reserve → commit/cancel) ----------
