@@ -137,6 +137,7 @@ struct GeneratorView: View {
     @State private var serverBalance: Int = 0
     @State private var balanceError: String?
 
+    @MainActor
     private func refreshServerBalance() async {
         do {
             serverBalance = try await GeneratorService.fetchServerBalance()
@@ -1051,22 +1052,21 @@ struct GeneratorView: View {
             }
         }
         .task {
-            do {
-                serverBalance = try await GeneratorService.fetchServerBalance()
-            } catch {
-                balanceError = error.localizedDescription
-            }
+            await refreshServerBalance()   // main-actor isolated; safe UI mutation
         }
 
-        .onReceive(NotificationCenter.default.publisher(for: .didPurchaseCredits)) { _ in
-            Task {
-                do { serverBalance = try await GeneratorService.fetchServerBalance() }
-                catch { balanceError = error.localizedDescription }
-            }
+
+        .onReceive(
+            NotificationCenter.default
+                .publisher(for: .didPurchaseCredits)
+                .receive(on: RunLoop.main)                 // <- ensure delivery on main
+        ) { _ in
+            Task { await refreshServerBalance() }         // <- main-actor func, safe
         }
+
 
         .sheet(isPresented: $showBuyCredits, onDismiss: {
-            Task { await refreshServerBalance() }
+            Task { await refreshServerBalance() }   // calls @MainActor func
         }) {
             NavigationStack {
                 BuyCreditsView(presentation: .modal)
@@ -1076,8 +1076,9 @@ struct GeneratorView: View {
 
         // Refresh balance after a successful generation
         .onChange(of: generator.lastLessonID, initial: false) { _, _ in
-            Task { await refreshServerBalance() }
+            Task { await refreshServerBalance() }   // calls @MainActor func
         }
+
 
 
     }

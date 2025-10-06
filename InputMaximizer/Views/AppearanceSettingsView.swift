@@ -127,9 +127,15 @@ struct AppearanceSettingsView: View {
             }
         }
         .task { await refreshServerBalance() }
-        .onReceive(NotificationCenter.default.publisher(for: .didPurchaseCredits)) { _ in
-            Task { await refreshServerBalance() }
+        
+        .onReceive(
+            NotificationCenter.default
+                .publisher(for: .didPurchaseCredits)
+                .receive(on: RunLoop.main) // ✅ deliver on main
+        ) { _ in
+            Task { await refreshServerBalance() } // @MainActor safe
         }
+
     }
 }
 

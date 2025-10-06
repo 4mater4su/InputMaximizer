@@ -98,13 +98,21 @@ struct BuyCreditsView: View {
             }
             await refreshServerBalance()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .didPurchaseCredits)) { _ in
+        .onReceive(
+            NotificationCenter.default
+                .publisher(for: .didPurchaseCredits)
+                .receive(on: RunLoop.main) // ✅ deliver on main
+        ) { _ in
             Task {
+                // refreshServerBalance() is @MainActor in our earlier patch
                 await refreshServerBalance()
-                // Optional: auto-close the sheet after a successful purchase
-                if presentation == .modal { dismiss() }
+                // Dismiss must also be on the main actor
+                await MainActor.run {
+                    if presentation == .modal { dismiss() }
+                }
             }
         }
+
     }
 }
 

@@ -654,13 +654,22 @@ struct LessonSelectionView: View {
                 }
             }
             
-            .onReceive(NotificationCenter.default.publisher(for: .openGeneratedLesson)) { notif in
+            .onReceive(
+                NotificationCenter.default
+                    .publisher(for: .openGeneratedLesson)
+                    .receive(on: RunLoop.main) // ✅ deliver on main
+            ) { notif in
                 guard let id = notif.userInfo?["id"] as? String else { return }
+
+                // If store.load() touches model/UI, keep it on main
                 store.load()
+
                 if let lesson = store.lessons.first(where: { $0.id == id || $0.folderName == id }) {
+                    // UI mutation must be on main
                     selectedLesson = lesson
                 }
             }
+
 
             .overlay(alignment: .top) {
                 if let message = toastMessage {
