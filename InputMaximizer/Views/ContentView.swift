@@ -32,6 +32,28 @@ private struct KeywordPair: Identifiable {
     let firstOccurrenceIndex: Int  // for ordering within paragraph
 }
 
+// Preference key for tracking scroll offset
+private struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+// Data structure for paragraph visibility tracking
+private struct ParagraphVisibilityData: Equatable {
+    let paragraphIndex: Int
+    let frame: CGRect
+}
+
+// Preference key for tracking paragraph visibility
+private struct ParagraphVisibilityPreferenceKey: PreferenceKey {
+    static var defaultValue: [ParagraphVisibilityData] = []
+    static func reduce(value: inout [ParagraphVisibilityData], nextValue: () -> [ParagraphVisibilityData]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
 // Group model for paragraph rendering (now uses DisplaySegment)
 private struct ParaGroup: Identifiable {
     let id: Int          // paragraph index
@@ -159,6 +181,7 @@ struct ContentView: View {
 
     @State private var showKeywords = false
     @State private var loadedKeywordPairs: [KeywordPair] = []
+    @State private var mostVisibleParagraph: Int = 0
 
     
     @State private var toastMessage: String? = nil
@@ -320,6 +343,37 @@ struct ContentView: View {
     
     // MARK: - Derived
     private var currentLesson: Lesson { lessons[currentLessonIndex] }
+    
+    // Update most visible paragraph based on scroll position
+    private func updateMostVisibleParagraph(offset: CGFloat) {
+        // Calculate which paragraph is most visible based on scroll offset
+        // Use a more accurate calculation based on the actual content
+        let scrollOffset = -offset
+        
+        // Find which paragraph group is most visible
+        var bestParagraph = 0
+        var maxVisibleArea: CGFloat = 0
+        
+        for (paragraphIndex, group) in groupedByParagraph.enumerated() {
+            // Calculate approximate position of this paragraph
+            let paragraphStartY = CGFloat(paragraphIndex) * 300 // Approximate paragraph height
+            let paragraphEndY = paragraphStartY + 300
+            
+            // Calculate how much of this paragraph is visible
+            let visibleStart = max(paragraphStartY, scrollOffset)
+            let visibleEnd = min(paragraphEndY, scrollOffset + 800) // Approximate screen height
+            let visibleArea = max(0, visibleEnd - visibleStart)
+            
+            if visibleArea > maxVisibleArea {
+                maxVisibleArea = visibleArea
+                bestParagraph = paragraphIndex
+            }
+        }
+        
+        if bestParagraph != mostVisibleParagraph {
+            mostVisibleParagraph = bestParagraph
+        }
+    }
 
     private var isViewingActiveLesson: Bool {
         audioManager.currentLessonFolderName == currentLesson.folderName
@@ -677,6 +731,9 @@ struct ContentView: View {
                             audioManager.playInContinuousLane(from: idx)
                         }
                     },
+                    onParagraphVisible: { paragraphIndex in
+                        mostVisibleParagraph = paragraphIndex
+                    },
                     fontComfortMode: fontComfortMode,
                     isTargetChinese: isTargetChinese,
                     isTranslationChinese: isTranslationChinese,
@@ -762,6 +819,7 @@ struct ContentView: View {
                     }
                 }
         )
+        .coordinateSpace(name: "lessonScroll")
         .onAppear {
             let base = audioManager.previewSegments(for: currentLesson.folderName)
             displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
@@ -904,7 +962,8 @@ struct ContentView: View {
                 KeywordsView(
                     titleTarget: lessonLangs.targetShort,
                     titleTrans: lessonLangs.translationShort,
-                    pairs: loadedKeywordPairs
+                    pairs: loadedKeywordPairs,
+                    targetParagraph: mostVisibleParagraph
                 )
             }
         }
@@ -1306,8 +1365,9 @@ private struct KeywordsView: View {
     let titleTarget: String    // e.g., "PT-BR"
     let titleTrans: String     // e.g., "EN"
     let pairs: [KeywordPair]
+    let targetParagraph: Int   // paragraph to scroll to based on lesson view
     @Environment(\.dismiss) private var dismiss
-
+    
     // Group keywords by paragraph
     private var groupedKeywords: [(Int, [KeywordPair])] {
         let groups = Dictionary(grouping: pairs, by: { $0.paragraph })
@@ -1315,57 +1375,92 @@ private struct KeywordsView: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            keywordsList
+                .onAppear {
+                    // Scroll to the paragraph that corresponds to the most visible paragraph in the lesson
+                    if let targetGroup = groupedKeywords.first(where: { $0.0 == targetParagraph }),
+                       let firstKeyword = targetGroup.1.first {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                proxy.scrollTo("keyword_\(firstKeyword.id)", anchor: UnitPoint.top)
+                            }
+                        }
+                    }
+                }
+                .gesture(swipeToDismissGesture)
+        }
+    }
+    
+    // Extracted keywords list view
+    @ViewBuilder
+    private var keywordsList: some View {
         List {
             ForEach(groupedKeywords, id: \.0) { paragraphIndex, paragraphPairs in
                 Section {
                     ForEach(paragraphPairs) { pair in
-                        HStack(alignment: .top, spacing: 16) {
-                            // LEFT: target phrase
-                            Text(pair.target)
-                                .font(.body)
-                                .frame(maxWidth: .infinity, alignment: .leading)   // take half the row
-                                .multilineTextAlignment(.leading)
-                                .fixedSize(horizontal: false, vertical: true)       // allow wrapping
-
-                            // RIGHT: translation
-                            Text(pair.translation)
-                                .font(.body)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)   // take the other half
-                                .multilineTextAlignment(.leading)
-                                .fixedSize(horizontal: false, vertical: true)       // allow wrapping
-                        }
-                        .padding(.vertical, 6)
+                        keywordRow(pair)
                     }
                 } header: {
-                    if paragraphIndex == 0 {
-                        // Show column headers only for the first paragraph
-                        HStack(spacing: 16) {
-                            Text(titleTarget).font(.caption.bold())
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(titleTrans).font(.caption.bold())
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    } else {
-                        // Show paragraph number for subsequent paragraphs
-                        Text("Paragraph \(paragraphIndex + 1)")
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
-                    }
+                    sectionHeader(for: paragraphIndex)
                 }
             }
         }
-        .listStyle(.insetGrouped)  // optional: nicer grouping on iOS
+        .listStyle(.insetGrouped)
         .navigationTitle("Keywords & Phrases")
-        .gesture(
-            DragGesture()
-                .onEnded { value in
-                    // Swipe from left to right (positive translation.width)
-                    if value.translation.width > 50 && abs(value.translation.height) < 100 {
-                        dismiss()
-                    }
+    }
+    
+    // Extracted keyword row view
+    @ViewBuilder
+    private func keywordRow(_ pair: KeywordPair) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            // LEFT: target phrase
+            Text(pair.target)
+                .font(.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // RIGHT: translation
+            Text(pair.translation)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 6)
+        .id("keyword_\(pair.id)")
+    }
+    
+    // Extracted section header view
+    @ViewBuilder
+    private func sectionHeader(for paragraphIndex: Int) -> some View {
+        if paragraphIndex == 0 {
+            // Show column headers only for the first paragraph
+            HStack(spacing: 16) {
+                Text(titleTarget).font(.caption.bold())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(titleTrans).font(.caption.bold())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            // Show paragraph number for subsequent paragraphs
+            Text("Paragraph \(paragraphIndex + 1)")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+        }
+    }
+    
+    // Extracted swipe gesture
+    private var swipeToDismissGesture: some Gesture {
+        DragGesture()
+            .onEnded { value in
+                // Swipe from left to right (positive translation.width)
+                if value.translation.width > 50 && abs(value.translation.height) < 100 {
+                    dismiss()
                 }
-        )
+            }
     }
 }
 
@@ -1465,6 +1560,7 @@ private struct TranscriptList: View {
     let playingSegmentID: Int?
     let headerTitle: String?
     let onTap: (DisplaySegment) -> Void
+    let onParagraphVisible: (Int) -> Void
     let fontComfortMode: FontComfortMode
     let isTargetChinese: Bool
     let isTranslationChinese: Bool
@@ -1491,6 +1587,17 @@ private struct TranscriptList: View {
                         isTargetChinese: isTargetChinese,
                         isTranslationChinese: isTranslationChinese
                     )
+                    .background(
+                        // Track paragraph visibility
+                        GeometryReader { geometry in
+                            Color.clear
+                                .preference(key: ParagraphVisibilityPreferenceKey.self, 
+                                           value: [ParagraphVisibilityData(
+                                               paragraphIndex: group.id,
+                                               frame: geometry.frame(in: .named("scroll"))
+                                           )])
+                        }
+                    )
                 }
                 
                 // Footer button: open the keywords/phrases view
@@ -1516,6 +1623,24 @@ private struct TranscriptList: View {
         }
         .scrollIndicators(.hidden)
         .background(Color.appBackground)
+        .coordinateSpace(name: "scroll")
+        .onPreferenceChange(ParagraphVisibilityPreferenceKey.self) { visibilityData in
+            // Find the most visible paragraph
+            let visibleParagraphs = visibilityData.filter { data in
+                let frame = data.frame
+                // Check if paragraph is significantly visible (more than 50% in view)
+                return frame.minY < 400 && frame.maxY > 200 // Approximate screen bounds
+            }
+            
+            if let mostVisible = visibleParagraphs.max(by: { data1, data2 in
+                // Choose the paragraph with the most visible area
+                let area1 = min(data1.frame.maxY, 400) - max(data1.frame.minY, 200)
+                let area2 = min(data2.frame.maxY, 400) - max(data2.frame.minY, 200)
+                return area1 < area2
+            }) {
+                onParagraphVisible(mostVisible.paragraphIndex)
+            }
+        }
     }
 }
 
