@@ -755,25 +755,25 @@ private extension GeneratorService {
         // --- Ask for 3 prompts in helper language (transLanguage), not target ---
         func llmAsk(diversityBooster: String) async throws -> [String] {
             let user = """
-                        You create short, self-contained WRITING PROMPTS for language-learning text generation.
+            You create short, self-contained WRITING PROMPTS for language-learning text generation.
 
-                        Output language: \(req.transLanguage)   // helper language ONLY
-                        Count: exactly 3 prompts.
-                        Length per prompt: one sentence, ≤ 22–25 words.
-                        Formatting: return ONLY a strict JSON array of 3 strings (no numbering, no commentary).
+            Output language: \(req.transLanguage)   // helper language ONLY
+            Count: exactly 3 prompts.
+            Length per prompt: one sentence, ≤ 22–25 words.
+            Formatting: return ONLY a strict JSON array of 3 strings (no numbering, no commentary).
 
-                        Diversity requirements (very important):
+            Diversity requirements (very important):
                         • The FIRST prompt must be a natural continuation or extension of the user's previous seed, keeping its tone, theme, and style consistent.
                         • The SECOND and THIRD prompts must take distinctly different directions from both the seed and each other.
                         • Change at least TWO of these axes per prompt (for prompts 2–3): purpose (inform/explain/persuade/narrate), genre/form, setting/place, time/era, perspective/POV, audience, tone/register.
                         • Avoid reusing the same key nouns/verbs/themes from the seed in prompts 2–3 unless necessary for sense.
-                        • No meta-instructions, no references to “the previous prompt/seed”.
+            • No meta-instructions, no references to “the previous prompt/seed”.
 
                         User’s previous seed (to continue/diverge from):
-                        \(seed)
+            \(seed)
 
-                        \(diversityBooster)
-                        """
+            \(diversityBooster)
+            """
 
 
             let body: [String: Any] = [
@@ -1008,7 +1008,7 @@ private extension GeneratorService {
             - Exclude names of people, places, and other proper nouns.
             - Focus on words and phrases that are important for understanding the meaning and are not obvious to a beginner.
             - Prefer verbs, nouns, and adjectives.
-            
+
             Output rules (strict):
             • Output ONLY lines of the form: <target>\t<translation>
             • One pair per line. No numbering, bullets, or extra commentary.

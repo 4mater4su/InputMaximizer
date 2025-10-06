@@ -819,6 +819,7 @@ struct ContentView: View {
                     }
                 }
         )
+        .accessibilityHint("Swipe left to open keywords and phrases")
         .coordinateSpace(name: "lessonScroll")
         .onAppear {
             let base = audioManager.previewSegments(for: currentLesson.folderName)
@@ -1301,6 +1302,10 @@ private struct SegmentRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 0, style: .continuous))
         .id(rowID)
         .onTapGesture(perform: onTap)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(segment.pt_text). \(segment.en_text)")
+        .accessibilityHint("Tap to play this segment")
+        .accessibilityAddTraits(isPlaying ? .isSelected : [])
     }
 }
 
@@ -1389,6 +1394,7 @@ private struct KeywordsView: View {
                     }
                 }
                 .gesture(swipeToDismissGesture)
+                .accessibilityHint("Swipe right to dismiss")
         }
     }
     
@@ -1431,6 +1437,8 @@ private struct KeywordsView: View {
         }
         .padding(.vertical, 6)
         .id("keyword_\(pair.id)")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(pair.target) means \(pair.translation)")
     }
     
     // Extracted section header view
@@ -1616,6 +1624,8 @@ private struct TranscriptList: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal)
                 .padding(.bottom, 10)
+                .accessibilityLabel("Show keywords and phrases")
+                .accessibilityHint("Opens a list of keywords and phrases for this lesson")
             }
             .id(folderName)           // reset layout identity on lesson change
             .padding(.horizontal)     // only horizontal padding
