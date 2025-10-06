@@ -535,10 +535,182 @@ private extension GeneratorService {
         if !tail.isEmpty { out.append(tail) }
         return out
     }
+    
+    // MARK: - Dialogue formatting helpers
+
+    static func leadingSpeakerLabelAndRest(_ s: String) -> (label: String, rest: String)? {
+        // Optional leading quotes/dashes/spaces, then a short name up to colon, then the utterance.
+        let pattern = #"^\s*[\"“”'’«»—-]*\s*([^\n:]{1,24}):\s*(.*)$"#
+        guard let rx = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let ns = s as NSString
+        guard let m = rx.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)),
+              m.numberOfRanges >= 3 else { return nil }
+        let label = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let rest  = ns.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (label, rest)
+    }
+
+
+    // Strip ONE outer pair of quotes if present (handles “ ”, " ", « », ‚ ‘, etc.)
+    private static func stripOneOuterQuotePair(_ s: String) -> String {
+        let opens = "“\"«‚‘„‹‘"
+        let closes = "”\"»’’“›’"
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first, let last = trimmed.last else { return trimmed }
+        let oidx = opens.firstIndex(of: first)
+        let cidx = closes.firstIndex(of: last)
+        if oidx != nil && cidx != nil && trimmed.count >= 2 {
+            let inner = trimmed.dropFirst().dropLast()
+            return String(inner).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed
+    }
+
+    // Convert any remaining *inner* double quotes to single quotes to avoid nested “ ”
+    private static func normalizeInnerQuotesToSingles(_ s: String) -> String {
+        var t = s
+        // straight double → straight single
+        t = t.replacingOccurrences(of: "\"", with: "'")
+        // smart double → smart single
+        t = t.replacingOccurrences(of: "“", with: "‘")
+             .replacingOccurrences(of: "”", with: "’")
+             .replacingOccurrences(of: "«", with: "‘")
+             .replacingOccurrences(of: "»", with: "’")
+        return t
+    }
+
+    // Wrap once in smart double quotes; ensure end punctuation inside the quotes.
+    static func ensureQuoted(_ content: String) -> String {
+        // 1) remove one outer layer if it exists
+        let unwrapped = stripOneOuterQuotePair(content)
+        // 2) normalize any remaining inner double quotes to singles
+        let inner = normalizeInnerQuotesToSingles(unwrapped)
+        // 3) ensure sentence-final punctuation, then wrap
+        let punctuated = ensureTerminalPunctuationKeepingClosing(inner)
+        return "“\(punctuated)”"
+    }
+
+    // Decide if a paragraph is dialogue: at least 1 sentence has a speaker label
+    static func isDialogueParagraph(_ sentences: [String]) -> Bool {
+        sentences.contains { leadingSpeakerLabelAndRest($0) != nil }
+    }
+
+    /// Normalize a whole text:
+    /// - Dialogue paragraphs (any sentence with a leading `Name:`) are grouped by speaker:
+    ///     Name: “sent 1. sent 2.”   // one line per speaker block, label outside, smart quotes
+    /// - Prose paragraphs (no speaker labels) keep a single-space flow (no newlines inside).
+    static func normalizeDialoguePresentation(_ text: String) -> String {
+        let paras = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n\n")
+
+        var out: [String] = []
+
+        for p in paras {
+            let trimmedP = p.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedP.isEmpty { continue }
+
+            // Split into sentences, keep punctuation/closers
+            let ss = sentenceSplitKeepingClosers(trimmedP).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if ss.isEmpty { continue }
+
+            // Decide: dialogue vs prose
+            let hasDialogue = ss.contains { leadingSpeakerLabelAndRest($0) != nil }
+            if !hasDialogue {
+                // PROSE: single spaced; ensure terminal punctuation
+                let joined = ss.map { ensureTerminalPunctuationKeepingClosing($0) }.joined(separator: " ")
+                out.append(joined)
+                continue
+            }
+
+            // DIALOGUE: group consecutive sentences by current speaker
+            var lines: [String] = []
+            var currentLabel: String? = nil
+            var buffer: [String] = []   // sentences (without label) for the current speaker
+
+            func flush() {
+                guard let lab = currentLabel else { return }
+                // join speaker’s sentences with a single space, then quote once
+                let merged = buffer.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                let quoted = ensureQuoted(merged)
+                lines.append("\(lab): \(quoted)")
+                buffer.removeAll(keepingCapacity: true)
+            }
+
+            for s in ss {
+                if let (lab, rest) = leadingSpeakerLabelAndRest(s) {
+                    // New speaker block
+                    if currentLabel != nil { flush() }
+                    currentLabel = lab
+                    // strip any accidental label residue in `rest`, tidy punctuation, but DO NOT wrap yet
+                    let core = stripAnyLeadingSpeakerLabel(rest).trimmingCharacters(in: .whitespacesAndNewlines)
+                    buffer = [ensureTerminalPunctuationKeepingClosing(core)]
+                } else {
+                    // Continuation: if we have a current speaker, append; else treat as narration line
+                    if currentLabel != nil {
+                        buffer.append(ensureTerminalPunctuationKeepingClosing(s))
+                    } else {
+                        // Narration inside a dialogue paragraph — keep as its own (unlabeled) line
+                        lines.append(ensureTerminalPunctuationKeepingClosing(s))
+                    }
+                }
+            }
+            // Flush last speaker block
+            if currentLabel != nil { flush() }
+
+            out.append(lines.joined(separator: "\n"))
+        }
+
+        return out.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+
 
     static func sentenceCount(_ s: String) -> Int {
         sentenceSplitKeepingClosers(s).count
     }
+    
+    // --- Speaker-label utilities (per-sentence) ---
+
+    // Find a leading speaker label like `Ana:` at the very start of a sentence.
+    static func extractLeadingSpeakerLabel(_ text: String) -> String? {
+        // Optional quotes/dash, then a short name (≤24 chars) followed by a colon.
+        let pattern = #"^\s*[\"“”'’«»—-]*\s*([^:\n]{1,24}):\s+"#
+        guard let rx = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let ns = text as NSString
+        guard let m = rx.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
+              m.numberOfRanges >= 2 else { return nil }
+        return ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // Remove *any* leading `Something:` label (used on target to prevent duplicates).
+    static func stripAnyLeadingSpeakerLabel(_ text: String) -> String {
+        let pattern = #"^\s*[\"“”'’«»—-]*\s*([^:\n]{1,24}):\s+"#
+        guard let rx = try? NSRegularExpression(pattern: pattern) else { return text }
+        let ns = text as NSString
+        let r = NSRange(location: 0, length: ns.length)
+        return rx.stringByReplacingMatches(in: text, range: r, withTemplate: "")
+    }
+
+    // Ensure per-sentence labels mirror the source (supports multiple speakers in one paragraph).
+    static func enforcePerSentenceSpeakerLabels(source: String, target: String) -> String {
+        let src = sentenceSplitKeepingClosers(source)
+        var dst = sentenceSplitKeepingClosers(target)
+        guard src.count == dst.count, !src.isEmpty else { return target }
+
+        for i in 0..<src.count {
+            let srcLabel = extractLeadingSpeakerLabel(src[i])
+            let cleaned = stripAnyLeadingSpeakerLabel(dst[i]).trimmingCharacters(in: .whitespaces)
+            if let lab = srcLabel {
+                dst[i] = "\(lab): " + cleaned         // keep the same label verbatim
+            } else {
+                dst[i] = cleaned                       // remove any spurious label
+            }
+        }
+        return dst.joined(separator: " ")
+    }
+
 
 
     // Adds '.' before closing quotes/brackets if missing
@@ -807,8 +979,10 @@ private extension GeneratorService {
             2) Blank line
             3) Body text
             4) Use normal sentence punctuation (. ! ? …). If a sentence ends with a quote or bracket, put the punctuation BEFORE the closing mark, e.g., “…”.
-            5) Do NOT insert newlines inside a paragraph; separate sentences with a single space only. Start a new paragraph only when needed and separate paragraphs with exactly one blank line.
-
+            5) Line breaks:
+                           • For REGULAR prose: do NOT insert newlines inside a paragraph; separate sentences with a single space only.
+                           • For DIALOGUE (sentences that begin with a speaker label like Ana: or Bruno:): put each speaker’s sentence on its own line, label outside the quotes, e.g., Ana: “…”.
+                           • Separate paragraphs with exactly one blank line.
             """
 
             let body: [String:Any] = [
@@ -953,14 +1127,18 @@ private extension GeneratorService {
                 aligned = draft
             }
 
-            // Your existing check that fixes stray source-language tokens WITHOUT changing counts
+            // After verifyAndFixTranslation:
             let fixed = try await verifyAndFixTranslation(
                 source: text,
                 draft: aligned,
                 targetLang: targetLang,
                 style: style
             )
-            return fixed
+
+            // NEW: per-sentence label enforcement (handles multiple speakers inside one paragraph)
+            let labeled = GeneratorService.enforcePerSentenceSpeakerLabels(source: text, target: fixed)
+            return labeled
+
         }
 
         func firstPassTranslate(_ text: String, to targetLang: String, style: Request.TranslationStyle) async throws -> String {
@@ -970,6 +1148,7 @@ private extension GeneratorService {
               KEEP EXACT sentence alignment (same number and order as the source).
               Within a paragraph, NEVER insert newlines; separate sentences with a single space only.
               If a closing quote/bracket is followed by a comma and more text (e.g., “…?”,), CONTINUE the SAME sentence.
+              Speaker labels: If a source sentence begins with a speaker label like “Ana:”, include the SAME label (verbatim) exactly once at the start of the corresponding target sentence. If the source sentence has no label, do NOT add one.
               Return PLAIN TEXT only.
               """
             : """
@@ -977,6 +1156,7 @@ private extension GeneratorService {
               KEEP EXACT sentence alignment (same number and order as the source).
               Within a paragraph, NEVER insert newlines; separate sentences with a single space only.
               If a closing quote/bracket is followed by a comma and more text (e.g., “…?”,), CONTINUE the SAME sentence.
+              Speaker labels: If a source sentence begins with a speaker label like “Ana:”, include the SAME label (verbatim) exactly once at the start of the corresponding target sentence. If the source sentence has no label, do NOT add one.
               Return PLAIN TEXT only.
               """
 
@@ -1014,6 +1194,7 @@ private extension GeneratorService {
             let system = """
             ALIGN the translation to the SOURCE sentence boundaries.
             Output MUST contain EXACTLY \(expectedSentenceCount) sentences, same order and meaning.
+            Speaker labels: mirror labels sentence-by-sentence — keep the same label (verbatim) at the start if present; never add labels where the source has none.
             Do NOT omit content. No newlines inside the paragraph; separate sentences with a single SPACE.
             If a quoted question/exclamation is followed by a comma and more text, keep it in the SAME sentence.
             Return PLAIN TEXT only.
@@ -1089,9 +1270,8 @@ private extension GeneratorService {
             // Enforce short, tidy title (e.g., ≤48 chars and ≤8 words)
             let generatedTitle = shortenTitle(normalized, maxChars: 48, maxWords: 8)
 
-            // Use the cleaned body
-            let bodyPrimary = bodyPrimary0
-
+            // Use the cleaned body, then normalize dialogue/prose presentation
+            let bodyPrimary = normalizeDialoguePresentation(bodyPrimary0)
 
             var folder = slugify(generatedTitle)
             let baseRoot = FileManager.docsLessonsDir
@@ -1112,9 +1292,11 @@ private extension GeneratorService {
                 req.transLanguage.lowercased()
                     .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
-            let secondaryText: String = sameLang
+            let rawSecondary: String = sameLang
                 ? bodyPrimary
                 : try await translateParagraphs(bodyPrimary, to: req.transLanguage, style: req.translationStyle)
+
+            let secondaryText: String = normalizeDialoguePresentation(rawSecondary)
 
             // ---- Build segments ----
             var segsPrimary: [String] = []
