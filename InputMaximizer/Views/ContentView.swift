@@ -684,6 +684,16 @@ struct ContentView: View {
             }
 
         }
+        .gesture(
+            DragGesture()
+                .onEnded { value in
+                    // Swipe from right to left (negative translation.width)
+                    if value.translation.width < -50 && abs(value.translation.height) < 100 {
+                        loadKeywordPairs(for: currentLesson.folderName)
+                        showKeywords = true
+                    }
+                }
+        )
         .onAppear {
             let base = audioManager.previewSegments(for: currentLesson.folderName)
             displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
