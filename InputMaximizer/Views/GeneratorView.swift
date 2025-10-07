@@ -942,14 +942,6 @@ struct GeneratorView: View {
             }
         )
         .scrollDismissesKeyboard(.immediately)
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") {
-                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                }
-            }
-        }
 
         // Remove this block OR replace with:
         .onChange(of: mode, initial: false) { _, _ in
@@ -1328,7 +1320,8 @@ private struct ModeCard: View {
                         StableTextEditor(
                             text: $userPrompt,
                             minHeight: editorMinHeight,
-                            showsDoneAccessory: true
+                            showsDoneAccessory: true,
+                            onClear: { userPrompt = "" }
                         )
                         .frame(minHeight: editorMinHeight)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1369,7 +1362,8 @@ private struct ModeCard: View {
                         StableTextEditor(
                             text: $randomTopic,
                             minHeight: editorMinHeight,
-                            showsDoneAccessory: true
+                            showsDoneAccessory: true,
+                            onClear: { randomTopic = "" }
                         )
                         .frame(minHeight: editorMinHeight)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1707,6 +1701,7 @@ struct StableTextEditor: UIViewRepresentable {
     var minHeight: CGFloat = 140
     var showsDoneAccessory: Bool = true
     var placeholder: String? = nil
+    var onClear: (() -> Void)? = nil
 
     @MainActor
     final class Coordinator: NSObject, UITextViewDelegate {
@@ -1766,6 +1761,10 @@ struct StableTextEditor: UIViewRepresentable {
 
         @objc func doneTapped() { textView?.resignFirstResponder() }
         
+        @objc func clearTapped() { 
+            parent.onClear?()
+        }
+        
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             if scrollView.contentOffset.x != 0 {
                 scrollView.contentOffset.x = 0
@@ -1813,12 +1812,26 @@ struct StableTextEditor: UIViewRepresentable {
             bar.translatesAutoresizingMaskIntoConstraints = true  // important: no Auto Layout here
 
             // Set items first, then sizeToFit (keeps system sizing happy)
-            bar.items = [
-                UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
-                UIBarButtonItem(title: "Done", style: .done,
-                                target: context.coordinator,
-                                action: #selector(Coordinator.doneTapped))
-            ]
+            var items: [UIBarButtonItem] = []
+            
+            // Add Clear button if onClear callback is provided
+            if onClear != nil {
+                let clearButton = UIBarButtonItem(title: "Clear", style: .plain,
+                                                  target: context.coordinator,
+                                                  action: #selector(Coordinator.clearTapped))
+                clearButton.setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 17, weight: .semibold)], for: .normal)
+                items.append(clearButton)
+            }
+            
+            items.append(UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil))
+            
+            let doneButton = UIBarButtonItem(title: "Done", style: .plain,
+                                            target: context.coordinator,
+                                            action: #selector(Coordinator.doneTapped))
+            doneButton.setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 17, weight: .semibold)], for: .normal)
+            items.append(doneButton)
+            
+            bar.items = items
             bar.sizeToFit()
 
             tv.inputAccessoryView = bar
