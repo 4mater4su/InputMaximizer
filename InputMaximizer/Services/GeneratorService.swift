@@ -971,39 +971,36 @@ private extension GeneratorService {
             return "\(title)\n\n\(bodyText)"
         }
 
-        /// Audit/correct the TARGET-language body to remove stray foreign-language tokens (e.g., helper-language words)
-        /// while preserving meaning and the paragraph/sentence boundaries.
-        func purifyTargetLanguage(_ text: String, targetLang: String) async throws -> String {
+        /// Ensure text is written in the expected language; rewrite inconsistent parts.
+        func enforceLanguageConsistency(_ text: String, expectedLanguage: String, roleDescription: String) async throws -> String {
             let system = """
-            You are a language auditor. Task: detect and correct any FOREIGN-LANGUAGE words or phrases that appear inside the TARGET-LANGUAGE text. 
-            Replace them with natural equivalents in the target language while preserving meaning.
+            You are a language verifier. Task: detect if the given text is written in the EXPECTED language. If parts are in a different language, rewrite them into the EXPECTED language while preserving meaning.
 
             Hard requirements:
             • Keep the original paragraph and sentence boundaries; do not add or remove sentences.
             • Keep proper nouns, brand names, and established international terms as-is if appropriate.
-            • Do not introduce helper-language words.
-            • Return the corrected TARGET-LANGUAGE text only.
+            • Return ONLY the corrected text in the EXPECTED language.
             """
 
             let user = """
-            Target language: \(targetLang)
+            Expected language (\(roleDescription)): \(expectedLanguage)
 
-            Text to audit and correct (TARGET-LANGUAGE text):
+            Text to verify and correct:
             \(text)
             """
 
             let jsonSchema: [String: Any] = [
                 "type": "json_schema",
                 "json_schema": [
-                    "name": "language_purify",
-                    "description": "Corrected target-language text with foreign tokens removed",
+                    "name": "language_verify_consistency",
+                    "description": "Text corrected to the expected language if inconsistencies were found",
                     "strict": true,
                     "schema": [
                         "type": "object",
                         "properties": [
                             "clean_text": [
                                 "type": "string",
-                                "description": "Corrected target-language text"
+                                "description": "Text rewritten into the expected language"
                             ]
                         ],
                         "required": ["clean_text"],
@@ -1025,7 +1022,7 @@ private extension GeneratorService {
             guard let data = raw.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let clean = json["clean_text"] as? String else {
-                throw NSError(domain: "Generator", code: 9, userInfo: [NSLocalizedDescriptionKey: "Failed to parse language purify JSON"])
+                throw NSError(domain: "Generator", code: 11, userInfo: [NSLocalizedDescriptionKey: "Failed to parse language consistency JSON"])
             }
             return clean.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -1431,12 +1428,16 @@ private extension GeneratorService {
             // Enforce short, tidy title (e.g., ≤48 chars and ≤8 words)
             let generatedTitle = shortenTitle(normalized, maxChars: 48, maxWords: 8)
 
-            // Ensure the TARGET-language body contains no helper-language spillover
-            await progress("Checking language consistency…")
-            let purifiedPrimary = try await purifyTargetLanguage(bodyPrimary0, targetLang: req.genLanguage)
+            // Ensure the TARGET-language body is actually in the expected target language
+            await progress("Verifying target language…")
+            let verifiedTarget = try await enforceLanguageConsistency(
+                bodyPrimary0,
+                expectedLanguage: req.genLanguage,
+                roleDescription: "TARGET"
+            )
 
-            // Use the purified body, then normalize dialogue/prose presentation
-            let bodyPrimary = normalizeDialoguePresentation(purifiedPrimary)
+            // Use the verified body, then normalize dialogue/prose presentation
+            let bodyPrimary = normalizeDialoguePresentation(verifiedTarget)
 
             var folder = slugify(generatedTitle)
             let baseRoot = FileManager.docsLessonsDir
@@ -1457,9 +1458,28 @@ private extension GeneratorService {
                 req.transLanguage.lowercased()
                     .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
-            let rawSecondary: String = sameLang
+            var rawSecondary: String = sameLang
                 ? bodyPrimary
                 : try await translateParagraphs(bodyPrimary, to: req.transLanguage, style: req.translationStyle)
+
+            if !sameLang {
+                await progress("Verifying helper language…")
+                rawSecondary = try await enforceLanguageConsistency(
+                    rawSecondary,
+                    expectedLanguage: req.transLanguage,
+                    roleDescription: "HELPER"
+                )
+            }
+
+            // Ensure the HELPER-language text is actually in the expected helper language
+            if !sameLang {
+                await progress("Verifying helper language…")
+                rawSecondary = try await enforceLanguageConsistency(
+                    rawSecondary,
+                    expectedLanguage: req.transLanguage,
+                    roleDescription: "HELPER"
+                )
+            }
 
             let secondaryText: String = normalizeDialoguePresentation(rawSecondary)
 
