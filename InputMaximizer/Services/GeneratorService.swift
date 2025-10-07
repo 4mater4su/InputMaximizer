@@ -327,112 +327,6 @@ private extension GeneratorService {
         throw lastError ?? NetError.timedOut
     }
 
-    
-    /// Very lightweight language check. You can expand this list anytime.
-    static func isCJKLanguage(_ name: String) -> Bool {
-        let s = name.lowercased()
-        return s.contains("chinese") || s.contains("japanese") || s.contains("korean")
-    }
-
-    // Add this helper:
-    static func isChineseLanguage(_ name: String) -> Bool {
-        let s = name.lowercased()
-        return s.contains("chinese")
-            || s.contains("mandarin")
-            || s.contains("中文")
-            || s.contains("简体")
-            || s.contains("繁體")
-    }
-    
-    /// A language-aware CEFR guidance string that avoids Euro-centric cues for CJK.
-    static func cefrGuidance(_ level: Request.LanguageLevel, targetLanguage: String) -> String {
-        if isCJKLanguage(targetLanguage) {
-            // CJK baseline (language-agnostic)
-            switch level {
-            case .A1:
-                return """
-                Use very simple, short sentences. Use the most common everyday vocabulary. Avoid idioms, figurative language, and complex grammar or nested clauses. Prefer basic statements and simple connectors (e.g., and, but, because).
-                """
-            case .A2:
-                return """
-                Use short, clear sentences. Everyday vocabulary with simple topic terms. Use basic connectors (and, but, because, so). Avoid rare expressions and advanced patterns. Keep morphology/particles/markers simple and consistent.
-                """
-            case .B1:
-                var text = """
-                Use clear sentences of moderate length. Employ common connectors and limited subordination. Allow some topic-specific vocabulary, but keep explanations concrete. Maintain straightforward clause order and avoid heavy embedding.
-                """
-                if isChineseLanguage(targetLanguage) {
-                    text += """
-                    
-                    Note for Chinese: Use aspect/phase markers naturally and only when needed (e.g., 了 for completed actions, 过 for past experiences, 在/正在 for ongoing actions). Avoid over-marking in simple statements.
-                    """
-                }
-                return text
-            case .B2:
-                var text = """
-                Use varied sentence patterns with natural connectors and some subordinate clauses. Introduce more abstract vocabulary and explanations while keeping clarity. Use cohesive devices appropriately without overcomplicating.
-                """
-                if isChineseLanguage(targetLanguage) {
-                    text += """
-                    
-                    Note for Chinese: Keep aspect usage idiomatic (了 for completion/result, 过 for experience, 在/正在 for progressive). Prefer natural distribution over mechanical repetition; don’t add markers where context suffices.
-                    """
-                }
-                return text
-            case .C1:
-                var text = """
-                Use complex structures and nuanced vocabulary with precise register. Employ idiomatic or set phrases when natural. Vary clause patterns and show clear cohesion across paragraphs while maintaining natural flow.
-                """
-                if isChineseLanguage(targetLanguage) {
-                    text += """
-                    
-                    Note for Chinese: Use aspect markers with native-like subtlety; let discourse context license omission or inclusion. Balance 了/过/在(正在) with resultative complements and discourse particles as appropriate.
-                    """
-                }
-                return text
-            case .C2:
-                var text = """
-                Use native-like, sophisticated language with precise nuance and flexible syntax. Idiomatic usage, advanced cohesion devices, and subtle register shifts are appropriate. Keep discourse highly natural.
-                """
-                if isChineseLanguage(targetLanguage) {
-                    text += """
-                    
-                    Note for Chinese: Demonstrate idiomatic control of aspect and Aktionsart (e.g., 了/过/在(正在)) with pragmatically appropriate omission, including sensitivity to information structure and discourse flow.
-                    """
-                }
-                return text
-            }
-        } else {
-            // General (non-CJK) guidance
-            switch level {
-            case .A1:
-                return """
-                Use very simple, short sentences. Stick to the most common 1000 words. Avoid idioms, figurative language, and complex tenses or nested clauses.
-                """
-            case .A2:
-                return """
-                Use short, clear sentences. Everyday vocabulary. Simple connectors (and, but, because). Avoid uncommon expressions and advanced grammar. Limit subordinate clauses.
-                """
-            case .B1:
-                return """
-                Use clear sentences of moderate length. Common connectors (but, because, so). Limited subordinate clauses. Everyday and some topic vocabulary. Keep explanations concrete.
-                """
-            case .B2:
-                return """
-                Use varied sentence patterns with natural connectors and some subordinate clauses. Introduce abstract vocabulary but keep clarity high. Ensure good cohesion.
-                """
-            case .C1:
-                return """
-                Use complex structures and nuanced vocabulary, with precise register and hedging. Vary clause patterns while maintaining coherence and precision.
-                """
-            case .C2:
-                return """
-                Use highly natural, sophisticated language with precise nuance. Flexible syntax, idiomatic usage, and advanced cohesion devices appropriate for native-like mastery.
-                """
-            }
-        }
-    }
-
     // You can keep these helpers here, or move to a separate utility file.
     static func slugify(_ input: String) -> String {
         var s = input.folding(options: .diacriticInsensitive, locale: .current)
@@ -907,7 +801,7 @@ private extension GeneratorService {
             - Define a simple paragraph structure with sentences which are not too long.
             - List must-cover points and requirements derived from the user's material.
             - Include explicit CEFR guidance that the writer should obey:
-            \(cefrGuidance(req.languageLevel, targetLanguage: targetLang))
+            \(CEFRGuidance.guidance(level: req.languageLevel, targetLanguage: targetLang))
 
             User instruction or material:
             \(raw)
@@ -1020,7 +914,7 @@ private extension GeneratorService {
             Write in \(targetLang). Aim for ~\(wordCount) words total.
             Write at CEFR level \(req.languageLevel.rawValue).
             Follow these constraints:
-            \(cefrGuidance(req.languageLevel, targetLanguage: targetLang))
+            \(CEFRGuidance.guidance(level: req.languageLevel, targetLanguage: targetLang))
             
             Format requirements:
             • Title: short title (no quotes)
