@@ -905,15 +905,33 @@ private extension GeneratorService {
             - State the primary purpose (inform / explain / explore / persuade / narrate / summarize / report).
             - Specify audience and voice/register if provided.
             - Define a simple paragraph structure with sentences which are not too long.
-            - List must-cover points and requirements derived from the user’s material.
+            - List must-cover points and requirements derived from the user's material.
             - Include explicit CEFR guidance that the writer should obey:
             \(cefrGuidance(req.languageLevel, targetLanguage: targetLang))
-
-            Return ONLY the refined prompt text, nothing else.
 
             User instruction or material:
             \(raw)
             """
+
+            let jsonSchema: [String: Any] = [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "refined_prompt",
+                    "description": "A refined writing prompt for lesson generation",
+                    "strict": true,
+                    "schema": [
+                        "type": "object",
+                        "properties": [
+                            "refined_prompt": [
+                                "type": "string",
+                                "description": "The refined writing prompt with all requirements and guidance"
+                            ]
+                        ],
+                        "required": ["refined_prompt"],
+                        "additionalProperties": false
+                    ]
+                ]
+            ]
 
             let body: [String:Any] = [
                 "model": "gpt-5-nano",
@@ -921,8 +939,16 @@ private extension GeneratorService {
                     ["role":"system","content":"Refine prompts faithfully; elevate without drifting from user intent."],
                     ["role":"user","content": meta]
                 ],
+                "response_format": jsonSchema
             ]
-            return try await chatViaProxy(body)
+            
+            let raw = try await chatViaProxy(body)
+            guard let data = raw.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let refinedPrompt = json["refined_prompt"] as? String else {
+                throw NSError(domain: "Generator", code: 4, userInfo: [NSLocalizedDescriptionKey: "Failed to parse refined prompt JSON"])
+            }
+            return refinedPrompt
         }
         
         
@@ -995,16 +1021,40 @@ private extension GeneratorService {
             Write at CEFR level \(req.languageLevel.rawValue).
             Follow these constraints:
             \(cefrGuidance(req.languageLevel, targetLanguage: targetLang))
-            Output format:
-            1) First line: short TITLE only (no quotes)
-            2) Blank line
-            3) Body text
-            4) Use normal sentence punctuation (. ! ? …). If a sentence ends with a quote or bracket, put the punctuation BEFORE the closing mark, e.g., “…”.
-            5) Line breaks:
-                           • For REGULAR prose: do NOT insert newlines inside a paragraph; separate sentences with a single space only.
-                           • For DIALOGUE (sentences that begin with a speaker label like Ana: or Bruno:): put each speaker’s sentence on its own line, label outside the quotes, e.g., Ana: “…”.
-                           • Separate paragraphs with exactly one blank line.
+            
+            Format requirements:
+            • Title: short title (no quotes)
+            • Body: main text content
+            • Use normal sentence punctuation (. ! ? …). If a sentence ends with a quote or bracket, put the punctuation BEFORE the closing mark, e.g., "…".
+            • Line breaks in body:
+              - For REGULAR prose: do NOT insert newlines inside a paragraph; separate sentences with a single space only.
+              - For DIALOGUE (sentences that begin with a speaker label like Ana: or Bruno:): put each speaker's sentence on its own line, label outside the quotes, e.g., Ana: "…".
+              - Separate paragraphs with exactly one blank line.
             """
+
+            let jsonSchema: [String: Any] = [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "generated_text",
+                    "description": "A generated text with title and body for language learning",
+                    "strict": true,
+                    "schema": [
+                        "type": "object",
+                        "properties": [
+                            "title": [
+                                "type": "string",
+                                "description": "Short title for the text (no quotes)"
+                            ],
+                            "body": [
+                                "type": "string",
+                                "description": "The main body text with proper paragraph formatting"
+                            ]
+                        ],
+                        "required": ["title", "body"],
+                        "additionalProperties": false
+                    ]
+                ]
+            ]
 
             let body: [String:Any] = [
                 "model": "gpt-5-nano",
@@ -1012,8 +1062,19 @@ private extension GeneratorService {
                     ["role":"system","content": system],
                     ["role":"user","content": elevated]
                 ],
+                "response_format": jsonSchema
             ]
-            return try await chatViaProxy(body)
+            
+            let raw = try await chatViaProxy(body)
+            guard let data = raw.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let title = json["title"] as? String,
+                  let bodyText = json["body"] as? String else {
+                throw NSError(domain: "Generator", code: 5, userInfo: [NSLocalizedDescriptionKey: "Failed to parse generated text JSON"])
+            }
+            
+            // Return in the original format: title on first line, blank line, then body
+            return "\(title)\n\n\(bodyText)"
         }
 
         // --- Keyword extractor (target → helper language) ---
@@ -1144,7 +1205,6 @@ private extension GeneratorService {
             Hard requirements:
             • Keep EXACT sentence alignment with the source (same number and order of sentences).
             • Do NOT merge, split, add, or drop sentences.
-            • Return plain text only (no quotes, bullets, numbering, or metadata).
 
             When it is correct to keep a token in the source language (proper nouns, brand names,
             code, established loanwords), leave it as-is.
@@ -1162,16 +1222,42 @@ private extension GeneratorService {
             \(draft)
             """
 
+            let jsonSchema: [String: Any] = [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "corrected_translation",
+                    "description": "Corrected translation with same sentence alignment",
+                    "strict": true,
+                    "schema": [
+                        "type": "object",
+                        "properties": [
+                            "translation": [
+                                "type": "string",
+                                "description": "The corrected translation text"
+                            ]
+                        ],
+                        "required": ["translation"],
+                        "additionalProperties": false
+                    ]
+                ]
+            ]
+
             let body: [String: Any] = [
                 "model": "gpt-5-nano",
                 "messages": [
                     ["role": "system", "content": system],
                     ["role": "user",   "content": user]
-                ]
+                ],
+                "response_format": jsonSchema
             ]
 
-            let fixed = try await chatViaProxy(body)
-            return fixed.trimmingCharacters(in: .whitespacesAndNewlines)
+            let raw = try await chatViaProxy(body)
+            guard let data = raw.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let translation = json["translation"] as? String else {
+                throw NSError(domain: "Generator", code: 6, userInfo: [NSLocalizedDescriptionKey: "Failed to parse corrected translation JSON"])
+            }
+            return translation.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         
@@ -1216,17 +1302,15 @@ private extension GeneratorService {
               Translate as literally as possible.
               KEEP EXACT sentence alignment (same number and order as the source).
               Within a paragraph, NEVER insert newlines; separate sentences with a single space only.
-              If a closing quote/bracket is followed by a comma and more text (e.g., “…?”,), CONTINUE the SAME sentence.
-              Speaker labels: If a source sentence begins with a speaker label like “Ana:”, include the SAME label (verbatim) exactly once at the start of the corresponding target sentence. If the source sentence has no label, do NOT add one.
-              Return PLAIN TEXT only.
+              If a closing quote/bracket is followed by a comma and more text (e.g., "…?",), CONTINUE the SAME sentence.
+              Speaker labels: If a source sentence begins with a speaker label like "Ana:", include the SAME label (verbatim) exactly once at the start of the corresponding target sentence. If the source sentence has no label, do NOT add one.
               """
             : """
               Translate naturally and idiomatically.
               KEEP EXACT sentence alignment (same number and order as the source).
               Within a paragraph, NEVER insert newlines; separate sentences with a single space only.
-              If a closing quote/bracket is followed by a comma and more text (e.g., “…?”,), CONTINUE the SAME sentence.
-              Speaker labels: If a source sentence begins with a speaker label like “Ana:”, include the SAME label (verbatim) exactly once at the start of the corresponding target sentence. If the source sentence has no label, do NOT add one.
-              Return PLAIN TEXT only.
+              If a closing quote/bracket is followed by a comma and more text (e.g., "…?",), CONTINUE the SAME sentence.
+              Speaker labels: If a source sentence begins with a speaker label like "Ana:", include the SAME label (verbatim) exactly once at the start of the corresponding target sentence. If the source sentence has no label, do NOT add one.
               """
 
             let user = """
@@ -1236,14 +1320,42 @@ private extension GeneratorService {
             \(text)
             """
 
+            let jsonSchema: [String: Any] = [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "translation",
+                    "description": "Translation with preserved sentence alignment",
+                    "strict": true,
+                    "schema": [
+                        "type": "object",
+                        "properties": [
+                            "translation": [
+                                "type": "string",
+                                "description": "The translated text"
+                            ]
+                        ],
+                        "required": ["translation"],
+                        "additionalProperties": false
+                    ]
+                ]
+            ]
+
             let body: [String:Any] = [
                 "model": "gpt-5-nano",
                 "messages": [
                     ["role":"system","content": system],
                     ["role":"user","content": user]
-                ]
+                ],
+                "response_format": jsonSchema
             ]
-            return try await GeneratorService.chatViaProxy(body)
+            
+            let raw = try await GeneratorService.chatViaProxy(body)
+            guard let data = raw.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let translation = json["translation"] as? String else {
+                throw NSError(domain: "Generator", code: 7, userInfo: [NSLocalizedDescriptionKey: "Failed to parse first pass translation JSON"])
+            }
+            return translation
         }
 
         func repairSentenceAlignment(
@@ -1266,7 +1378,6 @@ private extension GeneratorService {
             Speaker labels: mirror labels sentence-by-sentence — keep the same label (verbatim) at the start if present; never add labels where the source has none.
             Do NOT omit content. No newlines inside the paragraph; separate sentences with a single SPACE.
             If a quoted question/exclamation is followed by a comma and more text, keep it in the SAME sentence.
-            Return PLAIN TEXT only.
             Translation style: \(style == .idiomatic ? "idiomatic/natural" : "literal/faithful")
             """
 
@@ -1280,14 +1391,42 @@ private extension GeneratorService {
             Produce a corrected translation with EXACTLY \(expectedSentenceCount) sentences.
             """
 
+            let jsonSchema: [String: Any] = [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "aligned_translation",
+                    "description": "Translation with corrected sentence alignment",
+                    "strict": true,
+                    "schema": [
+                        "type": "object",
+                        "properties": [
+                            "translation": [
+                                "type": "string",
+                                "description": "The translation with exact sentence alignment"
+                            ]
+                        ],
+                        "required": ["translation"],
+                        "additionalProperties": false
+                    ]
+                ]
+            ]
+
             let body: [String:Any] = [
                 "model":"gpt-5-nano",
                 "messages":[
                     ["role":"system","content": system],
                     ["role":"user","content": user]
-                ]
+                ],
+                "response_format": jsonSchema
             ]
-            return try await GeneratorService.chatViaProxy(body)
+            
+            let raw = try await GeneratorService.chatViaProxy(body)
+            guard let data = raw.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let translation = json["translation"] as? String else {
+                throw NSError(domain: "Generator", code: 8, userInfo: [NSLocalizedDescriptionKey: "Failed to parse aligned translation JSON"])
+            }
+            return translation
         }
 
 
