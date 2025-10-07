@@ -775,7 +775,7 @@ struct GeneratorView: View {
                         )
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        //.transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 }
                 // Reserve bottom space when hidden (so overlay isn’t clipped)
@@ -785,10 +785,8 @@ struct GeneratorView: View {
                 .overlay(alignment: .bottom) {
                     if !suggestionsExpanded {
                         Button {
-                            withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
-                                DispatchQueue.main.async {
-                                    suggestionsExpanded = true
-                                }
+                            Task { @MainActor in
+                                suggestionsExpanded = true
                             }
                         } label: {
                             Image(systemName: "chevron.down")
@@ -798,7 +796,7 @@ struct GeneratorView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .offset(y: 4) // small push below card shadow
+                        .offset(y: 4)
                         .accessibilityLabel("Show next prompt suggestions")
                     }
                 }
@@ -1204,7 +1202,7 @@ private struct AdvancedSpacer: View {
     }
 }
 
-
+@MainActor
 private struct NextPromptSuggestionsView: View {
     @Binding var isExpanded: Bool
     let suggestions: [String]
@@ -1215,10 +1213,8 @@ private struct NextPromptSuggestionsView: View {
 
             // HEADER — toggle chevron
             Button {
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
-                    DispatchQueue.main.async {
-                        isExpanded.toggle()
-                    }
+                Task { @MainActor in
+                    isExpanded.toggle()
                 }
             } label: {
                 ZStack {
@@ -1229,7 +1225,6 @@ private struct NextPromptSuggestionsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                // Make the header *flat* when collapsed so it doesn't add vertical height.
                 .frame(maxWidth: .infinity, minHeight: isExpanded ? 10 : 0, alignment: .center)
                 .contentShape(Rectangle())
                 .padding(.vertical, isExpanded ? 10 : 0)
@@ -1258,7 +1253,7 @@ private struct NextPromptSuggestionsView: View {
                 }
                 .padding(.bottom, 0)
                 .padding(.horizontal, 12)
-                .transition(.scale(scale: 0.98, anchor: .top).combined(with: .opacity))
+                .transition(.opacity)
             }
         }
         .padding(.top, 0)
@@ -1267,7 +1262,6 @@ private struct NextPromptSuggestionsView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.appBackground)
         )
-        .animation(.spring(response: 0.34, dampingFraction: 0.88), value: isExpanded)
     }
 }
 
@@ -1276,7 +1270,7 @@ private struct NextPromptSuggestionsView: View {
 
 
 // MARK: - Mode + Input card
-
+@MainActor
 private struct ModeCard: View {
     @Binding var mode: GeneratorView.GenerationMode
     @Binding var userPrompt: String
@@ -1341,6 +1335,7 @@ private struct ModeCard: View {
                         .padding(8)
                         .background(RoundedRectangle(cornerRadius: 10).fill(Color(uiColor: .systemGray6)))
                         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
+                        .transaction { $0.animation = nil }
 
                         HStack(spacing: 8) {
                             // Match random mode button styling
@@ -1381,6 +1376,7 @@ private struct ModeCard: View {
                         .padding(8)
                         .background(RoundedRectangle(cornerRadius: 10).fill(Color(uiColor: .systemGray6)))
                         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
+                        .transaction { $0.animation = nil }
 
                         // Buttons row: left + right, no overlap, no wrapping
                         ZStack {
@@ -1712,7 +1708,8 @@ struct StableTextEditor: UIViewRepresentable {
     var showsDoneAccessory: Bool = true
     var placeholder: String? = nil
 
-    class Coordinator: NSObject, UITextViewDelegate {
+    @MainActor
+    final class Coordinator: NSObject, UITextViewDelegate {
         var parent: StableTextEditor
         weak var textView: UITextView?
         private let placeholderLabel = UILabel()
@@ -1808,14 +1805,25 @@ struct StableTextEditor: UIViewRepresentable {
         context.coordinator.attachPlaceholder(to: tv)
 
         if showsDoneAccessory {
-            let bar = UIToolbar()
-            bar.sizeToFit()
+            // Give the toolbar a real frame and let it resize with the keyboard width.
+            let bar = UIToolbar(frame: CGRect(x: 0, y: 0,
+                                              width: UIScreen.main.bounds.width,
+                                              height: 44))
+            bar.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            bar.translatesAutoresizingMaskIntoConstraints = true  // important: no Auto Layout here
+
+            // Set items first, then sizeToFit (keeps system sizing happy)
             bar.items = [
                 UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
-                UIBarButtonItem(title: "Done", style: .done, target: context.coordinator, action: #selector(Coordinator.doneTapped))
+                UIBarButtonItem(title: "Done", style: .done,
+                                target: context.coordinator,
+                                action: #selector(Coordinator.doneTapped))
             ]
+            bar.sizeToFit()
+
             tv.inputAccessoryView = bar
         }
+
         return tv
     }
 
