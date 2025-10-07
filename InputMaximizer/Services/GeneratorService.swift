@@ -738,7 +738,7 @@ private extension GeneratorService {
         return ps.map { sentences($0).count }
     }
     
-    // Generate three diverse next prompts in the *helper* language
+    // Generate three diverse next prompts in the *helper* language using Structured Outputs
     static func suggestNextPrompts(from req: Request) async throws -> [String] {
 
         // --- Seed we want to move away from ---
@@ -760,45 +760,66 @@ private extension GeneratorService {
             Output language: \(req.transLanguage)   // helper language ONLY
             Count: exactly 3 prompts.
             Length per prompt: one sentence, ≤ 22–25 words.
-            Formatting: return ONLY a strict JSON array of 3 strings (no numbering, no commentary).
 
             Diversity requirements (very important):
                         • The FIRST prompt must be a natural continuation or extension of the user's previous seed, keeping its tone, theme, and style consistent.
                         • The SECOND and THIRD prompts must take distinctly different directions from both the seed and each other.
                         • Change at least TWO of these axes per prompt (for prompts 2–3): purpose (inform/explain/persuade/narrate), genre/form, setting/place, time/era, perspective/POV, audience, tone/register.
                         • Avoid reusing the same key nouns/verbs/themes from the seed in prompts 2–3 unless necessary for sense.
-            • No meta-instructions, no references to “the previous prompt/seed”.
+            • No meta-instructions, no references to "the previous prompt/seed".
 
-                        User’s previous seed (to continue/diverge from):
+                        User's previous seed (to continue/diverge from):
             \(seed)
 
             \(diversityBooster)
             """
 
+            // Define JSON Schema for structured output
+            let jsonSchema: [String: Any] = [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "prompt_suggestions",
+                    "description": "Three diverse writing prompts for language learning",
+                    "strict": true,
+                    "schema": [
+                        "type": "object",
+                        "properties": [
+                            "prompts": [
+                                "type": "array",
+                                "description": "Array of exactly 3 writing prompts",
+                                "items": [
+                                    "type": "string",
+                                    "description": "A short writing prompt (one sentence, 22-25 words)"
+                                ],
+                                "minItems": 3,
+                                "maxItems": 3
+                            ]
+                        ],
+                        "required": ["prompts"],
+                        "additionalProperties": false
+                    ]
+                ]
+            ]
 
             let body: [String: Any] = [
                 "model": "gpt-5-nano",
                 "messages": [
-                    ["role": "system", "content": "Generate three SHORT, highly distinct prompts in the requested language. Output JSON array of 3 strings only."],
+                    ["role": "system", "content": "Generate three SHORT, highly distinct prompts in the requested language."],
                     ["role": "user",   "content": user]
-                ]
+                ],
+                "response_format": jsonSchema
             ]
 
             let raw = try await chatViaProxy(body)
 
-            if let data = raw.data(using: .utf8),
-               let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
-                return arr.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            // Parse the structured JSON response
+            guard let data = raw.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let prompts = json["prompts"] as? [String] else {
+                throw NSError(domain: "Generator", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to parse prompt suggestions JSON"])
             }
 
-            // Fallback if model returns lines
-            let lines = raw
-                .replacingOccurrences(of: "\r\n", with: "\n")
-                .components(separatedBy: .newlines)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty && !$0.hasPrefix("- ") && !$0.hasPrefix("•") }
-
-            return Array(lines.prefix(3))
+            return prompts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         }
 
         // --- Lightweight lexical overlap check to enforce diversity ---
@@ -996,7 +1017,7 @@ private extension GeneratorService {
         }
 
         // --- Keyword extractor (target → helper language) ---
-        // Returns a minimal plain-text list, one pair per line: "<target>\t<translation>"
+        // Uses Structured Outputs to return reliable JSON with keyword pairs
         func extractKeywordPairs(targetText: String,
                                         targetLang: String,
                                         translationLang: String) async throws -> String {
@@ -1008,13 +1029,10 @@ private extension GeneratorService {
             - Exclude names of people, places, and other proper nouns.
             - Focus on words and phrases that are important for understanding the meaning and are not obvious to a beginner.
             - Prefer verbs, nouns, and adjectives.
-
-            Output rules (strict):
-            • Output ONLY lines of the form: <target>\t<translation>
-            • One pair per line. No numbering, bullets, or extra commentary.
-            • Prefer 1–4 word spans (or compact characters for CJK). Avoid full sentences.
-            • Deduplicate. Include both single keywords and a few useful collocations.
-            • 24–40 lines for a ~300–500 word text; scale proportionally if much shorter/longer.
+            - Include both single keywords and a few useful collocations.
+            - Deduplicate entries.
+            - Prefer 1–4 word spans (or compact characters for CJK). Avoid full sentences.
+            - Aim for 24–40 pairs for a ~300–500 word text; scale proportionally if much shorter/longer.
             """
 
             let user = """
@@ -1025,19 +1043,70 @@ private extension GeneratorService {
             \(targetText)
             """
 
+            // Define JSON Schema for structured output
+            let jsonSchema: [String: Any] = [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "keyword_extraction",
+                    "description": "A list of keyword pairs with target language words/phrases and their translations",
+                    "strict": true,
+                    "schema": [
+                        "type": "object",
+                        "properties": [
+                            "pairs": [
+                                "type": "array",
+                                "description": "Array of keyword pairs from the text",
+                                "items": [
+                                    "type": "object",
+                                    "properties": [
+                                        "target": [
+                                            "type": "string",
+                                            "description": "The keyword or phrase in the target language"
+                                        ],
+                                        "translation": [
+                                            "type": "string",
+                                            "description": "The translation in the helper language"
+                                        ]
+                                    ],
+                                    "required": ["target", "translation"],
+                                    "additionalProperties": false
+                                ]
+                            ]
+                        ],
+                        "required": ["pairs"],
+                        "additionalProperties": false
+                    ]
+                ]
+            ]
+
             let body: [String: Any] = [
                 "model": "gpt-5-nano",
                 "messages": [
                     ["role": "system", "content": system],
                     ["role": "user",   "content": user]
-                ]
+                ],
+                "response_format": jsonSchema
             ]
 
             let raw = try await chatViaProxy(body)
-            return raw
-                .replacingOccurrences(of: "\r\n", with: "\n")
-                .replacingOccurrences(of: "\r", with: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Parse the JSON response
+            guard let data = raw.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let pairs = json["pairs"] as? [[String: Any]] else {
+                throw NSError(domain: "Generator", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to parse keyword pairs JSON"])
+            }
+            
+            // Convert to tab-separated format for compatibility with existing file format
+            let lines = pairs.compactMap { pair -> String? in
+                guard let target = pair["target"] as? String,
+                      let translation = pair["translation"] as? String else {
+                    return nil
+                }
+                return "\(target)\t\(translation)"
+            }
+            
+            return lines.joined(separator: "\n")
         }
 
         
