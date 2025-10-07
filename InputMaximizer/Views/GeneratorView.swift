@@ -170,6 +170,7 @@ struct GeneratorView: View {
     @FocusState private var promptIsFocused: Bool
     
     @AppStorage("generatorSuggestionsExpandedV1") private var suggestionsExpanded: Bool = true
+    @State private var suggestionsFeed: [String] = []
 
     // TEMP: always-on fallback suggestions for NextPromptSuggestionsView
     private let defaultSuggestionsAlwaysOn: [String] = [
@@ -182,14 +183,9 @@ struct GeneratorView: View {
     private let debugAlwaysUseDefaults = false
 
     private var suggestionsForUI: [String] {
-        if debugAlwaysUseDefaults { return defaultSuggestionsAlwaysOn }
-        // (When you want to restore dynamic behavior, make this the fallback)
-        let s = generator.nextPromptSuggestions
-        //return s.isEmpty ? defaultSuggestionsAlwaysOn : s
+        let s = suggestionsFeed
         return s.isEmpty ? defaultSuggestionsAlwaysOn : s
     }
-
-    
 
     private let supportedLanguages: [String] = [
         "Afrikaans","Arabic","Armenian","Azerbaijani","Belarusian","Bosnian","Bulgarian","Catalan","Chinese (Simplified)","Chinese (Traditional)","Croatian",
@@ -790,7 +786,9 @@ struct GeneratorView: View {
                     if !suggestionsExpanded {
                         Button {
                             withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
-                                suggestionsExpanded = true
+                                DispatchQueue.main.async {
+                                    suggestionsExpanded = true
+                                }
                             }
                         } label: {
                             Image(systemName: "chevron.down")
@@ -1055,6 +1053,18 @@ struct GeneratorView: View {
         .task {
             await refreshServerBalance()   // main-actor isolated; safe UI mutation
         }
+        
+        .onAppear {
+            // Seed once when the view shows (main-thread context here)
+            suggestionsFeed = generator.nextPromptSuggestions
+        }
+
+        .onReceive(
+            generator.$nextPromptSuggestions
+                .receive(on: RunLoop.main)   // ensure updates arrive on main
+        ) { newValue in
+            suggestionsFeed = newValue
+        }
 
 
         .onReceive(
@@ -1206,7 +1216,9 @@ private struct NextPromptSuggestionsView: View {
             // HEADER — toggle chevron
             Button {
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
-                    isExpanded.toggle()
+                    DispatchQueue.main.async {
+                        isExpanded.toggle()
+                    }
                 }
             } label: {
                 ZStack {
