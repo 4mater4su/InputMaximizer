@@ -654,6 +654,7 @@ struct ContentView: View {
         }
     }
 
+    /*
     @ViewBuilder
     private func PlaybackModeIcon(_ mode: AudioManager.PlaybackMode, langs: LessonLanguages) -> some View {
         switch mode {
@@ -688,6 +689,7 @@ struct ContentView: View {
         }()
         PlaybackModeIcon(next, langs: langs)
     }
+    */
     
     //
     private var oppositeLangShort: String {
@@ -784,7 +786,7 @@ struct ContentView: View {
                         } label: {
                             if audioManager.playbackMode == .both {
                                 // Dual mode → back-and-forth icon only
-                                Image(systemName: "arrow.left.and.right.circle")
+                                Image(systemName: "arrow.counterclockwise")
                                     .imageScale(.large)
                             } else {
                                 // Single mode → pill with opposite language short code
@@ -1037,7 +1039,7 @@ private struct ToolbarChips: View {
                 Menu {
                     // TEXT APPEARANCE — simple button
                     let current = FontComfortMode(rawValue: fontComfortModeRaw) ?? .standard
-                    Button(current == .standard ? "Enable Comfy text" : "Disable Comfy text") {
+                    Button(current == .standard ? "Enable BIG text" : "Disable BIG text") {
                         var m = current; m.toggle(); fontComfortModeRaw = m.rawValue
                     }
 
