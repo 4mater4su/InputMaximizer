@@ -761,7 +761,17 @@ struct ContentView: View {
                 VStack(spacing: 12) {
                     HStack(spacing: 60) {
                         Button {
-                            audioManager.togglePlayPause()
+                            // If viewing a different lesson and audio is not currently playing, 
+                            // load and start the new lesson from the beginning
+                            if !isViewingActiveLesson && !audioManager.isPlaying {
+                                audioManager.loadLesson(
+                                    folderName: currentLesson.folderName,
+                                    lessonTitle: currentLesson.title
+                                )
+                                audioManager.playInContinuousLane(from: 0)
+                            } else {
+                                audioManager.togglePlayPause()
+                            }
                         } label: {
                             Image(systemName: audioManager.isPlaying ? "pause.fill" : "play.fill")
                                 .imageScale(.large)
