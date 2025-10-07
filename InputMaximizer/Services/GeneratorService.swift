@@ -971,6 +971,65 @@ private extension GeneratorService {
             return "\(title)\n\n\(bodyText)"
         }
 
+        /// Audit/correct the TARGET-language body to remove stray foreign-language tokens (e.g., helper-language words)
+        /// while preserving meaning and the paragraph/sentence boundaries.
+        func purifyTargetLanguage(_ text: String, targetLang: String) async throws -> String {
+            let system = """
+            You are a language auditor. Task: detect and correct any FOREIGN-LANGUAGE words or phrases that appear inside the TARGET-LANGUAGE text. 
+            Replace them with natural equivalents in the target language while preserving meaning.
+
+            Hard requirements:
+            • Keep the original paragraph and sentence boundaries; do not add or remove sentences.
+            • Keep proper nouns, brand names, and established international terms as-is if appropriate.
+            • Do not introduce helper-language words.
+            • Return the corrected TARGET-LANGUAGE text only.
+            """
+
+            let user = """
+            Target language: \(targetLang)
+
+            Text to audit and correct (TARGET-LANGUAGE text):
+            \(text)
+            """
+
+            let jsonSchema: [String: Any] = [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "language_purify",
+                    "description": "Corrected target-language text with foreign tokens removed",
+                    "strict": true,
+                    "schema": [
+                        "type": "object",
+                        "properties": [
+                            "clean_text": [
+                                "type": "string",
+                                "description": "Corrected target-language text"
+                            ]
+                        ],
+                        "required": ["clean_text"],
+                        "additionalProperties": false
+                    ]
+                ]
+            ]
+
+            let body: [String: Any] = [
+                "model": "gpt-5-nano",
+                "messages": [
+                    ["role": "system", "content": system],
+                    ["role": "user",   "content": user]
+                ],
+                "response_format": jsonSchema
+            ]
+
+            let raw = try await chatViaProxy(body)
+            guard let data = raw.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let clean = json["clean_text"] as? String else {
+                throw NSError(domain: "Generator", code: 9, userInfo: [NSLocalizedDescriptionKey: "Failed to parse language purify JSON"])
+            }
+            return clean.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
         // --- Keyword extractor (target → helper language) ---
         // Uses Structured Outputs to return reliable JSON with keyword pairs
         func extractKeywordPairs(targetText: String,
@@ -1372,8 +1431,12 @@ private extension GeneratorService {
             // Enforce short, tidy title (e.g., ≤48 chars and ≤8 words)
             let generatedTitle = shortenTitle(normalized, maxChars: 48, maxWords: 8)
 
-            // Use the cleaned body, then normalize dialogue/prose presentation
-            let bodyPrimary = normalizeDialoguePresentation(bodyPrimary0)
+            // Ensure the TARGET-language body contains no helper-language spillover
+            await progress("Checking language consistency…")
+            let purifiedPrimary = try await purifyTargetLanguage(bodyPrimary0, targetLang: req.genLanguage)
+
+            // Use the purified body, then normalize dialogue/prose presentation
+            let bodyPrimary = normalizeDialoguePresentation(purifiedPrimary)
 
             var folder = slugify(generatedTitle)
             let baseRoot = FileManager.docsLessonsDir
