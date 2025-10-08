@@ -171,6 +171,8 @@ struct GeneratorView: View {
     
     @AppStorage("generatorSuggestionsExpandedV1") private var suggestionsExpanded: Bool = false
     @State private var suggestionsFeed: [String] = []
+    
+    @State private var showPromptBrainstorm = false
 
     private var hasSuggestions: Bool {
         !suggestionsFeed.isEmpty
@@ -767,11 +769,44 @@ struct GeneratorView: View {
                             .padding(.top, 8)
                         }
                     }
+                    
+                    // Brainstorm button when no suggestions available
+                    if !hasSuggestions {
+                        Button {
+                            showPromptBrainstorm = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.yellow)
+                                Text("Brainstorm ideas")
+                                    .font(.subheadline.weight(.medium))
+                            }
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color(.tertiarySystemBackground))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(Color.yellow.opacity(0.3), lineWidth: 1)
+                                    )
+                            )
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .padding(.bottom, 4)
+                        .accessibilityLabel("Brainstorm prompt ideas with AI")
+                    }
                 }
-                // Reserve bottom space when hidden (so overlay isn't clipped)
+                // Reserve bottom space for chevron overlay when suggestions collapsed
                 .padding(.bottom, (hasSuggestions && !suggestionsExpanded) ? 30 : 0)
 
-                // Centered chevron-down toggle - only show if we have suggestions
+                // Chevron overlay only for collapsed suggestions
                 .overlay(alignment: .bottom) {
                     if hasSuggestions && !suggestionsExpanded {
                         Button {
@@ -1069,6 +1104,17 @@ struct GeneratorView: View {
                 BuyCreditsView(presentation: .modal)
                     .environmentObject(purchases)
             }
+        }
+        
+        .sheet(isPresented: $showPromptBrainstorm) {
+            PromptBrainstormView(
+                onSelectPrompt: { finalPrompt in
+                    mode = .prompt
+                    userPrompt = finalPrompt
+                    showPromptBrainstorm = false
+                }
+            )
+            .environmentObject(generator)
         }
 
         // Refresh balance after a successful generation
@@ -1860,6 +1906,404 @@ struct StableTextEditor: UIViewRepresentable {
 
         context.coordinator.updatePlaceholderVisibility()
         context.coordinator.refreshConstraintsIfNeeded()
+    }
+}
+
+// MARK: - Prompt Brainstorm View
+
+@MainActor
+private struct PromptBrainstormView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var generator: GeneratorService
+    
+    var onSelectPrompt: (String) -> Void
+    
+    @State private var messages: [ChatMessage] = []
+    @State private var userInput: String = ""
+    @State private var isThinking: Bool = false
+    @State private var conversationStage: ConversationStage = .initial
+    @State private var currentPrompt: String? = nil
+    @State private var showConfirmation: Bool = false
+    @FocusState private var inputIsFocused: Bool
+    
+    enum ConversationStage {
+        case initial
+        case exploring
+        case refining
+        case done
+    }
+    
+    struct ChatMessage: Identifiable, Equatable {
+        let id = UUID()
+        let text: String
+        let isUser: Bool
+        
+        init(text: String, isUser: Bool) {
+            self.text = text
+            self.isUser = isUser
+        }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Current prompt display at top
+                if let prompt = currentPrompt {
+                    VStack(spacing: 0) {
+                        Button {
+                            showConfirmation = true
+                        } label: {
+                            HStack(alignment: .top, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Current Prompt")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                    
+                                    Text(prompt)
+                                        .font(.callout)
+                                        .foregroundStyle(.primary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .multilineTextAlignment(.leading)
+                                }
+                                
+                                Spacer()
+                                
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.green)
+                            }
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color(.tertiarySystemBackground))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                            )
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        
+                        Divider()
+                    }
+                }
+                
+                // Chat messages
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            ForEach(messages) { message in
+                                ChatBubble(message: message)
+                                    .id(message.id)
+                            }
+                            
+                            if isThinking {
+                                HStack {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Thinking...")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .id("thinking")
+                            }
+                        }
+                        .padding()
+                    }
+                    .onTapGesture {
+                        inputIsFocused = false
+                    }
+                    .onChange(of: messages.count) { _, _ in
+                        if let lastMessage = messages.last {
+                            withAnimation {
+                                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                            }
+                        }
+                    }
+                    .onChange(of: isThinking) { _, newValue in
+                        if newValue {
+                            withAnimation {
+                                proxy.scrollTo("thinking", anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+                
+                // Input area
+                Divider()
+                
+                HStack(spacing: 12) {
+                    TextField("Your answer...", text: $userInput, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(Color(.secondarySystemBackground))
+                        )
+                        .focused($inputIsFocused)
+                        .disabled(isThinking || conversationStage == .done)
+                        .onSubmit {
+                            sendMessage()
+                        }
+                    
+                    Button {
+                        sendMessage()
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(userInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .blue)
+                    }
+                    .disabled(userInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isThinking || conversationStage == .done)
+                }
+                .padding()
+            }
+            .navigationTitle("Brainstorm Ideas")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+            .alert("Use this prompt?", isPresented: $showConfirmation) {
+                Button("Use Prompt") {
+                    if let prompt = currentPrompt {
+                        onSelectPrompt(prompt)
+                        dismiss()
+                    }
+                }
+                Button("Keep Refining", role: .cancel) {}
+            } message: {
+                if let prompt = currentPrompt {
+                    Text(prompt)
+                }
+            }
+            .onAppear {
+                startConversation()
+            }
+        }
+    }
+    
+    private func startConversation() {
+        let greetings = [
+            "Hey! Let's brainstorm together. What interests you?",
+            "Hi! What would you like to explore today?",
+            "Hello! What's on your mind? Any topics you're curious about?",
+            "Hey there! What kind of lesson are you thinking about?",
+            "Hi! Ready to create something interesting? What topics do you enjoy?"
+        ]
+        
+        let greeting = greetings.randomElement() ?? greetings[0]
+        messages.append(ChatMessage(text: greeting, isUser: false))
+        conversationStage = .exploring
+        
+        // Auto-focus input after a brief delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            inputIsFocused = true
+        }
+    }
+    
+    private func sendMessage() {
+        let trimmed = userInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        messages.append(ChatMessage(text: trimmed, isUser: true))
+        userInput = ""
+        
+        Task {
+            await generateResponse(userMessage: trimmed)
+        }
+    }
+    
+    private func generateResponse(userMessage: String) async {
+        isThinking = true
+        
+        do {
+            let response: String
+            
+            switch conversationStage {
+            case .initial:
+                response = ""
+                
+            case .exploring:
+                // Ask follow-up questions to understand better - one at a time
+                let userMessageCount = messages.filter { $0.isUser }.count
+                
+                let prompt: String
+                if userMessageCount == 1 {
+                    // First follow-up: ask about setting/scenario
+                    prompt = """
+                    The user is interested in: "\(userMessage)"
+                    
+                    Ask ONE short follow-up question about what kind of setting or scenario would be interesting.
+                    Examples: "A busy market?" "A quiet library?" "A family dinner?"
+                    
+                    Keep it to 1-2 short sentences. Be conversational.
+                    """
+                } else {
+                    // Second follow-up: ask about complexity or theme
+                    let allMessages = messages.filter { $0.isUser }.map { $0.text }.joined(separator: " | ")
+                    prompt = """
+                    Context: \(allMessages)
+                    
+                    Ask ONE short follow-up question about either:
+                    - The complexity level (simple daily life vs detailed/complex)
+                    - A specific vocabulary theme they want
+                    
+                    Just 1-2 short sentences. Keep it casual.
+                    """
+                }
+                
+                response = try await generator.chatViaProxySimple(prompt)
+                // Stay in exploring stage for follow-ups
+                
+            case .refining:
+                // Check if user wants refinement or is ready to generate
+                let lowerMessage = userMessage.lowercased()
+                let seemsPositive = lowerMessage.contains("yes") || lowerMessage.contains("good") || 
+                                   lowerMessage.contains("sounds") || lowerMessage.contains("perfect") ||
+                                   lowerMessage.contains("great") || lowerMessage.contains("ok") ||
+                                   lowerMessage.contains("sure") || lowerMessage.contains("yeah")
+                
+                if seemsPositive && currentPrompt != nil {
+                    // User seems happy, acknowledge and finish
+                    let responses = [
+                        "Awesome! Tap the green checkmark to use this prompt.",
+                        "Perfect! Hit the checkmark when you're ready.",
+                        "Great! The checkmark will apply this prompt.",
+                        "Sounds good! Use the checkmark to confirm."
+                    ]
+                    response = responses.randomElement() ?? responses[0]
+                    conversationStage = .done
+                } else {
+                    // Generate refined version
+                    let currentPromptText = currentPrompt ?? "the previous idea"
+                    let allUserMessages = messages.filter { $0.isUser }.map { $0.text }.joined(separator: " | ")
+                    
+                    let prompt = """
+                    Context: "\(allUserMessages)"
+                    Current: "\(currentPromptText)"
+                    Feedback: "\(userMessage)"
+                    
+                    Create a REFINED lesson prompt (1-2 sentences). Make it vivid and scenario-based.
+                    
+                    Format:
+                    Line 1: Acknowledge (4-5 words)
+                    Line 2: PROMPT: [refined prompt in plain text only]
+                    Line 3: "Better?" or similar short question
+                    
+                    No asterisks or formatting in the prompt text.
+                    """
+                    
+                    response = try await generator.chatViaProxySimple(prompt)
+                    extractAndUpdatePrompt(from: response)
+                }
+                
+            case .done:
+                response = ""
+            }
+            
+            // Check if we should generate first prompt
+            if conversationStage == .exploring && messages.filter({ $0.isUser }).count >= 2 {
+                // User has answered follow-ups, generate initial prompt
+                let allUserResponses = messages.filter { $0.isUser }.map { $0.text }.joined(separator: " | ")
+                
+                let genPrompt = """
+                Based on: "\(allUserResponses)"
+                
+                Create ONE creative lesson prompt (1-2 sentences) for language learning.
+                Make it a specific, vivid scene.
+                
+                Format your response as:
+                Line 1: Brief excitement (3-4 words)
+                Line 2: PROMPT: [the actual prompt in plain text, no formatting]
+                Line 3: "What do you think?"
+                
+                Use plain text only, no asterisks or special characters in the prompt.
+                """
+                
+                let promptResponse = try await generator.chatViaProxySimple(genPrompt)
+                extractAndUpdatePrompt(from: promptResponse)
+                
+                isThinking = false
+                if !response.isEmpty {
+                    messages.append(ChatMessage(text: response, isUser: false))
+                }
+                messages.append(ChatMessage(text: promptResponse, isUser: false))
+                conversationStage = .refining
+                return
+            }
+            
+            if !response.isEmpty {
+                isThinking = false
+                messages.append(ChatMessage(text: response, isUser: false))
+            } else {
+                isThinking = false
+            }
+            
+        } catch {
+            isThinking = false
+            messages.append(ChatMessage(text: "Sorry, I had trouble. Please try again.", isUser: false))
+        }
+    }
+    
+    private func extractAndUpdatePrompt(from response: String) {
+        if let promptRange = response.range(of: "PROMPT:", options: .caseInsensitive) {
+            let afterPrompt = response[promptRange.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Try to extract just the prompt part
+            var extracted = ""
+            if let newlineRange = afterPrompt.range(of: "\n") {
+                extracted = String(afterPrompt[..<newlineRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                // Try to find end before question mark or period
+                if let questionMark = afterPrompt.firstIndex(of: "?") {
+                    extracted = String(afterPrompt[..<questionMark]).trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    let sentences = afterPrompt.components(separatedBy: ". ")
+                    if !sentences.isEmpty {
+                        extracted = sentences[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                }
+            }
+            
+            // Clean all formatting: asterisks, quotes, markdown, etc.
+            let cleaned = extracted.replacingOccurrences(of: "[*_\"'`]+", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            currentPrompt = cleaned
+
+        }
+    }
+}
+
+private struct ChatBubble: View {
+    let message: PromptBrainstormView.ChatMessage
+    
+    var body: some View {
+        HStack {
+            if message.isUser { Spacer(minLength: 50) }
+            
+            Text(message.text)
+                .font(.body)
+                .foregroundColor(message.isUser ? .white : .primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(message.isUser ? Color.blue : Color(.secondarySystemBackground))
+                )
+            
+            if !message.isUser { Spacer(minLength: 50) }
+        }
+        .padding(.horizontal)
     }
 }
 

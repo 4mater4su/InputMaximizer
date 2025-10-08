@@ -365,6 +365,30 @@ private extension GeneratorService {
         let content = (((json["choices"] as? [[String:Any]])?.first?["message"] as? [String:Any])?["content"] as? String) ?? ""
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+    
+    // Simple chat for brainstorming - uses its own job
+    public func chatViaProxySimple(_ prompt: String) async throws -> String {
+        let deviceId = DeviceID.current
+        let (jobId, jobToken) = try await Self.proxy.jobStart(deviceId: deviceId, amount: 1, ttlSeconds: 600)
+        
+        defer {
+            Task {
+                await Self.proxy.jobCancel(deviceId: deviceId, jobId: jobId)
+            }
+        }
+        
+        let body: [String: Any] = [
+            "model": "gpt-4o-mini",
+            "messages": [
+                ["role": "system", "content": "You are a helpful, friendly assistant helping users brainstorm creative lesson ideas for language learning. Be concise and engaging."],
+                ["role": "user", "content": prompt]
+            ],
+            "temperature": 0.8,
+            "max_tokens": 300
+        ]
+        
+        return try await Self.chatViaProxy(body, jobId: jobId, jobToken: jobToken)
+    }
 
     static func ttsViaProxy(text: String, language: String, speed: Request.SpeechSpeed, jobId: String, jobToken: String) async throws -> Data {
         try await retry {
