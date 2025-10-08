@@ -772,35 +772,40 @@ struct GeneratorView: View {
                     
                     // Brainstorm button when no suggestions available
                     if !hasSuggestions {
-                        Button {
-                            showPromptBrainstorm = true
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(.yellow)
-                                Text("Brainstorm ideas")
-                                    .font(.subheadline.weight(.medium))
+                        VStack(spacing: 0) {
+                            Button {
+                                showPromptBrainstorm = true
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(.yellow)
+                                    Text("Brainstorm ideas")
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .frame(maxWidth: .infinity)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(Color(.tertiarySystemBackground))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                .stroke(Color.yellow.opacity(0.3), lineWidth: 1.5)
+                                        )
+                                )
+                                .contentShape(Rectangle())
                             }
-                            .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(Color(.tertiarySystemBackground))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(Color.yellow.opacity(0.3), lineWidth: 1)
-                                    )
-                            )
-                            .contentShape(Rectangle())
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Brainstorm prompt ideas with AI")
                         }
-                        .buttonStyle(.plain)
                         .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 4)
-                        .accessibilityLabel("Brainstorm prompt ideas with AI")
+                        .padding(.top, 8)
                     }
                 }
                 // Reserve bottom space for chevron overlay when suggestions collapsed
@@ -1937,80 +1942,36 @@ private struct PromptBrainstormView: View {
         let id = UUID()
         let text: String
         let isUser: Bool
+        let isPrompt: Bool
         
-        init(text: String, isUser: Bool) {
+        init(text: String, isUser: Bool, isPrompt: Bool = false) {
             self.text = text
             self.isUser = isUser
+            self.isPrompt = isPrompt
         }
     }
     
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Current prompt display at top
-                if let prompt = currentPrompt {
-                    VStack(spacing: 0) {
-                        Button {
-                            showConfirmation = true
-                        } label: {
-                            HStack(alignment: .top, spacing: 12) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Current Prompt")
-                                        .font(.caption2.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                    
-                                    Text(prompt)
-                                        .font(.callout)
-                                        .foregroundStyle(.primary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .multilineTextAlignment(.leading)
-                                }
-                                
-                                Spacer()
-                                
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.title2)
-                                    .foregroundStyle(.green)
-                            }
-                            .padding(12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(Color(.tertiarySystemBackground))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(Color.green.opacity(0.3), lineWidth: 1)
-                            )
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        
-                        Divider()
-                    }
-                }
-                
                 // Chat messages
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 12) {
                             ForEach(messages) { message in
-                                ChatBubble(message: message)
-                                    .id(message.id)
+                                ChatBubble(
+                                    message: message,
+                                    onSelectPrompt: { prompt in
+                                        currentPrompt = prompt
+                                        showConfirmation = true
+                                    }
+                                )
+                                .id(message.id)
                             }
                             
                             if isThinking {
-                                HStack {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                    Text("Thinking...")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .id("thinking")
+                                ThinkingIndicator()
+                                    .id("thinking")
                             }
                         }
                         .padding()
@@ -2203,7 +2164,37 @@ private struct PromptBrainstormView: View {
                     """
                     
                     response = try await generator.chatViaProxySimple(prompt)
-                    extractAndUpdatePrompt(from: response)
+                    let (textPart, extractedPrompt) = extractPromptAndText(from: response)
+                    
+                    isThinking = false
+                    
+                    // Split text into acknowledgment and question
+                    let parts = textPart.components(separatedBy: "\n\n")
+                    if parts.count >= 2 {
+                        // Add acknowledgment first
+                        if !parts[0].isEmpty {
+                            messages.append(ChatMessage(text: parts[0], isUser: false))
+                        }
+                        // Add refined prompt
+                        if let prompt = extractedPrompt {
+                            currentPrompt = prompt
+                            messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
+                        }
+                        // Add question after
+                        if !parts[1].isEmpty {
+                            messages.append(ChatMessage(text: parts[1], isUser: false))
+                        }
+                    } else {
+                        // Fallback
+                        if let prompt = extractedPrompt {
+                            currentPrompt = prompt
+                            messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
+                        }
+                        if !textPart.isEmpty {
+                            messages.append(ChatMessage(text: textPart, isUser: false))
+                        }
+                    }
+                    return
                 }
                 
             case .done:
@@ -2230,13 +2221,40 @@ private struct PromptBrainstormView: View {
                 """
                 
                 let promptResponse = try await generator.chatViaProxySimple(genPrompt)
-                extractAndUpdatePrompt(from: promptResponse)
+                let (textPart, extractedPrompt) = extractPromptAndText(from: promptResponse)
                 
                 isThinking = false
                 if !response.isEmpty {
                     messages.append(ChatMessage(text: response, isUser: false))
                 }
-                messages.append(ChatMessage(text: promptResponse, isUser: false))
+                
+                // Split the text part into excitement and question
+                let parts = textPart.components(separatedBy: "\n\n")
+                if parts.count >= 2 {
+                    // Add excitement first
+                    if !parts[0].isEmpty {
+                        messages.append(ChatMessage(text: parts[0], isUser: false))
+                    }
+                    // Add prompt
+                    if let prompt = extractedPrompt {
+                        currentPrompt = prompt
+                        messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
+                    }
+                    // Add question after
+                    if !parts[1].isEmpty {
+                        messages.append(ChatMessage(text: parts[1], isUser: false))
+                    }
+                } else {
+                    // Fallback: add prompt, then any text
+                    if let prompt = extractedPrompt {
+                        currentPrompt = prompt
+                        messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
+                    }
+                    if !textPart.isEmpty {
+                        messages.append(ChatMessage(text: textPart, isUser: false))
+                    }
+                }
+                
                 conversationStage = .refining
                 return
             }
@@ -2254,52 +2272,128 @@ private struct PromptBrainstormView: View {
         }
     }
     
-    private func extractAndUpdatePrompt(from response: String) {
-        if let promptRange = response.range(of: "PROMPT:", options: .caseInsensitive) {
-            let afterPrompt = response[promptRange.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            // Try to extract just the prompt part
-            var extracted = ""
-            if let newlineRange = afterPrompt.range(of: "\n") {
-                extracted = String(afterPrompt[..<newlineRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            } else {
-                // Try to find end before question mark or period
-                if let questionMark = afterPrompt.firstIndex(of: "?") {
-                    extracted = String(afterPrompt[..<questionMark]).trimmingCharacters(in: .whitespacesAndNewlines)
-                } else {
-                    let sentences = afterPrompt.components(separatedBy: ". ")
-                    if !sentences.isEmpty {
-                        extracted = sentences[0].trimmingCharacters(in: .whitespacesAndNewlines)
+    private func extractPromptAndText(from response: String) -> (text: String, prompt: String?) {
+        guard let promptRange = response.range(of: "PROMPT:", options: .caseInsensitive) else {
+            // No prompt found, return whole response as text
+            return (response.trimmingCharacters(in: .whitespacesAndNewlines), nil)
+        }
+        
+        // Extract text before "PROMPT:"
+        let beforePrompt = String(response[..<promptRange.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Extract prompt part
+        let afterPromptMarker = response[promptRange.upperBound...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        var extractedPrompt = ""
+        var textAfterPrompt = ""
+        
+        // Find where prompt ends (newline or end of string)
+        if let newlineRange = afterPromptMarker.range(of: "\n") {
+            extractedPrompt = String(afterPromptMarker[..<newlineRange.lowerBound])
+            textAfterPrompt = String(afterPromptMarker[newlineRange.upperBound...])
+        } else {
+            extractedPrompt = String(afterPromptMarker)
+        }
+        
+        // Clean the prompt
+        let cleanedPrompt = extractedPrompt
+            .replacingOccurrences(of: "[*_\"'`]+", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Combine before and after text
+        var combinedText = beforePrompt
+        if !textAfterPrompt.isEmpty {
+            if !combinedText.isEmpty {
+                combinedText += "\n\n"
+            }
+            combinedText += textAfterPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        return (combinedText, cleanedPrompt.isEmpty ? nil : cleanedPrompt)
+    }
+}
+
+private struct ThinkingIndicator: View {
+    @State private var rotation: Double = 0
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // Animated sparkles icon
+            Image(systemName: "sparkles")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.yellow)
+                .rotationEffect(.degrees(rotation))
+                .onAppear {
+                    withAnimation(
+                        .linear(duration: 2)
+                        .repeatForever(autoreverses: false)
+                    ) {
+                        rotation = 360
                     }
                 }
-            }
             
-            // Clean all formatting: asterisks, quotes, markdown, etc.
-            let cleaned = extracted.replacingOccurrences(of: "[*_\"'`]+", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            currentPrompt = cleaned
-
+            Text("Thinking")
+                .font(.body.weight(.medium))
+                .foregroundStyle(.secondary)
         }
+        .padding(.horizontal)
     }
 }
 
 private struct ChatBubble: View {
     let message: PromptBrainstormView.ChatMessage
+    var onSelectPrompt: (String) -> Void
     
     var body: some View {
         HStack {
             if message.isUser { Spacer(minLength: 50) }
             
-            Text(message.text)
-                .font(.body)
-                .foregroundColor(message.isUser ? .white : .primary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(message.isUser ? Color.blue : Color(.secondarySystemBackground))
-                )
+            if message.isPrompt {
+                // Special prompt bubble - selectable
+                Button {
+                    onSelectPrompt(message.text)
+                } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "lightbulb.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.yellow)
+                            .padding(.top, 2)
+                        
+                        Text(message.text)
+                            .font(.body)
+                            .foregroundColor(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(.tertiarySystemBackground))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color.green.opacity(0.4), lineWidth: 2)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                // Regular text bubble
+                Text(message.text)
+                    .font(.body)
+                    .foregroundColor(message.isUser ? .white : .primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(message.isUser ? Color.blue : Color(.secondarySystemBackground))
+                    )
+            }
             
             if !message.isUser { Spacer(minLength: 50) }
         }
