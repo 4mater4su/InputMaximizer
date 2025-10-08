@@ -14,6 +14,12 @@ export interface Env {
 
   /** Optional; default 3 */
   INITIAL_GRANT?: string;
+  
+  /** Optional: admin secret to access diagnostics endpoints */
+  ADMIN_SECRET?: string;
+  
+  /** Optional: Cloudflare Rate Limiting binding (configure in wrangler.jsonc) */
+  RATE_LIMITER?: any;
 }
 
 /* ================================
@@ -36,10 +42,13 @@ const PRODUCT_TO_CREDITS: Record<string, number> = {
 function requireDeviceId(req: Request): string {
   const id = req.headers.get("X-Device-Id")?.trim();
   if (!id) {
-    throw new Response(JSON.stringify({ error: "missing_device_id" }), {
-      status: 400,
-      headers: { "content-type": "application/json" },
-    });
+    throw { 
+      isErrorResponse: true,
+      response: new Response(JSON.stringify({ error: "missing_device_id" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      })
+    };
   }
   return id;
 }
@@ -96,6 +105,147 @@ function json(status: number, data: any) {
     status,
     headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
+}
+
+// Generate a cryptographically secure random token
+function generateSecureToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Simple rate limiting helper (checks KV-based counter)
+async function checkRateLimit(
+  env: Env,
+  key: string,
+  maxRequests: number,
+  windowSeconds: number
+): Promise<{ allowed: boolean; remaining: number }> {
+  const now = Math.floor(Date.now() / 1000);
+  const windowKey = `ratelimit:${key}:${Math.floor(now / windowSeconds)}`;
+  
+  const currentRaw = await env.CREDITS.get(windowKey);
+  const current = currentRaw ? parseInt(currentRaw, 10) || 0 : 0;
+  
+  if (current >= maxRequests) {
+    return { allowed: false, remaining: 0 };
+  }
+  
+  await env.CREDITS.put(windowKey, String(current + 1), { expirationTtl: windowSeconds * 2 });
+  return { allowed: true, remaining: maxRequests - current - 1 };
+}
+
+// Verify admin secret for diagnostic endpoints
+function requireAdminAuth(req: Request, env: Env): void {
+  const adminSecret = env.ADMIN_SECRET?.trim();
+  if (!adminSecret) {
+    throw {
+      isErrorResponse: true,
+      response: new Response(JSON.stringify({ error: "diagnostics_disabled" }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      })
+    };
+  }
+  
+  const provided = req.headers.get("X-Admin-Secret")?.trim();
+  if (provided !== adminSecret) {
+    throw {
+      isErrorResponse: true,
+      response: new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      })
+    };
+  }
+}
+
+// Verify that a job hold exists, is pending, matches device, and has valid token
+async function requireValidJob(
+  req: Request,
+  env: Env,
+  deviceId: string
+): Promise<{ jobId: string; hold: any }> {
+  const jobId = req.headers.get("X-Job-Id")?.trim();
+  const jobToken = req.headers.get("X-Job-Token")?.trim();
+  
+  if (!jobId || !jobToken) {
+    throw {
+      isErrorResponse: true,
+      response: new Response(
+        JSON.stringify({ error: "missing_job_credentials", message: "X-Job-Id and X-Job-Token headers required" }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      )
+    };
+  }
+  
+  const holdKey = `hold:${jobId}`;
+  const raw = await env.CREDITS.get(holdKey);
+  if (!raw) {
+    throw {
+      isErrorResponse: true,
+      response: new Response(
+        JSON.stringify({ error: "invalid_job", message: "Job not found or expired" }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      )
+    };
+  }
+  
+  let hold: any;
+  try {
+    hold = JSON.parse(raw);
+  } catch {
+    throw {
+      isErrorResponse: true,
+      response: new Response(
+        JSON.stringify({ error: "invalid_job", message: "Corrupted job data" }),
+        { status: 500, headers: { "content-type": "application/json" } }
+      )
+    };
+  }
+  
+  // Verify state, device, token, expiry
+  if (hold.state !== "pending") {
+    throw {
+      isErrorResponse: true,
+      response: new Response(
+        JSON.stringify({ error: "job_not_pending", message: "Job already committed or cancelled" }),
+        { status: 409, headers: { "content-type": "application/json" } }
+      )
+    };
+  }
+  
+  if (hold.deviceId !== deviceId) {
+    throw {
+      isErrorResponse: true,
+      response: new Response(
+        JSON.stringify({ error: "device_mismatch" }),
+        { status: 403, headers: { "content-type": "application/json" } }
+      )
+    };
+  }
+  
+  if (hold.token !== jobToken) {
+    throw {
+      isErrorResponse: true,
+      response: new Response(
+        JSON.stringify({ error: "invalid_token" }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      )
+    };
+  }
+  
+  if (hold.expiresAt && Date.now() > hold.expiresAt) {
+    throw {
+      isErrorResponse: true,
+      response: new Response(
+        JSON.stringify({ error: "job_expired" }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      )
+    };
+  }
+  
+  return { jobId, hold };
 }
 
 /* ================================
@@ -374,6 +524,14 @@ export default {
       // --- Credits: one-time review grant (self-serve for App Review) ---
       if (req.method === "POST" && path === "/credits/review-grant") {
         const deviceId = requireDeviceId(req);
+        
+        // Rate limit: 3 attempts per device per hour (prevent brute force)
+        const rateLimit = await checkRateLimit(env, `review:${deviceId}`, 3, 3600);
+        if (!rateLimit.allowed) {
+          console.log(`[review-grant] rate_limited device=${deviceId}`);
+          return json(429, { error: "rate_limit_exceeded", message: "Too many attempts, try again later" });
+        }
+        
         const body = await parseJSON<{ code?: string }>(req);
         const provided = (body.code || "").trim();
         const expected = (env.REVIEW_CODE || "").trim();
@@ -381,7 +539,23 @@ export default {
 
         if (!provided || !expected || provided !== expected) {
           console.log(`[review-grant] bad_code device=${deviceId}`);
+          // Add failed attempt penalty
+          const penaltyKey = `review_penalty:${deviceId}`;
+          const failCount = parseInt((await env.CREDITS.get(penaltyKey)) || "0", 10);
+          await env.CREDITS.put(penaltyKey, String(failCount + 1), { expirationTtl: 3600 });
+          
+          // After 5 failed attempts, block for 24 hours
+          if (failCount >= 4) {
+            await env.CREDITS.put(`review_blocked:${deviceId}`, String(Date.now()), { expirationTtl: 86400 });
+            return json(403, { error: "too_many_failures", message: "Blocked for 24 hours due to repeated failures" });
+          }
+          
           return json(403, { error: "bad_code" });
+        }
+
+        // Check if blocked
+        if (await env.CREDITS.get(`review_blocked:${deviceId}`)) {
+          return json(403, { error: "blocked", message: "Temporarily blocked due to repeated failures" });
         }
 
         const onceKey = `review_granted:${deviceId}`;
@@ -394,6 +568,9 @@ export default {
         const grant = parseInt(env.REVIEW_GRANT_AMOUNT || "20", 10) || 20;
         await addCredits(env, deviceId, grant);
         await env.CREDITS.put(onceKey, String(Date.now()));
+        
+        // Clear penalty on success
+        await env.CREDITS.delete(`review_penalty:${deviceId}`);
 
         const balance = await getBalance(env, deviceId);
         console.log(`[review-grant] granted device=${deviceId} +${grant} newBalance=${balance}`);
@@ -436,17 +613,20 @@ export default {
           return json(402, { error: "insufficient_credits", balance: bal, reserved });
         }
 
+        // Generate a secure token for this job
+        const jobToken = generateSecureToken();
+
         // Reserve
         await env.CREDITS.put(`device:${deviceId}:reserved`, String(reserved + amount));
         const holdKey = `hold:${jobId}`;
         const expiresAt = Date.now() + ttl * 1000;
         await env.CREDITS.put(
           holdKey,
-          JSON.stringify({ deviceId, amount, state: "pending", expiresAt }),
+          JSON.stringify({ deviceId, amount, state: "pending", expiresAt, token: jobToken }),
           { expirationTtl: ttl }
         );
 
-        return json(200, { ok: true, jobId, reserved: reserved + amount, balance: bal });
+        return json(200, { ok: true, jobId, jobToken, reserved: reserved + amount, balance: bal });
       }
 
       // --- Jobs: commit (convert hold → debit) ---
@@ -671,6 +851,7 @@ export default {
 
       // --- Diagnostics: App Store key sanity (does NOT leak private key) ---
       if (req.method === "GET" && path === "/diag/appstore") {
+        requireAdminAuth(req, env);
         const kid = (env.APPSTORE_KEY_ID || "").trim();
         const iss = (env.APPSTORE_ISSUER_ID || "").trim();
         const pem = (env.APPSTORE_PRIVATE_KEY || "").trim();
@@ -694,6 +875,7 @@ export default {
 
       // --- Diagnostics: Show the JWT header/payload we would send (safe, redacted) ---
       if (req.method === "GET" && path === "/diag/appstore/jwt") {
+        requireAdminAuth(req, env);
         if (!env.APPSTORE_ISSUER_ID || !env.APPSTORE_KEY_ID || !env.APPSTORE_PRIVATE_KEY) {
           return Response.json({ ok: false, error: "missing_credentials" }, { headers: { "cache-control": "no-store" }});
         }
@@ -740,6 +922,7 @@ export default {
 
       // --- Diagnostics: Call Apple with our JWT to see status from PROD/SANDBOX ---
       if (req.method === "GET" && path === "/diag/appstore/ping") {
+        requireAdminAuth(req, env);
         if (!env.APPSTORE_ISSUER_ID || !env.APPSTORE_KEY_ID || !env.APPSTORE_PRIVATE_KEY) {
           return Response.json({ ok: false, error: "missing_credentials" }, { headers: { "cache-control": "no-store" }});
         }
@@ -859,8 +1042,16 @@ export default {
 
       // --- Chat proxy -> OpenAI /v1/chat/completions ---
       if (req.method === "POST" && path === "/chat") {
-        // Require device id (for tracing/rate limiting later)
-        void requireDeviceId(req);
+        const deviceId = requireDeviceId(req);
+        
+        // Verify valid job hold with token
+        await requireValidJob(req, env, deviceId);
+        
+        // Rate limit per device: 60 requests per minute
+        const rateLimit = await checkRateLimit(env, `chat:${deviceId}`, 60, 60);
+        if (!rateLimit.allowed) {
+          return json(429, { error: "rate_limit_exceeded", message: "Too many requests, try again later" });
+        }
 
         const body = await parseJSON<any>(req);
         const r = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -886,7 +1077,16 @@ export default {
 
       // --- TTS proxy -> OpenAI /v1/audio/speech (MP3) ---
       if (req.method === "POST" && path === "/tts") {
-        void requireDeviceId(req);
+        const deviceId = requireDeviceId(req);
+        
+        // Verify valid job hold with token
+        await requireValidJob(req, env, deviceId);
+        
+        // Rate limit per device: 120 requests per minute (TTS is higher volume)
+        const rateLimit = await checkRateLimit(env, `tts:${deviceId}`, 120, 60);
+        if (!rateLimit.allowed) {
+          return json(429, { error: "rate_limit_exceeded", message: "Too many requests, try again later" });
+        }
 
         const wanted = await parseJSON<{
           text: string;
@@ -933,6 +1133,10 @@ export default {
 
       return new Response("Not found", { status: 404 });
     } catch (err: any) {
+      // Handle our custom error responses (from requireDeviceId, requireAdminAuth, requireValidJob)
+      if (err?.isErrorResponse && err?.response) {
+        return err.response;
+      }
       console.error("UNCAUGHT", err?.stack || String(err));
       return json(500, { error: "server_exception", detail: String(err?.message || err) });
     }

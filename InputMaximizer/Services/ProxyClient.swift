@@ -118,10 +118,12 @@ struct ProxyClient {
 
     // MARK: - Chat proxy
     // Ensure 402 bubbles up for chat…
-    func chat(deviceId: String, body: [String: Any]) async throws -> [String: Any] {
+    func chat(deviceId: String, jobId: String, jobToken: String, body: [String: Any]) async throws -> [String: Any] {
         var req = URLRequest(url: baseURL.appendingPathComponent("/chat"))
         req.httpMethod = "POST"
         req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        req.setValue(jobId, forHTTPHeaderField: "X-Job-Id")
+        req.setValue(jobToken, forHTTPHeaderField: "X-Job-Token")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -142,10 +144,12 @@ struct ProxyClient {
     }
 
     // MARK: - TTS proxy
-    func tts(deviceId: String, text: String, language: String, speed: String = "regular") async throws -> Data {
+    func tts(deviceId: String, jobId: String, jobToken: String, text: String, language: String, speed: String = "regular") async throws -> Data {
         var req = URLRequest(url: baseURL.appendingPathComponent("/tts"))
         req.httpMethod = "POST"
         req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        req.setValue(jobId, forHTTPHeaderField: "X-Job-Id")
+        req.setValue(jobToken, forHTTPHeaderField: "X-Job-Token")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: [
             "text": text,
@@ -177,13 +181,14 @@ struct ProxyClient {
 private struct JobStartResponse: Decodable {
     let ok: Bool
     let jobId: String
+    let jobToken: String
     let reserved: Int
     let balance: Int
 }
 private struct JobOKResponse: Decodable { let ok: Bool; let balance: Int }
 
 extension ProxyClient {
-    func jobStart(deviceId: String, amount: Int = 1, ttlSeconds: Int = 1800) async throws -> String {
+    func jobStart(deviceId: String, amount: Int = 1, ttlSeconds: Int = 1800) async throws -> (jobId: String, jobToken: String) {
         var req = URLRequest(url: baseURL.appendingPathComponent("/jobs/start"))
         req.httpMethod = "POST"
         req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
@@ -200,7 +205,7 @@ extension ProxyClient {
             throw NSError(domain: "Proxy", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: msg])
         }
         let obj = try JSONDecoder().decode(JobStartResponse.self, from: data)
-        return obj.jobId
+        return (jobId: obj.jobId, jobToken: obj.jobToken)
     }
 
     func jobCommit(deviceId: String, jobId: String) async throws {

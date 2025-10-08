@@ -356,20 +356,20 @@ private extension GeneratorService {
     }
 
     // MARK: - Networking (same logic you already have, but parameterized)
-    static func chatViaProxy(_ body: [String:Any]) async throws -> String {
+    static func chatViaProxy(_ body: [String:Any], jobId: String, jobToken: String) async throws -> String {
         let json = try await retry {
             try await withTimeout(60) {
-                try await proxy.chat(deviceId: DeviceID.current, body: body)
+                try await proxy.chat(deviceId: DeviceID.current, jobId: jobId, jobToken: jobToken, body: body)
             }
         }
         let content = (((json["choices"] as? [[String:Any]])?.first?["message"] as? [String:Any])?["content"] as? String) ?? ""
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func ttsViaProxy(text: String, language: String, speed: Request.SpeechSpeed) async throws -> Data {
+    static func ttsViaProxy(text: String, language: String, speed: Request.SpeechSpeed, jobId: String, jobToken: String) async throws -> Data {
         try await retry {
             try await withTimeout(90) {   // TTS can be slower than chat
-                try await proxy.tts(deviceId: DeviceID.current, text: text, language: language, speed: speed.rawValue)
+                try await proxy.tts(deviceId: DeviceID.current, jobId: jobId, jobToken: jobToken, text: text, language: language, speed: speed.rawValue)
             }
         }
     }
@@ -634,6 +634,16 @@ private extension GeneratorService {
     
     // Generate three diverse next prompts in the *helper* language using Structured Outputs
     static func suggestNextPrompts(from req: Request) async throws -> [String] {
+        // Start a separate job for suggestions (low priority, separate from main generation)
+        let deviceId = DeviceID.current
+        let (jobId, jobToken) = try await proxy.jobStart(deviceId: deviceId, amount: 1, ttlSeconds: 600)
+        
+        defer {
+            // Always cancel the job when done (best-effort, async)
+            Task {
+                await proxy.jobCancel(deviceId: deviceId, jobId: jobId)
+            }
+        }
 
         // --- Seed we want to move away from ---
         let seed: String = {
@@ -704,7 +714,7 @@ private extension GeneratorService {
                 "response_format": jsonSchema
             ]
 
-            let raw = try await chatViaProxy(body)
+            let raw = try await chatViaProxy(body, jobId: jobId, jobToken: jobToken)
 
             // Parse the structured JSON response
             guard let data = raw.data(using: .utf8),
@@ -784,7 +794,7 @@ private extension GeneratorService {
 
         // ---------- Local helpers ----------
         
-        func refinePrompt(_ raw: String, targetLang: String, wordCount: Int) async throws -> String {
+        func refinePrompt(_ raw: String, targetLang: String, wordCount: Int, jobId: String, jobToken: String) async throws -> String {
             let meta = """
             You are a prompt refiner. Transform the user's instruction, input text, or theme into a clear, actionable writing brief that will produce a high-quality text.
 
@@ -836,7 +846,7 @@ private extension GeneratorService {
                 "response_format": jsonSchema
             ]
             
-            let raw = try await chatViaProxy(body)
+            let raw = try await chatViaProxy(body, jobId: jobId, jobToken: jobToken)
             guard let data = raw.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let refinedPrompt = json["refined_prompt"] as? String else {
@@ -908,7 +918,7 @@ private extension GeneratorService {
         */
 
 
-        func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int) async throws -> String {
+        func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int, jobId: String, jobToken: String) async throws -> String {
             let system = """
             You are a world-class writer. Follow the user's prompt meticulously.
             Write in \(targetLang). Aim for ~\(wordCount) words total.
@@ -959,7 +969,7 @@ private extension GeneratorService {
                 "response_format": jsonSchema
             ]
             
-            let raw = try await chatViaProxy(body)
+            let raw = try await chatViaProxy(body, jobId: jobId, jobToken: jobToken)
             guard let data = raw.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let title = json["title"] as? String,
@@ -972,7 +982,7 @@ private extension GeneratorService {
         }
 
         /// Ensure text is written in the expected language; rewrite inconsistent parts.
-        func enforceLanguageConsistency(_ text: String, expectedLanguage: String, roleDescription: String) async throws -> String {
+        func enforceLanguageConsistency(_ text: String, expectedLanguage: String, roleDescription: String, jobId: String, jobToken: String) async throws -> String {
             let system = """
             You are a language verifier. Task: detect if the given text is written in the EXPECTED language. If parts are in a different language, rewrite them into the EXPECTED language while preserving meaning.
 
@@ -1018,7 +1028,7 @@ private extension GeneratorService {
                 "response_format": jsonSchema
             ]
 
-            let raw = try await chatViaProxy(body)
+            let raw = try await chatViaProxy(body, jobId: jobId, jobToken: jobToken)
             guard let data = raw.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let clean = json["clean_text"] as? String else {
@@ -1031,7 +1041,9 @@ private extension GeneratorService {
         // Uses Structured Outputs to return reliable JSON with keyword pairs
         func extractKeywordPairs(targetText: String,
                                         targetLang: String,
-                                        translationLang: String) async throws -> String {
+                                        translationLang: String,
+                                        jobId: String,
+                                        jobToken: String) async throws -> String {
             let system = """
             Extract the most relevant KEYWORDS and SHORT PHRASES from the user's TARGET-LANGUAGE text,
             then provide a concise translation into the requested helper language.
@@ -1099,7 +1111,7 @@ private extension GeneratorService {
                 "response_format": jsonSchema
             ]
 
-            let raw = try await chatViaProxy(body)
+            let raw = try await chatViaProxy(body, jobId: jobId, jobToken: jobToken)
             
             // Parse the JSON response
             guard let data = raw.data(using: .utf8),
@@ -1121,7 +1133,7 @@ private extension GeneratorService {
         }
 
         
-        func translateParagraphs(_ text: String, to targetLang: String, style: Request.TranslationStyle) async throws -> String {
+        func translateParagraphs(_ text: String, to targetLang: String, style: Request.TranslationStyle, jobId: String, jobToken: String) async throws -> String {
             let ps = Self.paragraphs(text)
             if ps.isEmpty { return "" }
 
@@ -1129,7 +1141,7 @@ private extension GeneratorService {
             try await withThrowingTaskGroup(of: (Int, String).self) { group in
                 for (i, p) in ps.enumerated() {
                     group.addTask {
-                        let t = try await translate(p, to: targetLang, style: style)
+                        let t = try await translate(p, to: targetLang, style: style, jobId: jobId, jobToken: jobToken)
                         return (i, t.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
                 }
@@ -1142,7 +1154,9 @@ private extension GeneratorService {
             source: String,
             draft: String,
             targetLang: String,
-            style: Request.TranslationStyle
+            style: Request.TranslationStyle,
+            jobId: String,
+            jobToken: String
         ) async throws -> String {
 
             // Keep the same alignment rules you already enforce.
@@ -1201,7 +1215,7 @@ private extension GeneratorService {
                 "response_format": jsonSchema
             ]
 
-            let raw = try await chatViaProxy(body)
+            let raw = try await chatViaProxy(body, jobId: jobId, jobToken: jobToken)
             guard let data = raw.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let translation = json["translation"] as? String else {
@@ -1211,9 +1225,9 @@ private extension GeneratorService {
         }
 
         
-        func translate(_ text: String, to targetLang: String, style: Request.TranslationStyle) async throws -> String {
+        func translate(_ text: String, to targetLang: String, style: Request.TranslationStyle, jobId: String, jobToken: String) async throws -> String {
             // First pass (asks the model to keep boundaries)
-            let draft = try await firstPassTranslate(text, to: targetLang, style: style)
+            let draft = try await firstPassTranslate(text, to: targetLang, style: style, jobId: jobId, jobToken: jobToken)
 
             // Validate sentence counts per paragraph. If off, repair.
             let srcN = GeneratorService.sentenceCount(text)
@@ -1226,7 +1240,9 @@ private extension GeneratorService {
                     targetLang: targetLang,
                     style: style,
                     expectedSentenceCount: srcN,
-                    badDraft: draft
+                    badDraft: draft,
+                    jobId: jobId,
+                    jobToken: jobToken
                 )
             } else {
                 aligned = draft
@@ -1237,7 +1253,9 @@ private extension GeneratorService {
                 source: text,
                 draft: aligned,
                 targetLang: targetLang,
-                style: style
+                style: style,
+                jobId: jobId,
+                jobToken: jobToken
             )
 
             // NEW: per-sentence label enforcement (handles multiple speakers inside one paragraph)
@@ -1246,7 +1264,7 @@ private extension GeneratorService {
 
         }
 
-        func firstPassTranslate(_ text: String, to targetLang: String, style: Request.TranslationStyle) async throws -> String {
+        func firstPassTranslate(_ text: String, to targetLang: String, style: Request.TranslationStyle, jobId: String, jobToken: String) async throws -> String {
             let system: String = (style == .literal)
             ? """
               Translate as literally as possible.
@@ -1299,7 +1317,7 @@ private extension GeneratorService {
                 "response_format": jsonSchema
             ]
             
-            let raw = try await GeneratorService.chatViaProxy(body)
+            let raw = try await GeneratorService.chatViaProxy(body, jobId: jobId, jobToken: jobToken)
             guard let data = raw.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let translation = json["translation"] as? String else {
@@ -1313,7 +1331,9 @@ private extension GeneratorService {
             targetLang: String,
             style: Request.TranslationStyle,
             expectedSentenceCount: Int,
-            badDraft: String
+            badDraft: String,
+            jobId: String,
+            jobToken: String
         ) async throws -> String {
 
             // Number the source sentences to give hard boundaries
@@ -1370,7 +1390,7 @@ private extension GeneratorService {
                 "response_format": jsonSchema
             ]
             
-            let raw = try await GeneratorService.chatViaProxy(body)
+            let raw = try await GeneratorService.chatViaProxy(body, jobId: jobId, jobToken: jobToken)
             guard let data = raw.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let translation = json["translation"] as? String else {
@@ -1383,7 +1403,7 @@ private extension GeneratorService {
 
         // ---------- Two-phase credit hold (reserve → commit/cancel) ----------
         let deviceId = DeviceID.current
-        let jobId = try await Self.proxy.jobStart(deviceId: deviceId, amount: 1, ttlSeconds: 1800)
+        let (jobId, jobToken) = try await Self.proxy.jobStart(deviceId: deviceId, amount: 1, ttlSeconds: 1800)
 
         do {
             // ---- Generate text ----
@@ -1405,18 +1425,18 @@ private extension GeneratorService {
                 }()
 
                 await progress("Elevating prompt…\n\nTopic: \(topic)\n\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
-                let elevated = try await refinePrompt(topic, targetLang: req.genLanguage, wordCount: req.lengthWords)
+                let elevated = try await refinePrompt(topic, targetLang: req.genLanguage, wordCount: req.lengthWords, jobId: jobId, jobToken: jobToken)
                 //await progress("Generating… \(elevated)\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
                 await progress("Generating… \n\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
-                fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords)
+                fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords, jobId: jobId, jobToken: jobToken)
 
             case .prompt:
                 let cleaned = req.userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !cleaned.isEmpty else { throw NSError(domain: "Generator", code: 1, userInfo: [NSLocalizedDescriptionKey: "Empty prompt"]) }
                 await progress("Elevating prompt…")
-                let elevated = try await refinePrompt(cleaned, targetLang: req.genLanguage, wordCount: req.lengthWords)
+                let elevated = try await refinePrompt(cleaned, targetLang: req.genLanguage, wordCount: req.lengthWords, jobId: jobId, jobToken: jobToken)
                 await progress("Generating…\n\nLang: \(req.genLanguage) • ~\(req.lengthWords) words")
-                fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords)
+                fullText = try await generateFromElevatedPrompt(elevated, targetLang: req.genLanguage, wordCount: req.lengthWords, jobId: jobId, jobToken: jobToken)
             }
 
             // ---- Parse title/body ----
@@ -1433,7 +1453,9 @@ private extension GeneratorService {
             let verifiedTarget = try await enforceLanguageConsistency(
                 bodyPrimary0,
                 expectedLanguage: req.genLanguage,
-                roleDescription: "TARGET"
+                roleDescription: "TARGET",
+                jobId: jobId,
+                jobToken: jobToken
             )
 
             // Use the verified body, then normalize dialogue/prose presentation
@@ -1460,14 +1482,16 @@ private extension GeneratorService {
 
             var rawSecondary: String = sameLang
                 ? bodyPrimary
-                : try await translateParagraphs(bodyPrimary, to: req.transLanguage, style: req.translationStyle)
+                : try await translateParagraphs(bodyPrimary, to: req.transLanguage, style: req.translationStyle, jobId: jobId, jobToken: jobToken)
 
             if !sameLang {
                 await progress("Verifying helper language…")
                 rawSecondary = try await enforceLanguageConsistency(
                     rawSecondary,
                     expectedLanguage: req.transLanguage,
-                    roleDescription: "HELPER"
+                    roleDescription: "HELPER",
+                    jobId: jobId,
+                    jobToken: jobToken
                 )
             }
 
@@ -1477,7 +1501,9 @@ private extension GeneratorService {
                 rawSecondary = try await enforceLanguageConsistency(
                     rawSecondary,
                     expectedLanguage: req.transLanguage,
-                    roleDescription: "HELPER"
+                    roleDescription: "HELPER",
+                    jobId: jobId,
+                    jobToken: jobToken
                 )
             }
 
@@ -1544,13 +1570,13 @@ private extension GeneratorService {
                 try Task.checkCancellation()
                 await progress("TTS \(i+1)/\(count) \(req.genLanguage)…")
                 let ptFile = "\(src)_\(lessonID)_\(i+1).mp3"
-                let ptData = try await ttsViaProxy(text: ptSegs[i], language: req.genLanguage, speed: req.speechSpeed)
+                let ptData = try await ttsViaProxy(text: ptSegs[i], language: req.genLanguage, speed: req.speechSpeed, jobId: jobId, jobToken: jobToken)
                 try save(ptData, to: base.appendingPathComponent(ptFile))
 
                 try Task.checkCancellation()
                 await progress("TTS \(i+1)/\(count) \(req.transLanguage)…")
                 let enFile = "\(dst)_\(lessonID)_\(i+1).mp3"
-                let enData = try await ttsViaProxy(text: enSegs[i], language: req.transLanguage, speed: req.speechSpeed)
+                let enData = try await ttsViaProxy(text: enSegs[i], language: req.transLanguage, speed: req.speechSpeed, jobId: jobId, jobToken: jobToken)
                 try save(enData, to: base.appendingPathComponent(enFile))
 
                 rows.append(.init(
@@ -1630,7 +1656,9 @@ private extension GeneratorService {
             let pairsTxt = try await extractKeywordPairs(
                 targetText: bodyPrimary,                // analyze the target-language body
                 targetLang: req.genLanguage,
-                translationLang: req.transLanguage
+                translationLang: req.transLanguage,
+                jobId: jobId,
+                jobToken: jobToken
             )
 
             // Store as plain text with one pair per line (TAB as the separator).
