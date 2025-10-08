@@ -2184,12 +2184,11 @@ private struct PromptBrainstormView: View {
                     Current: "\(currentPromptText)"
                     Feedback: "\(userMessage)"
                     
-                    Create a REFINED lesson prompt (1-2 sentences). Make it vivid and scenario-based.
+                    Create a REFINED lesson prompt (1-2 sentences) based on their feedback. Make it vivid and scenario-based.
                     
                     Format:
-                    Line 1: Acknowledge (4-5 words)
-                    Line 2: PROMPT: [refined prompt in plain text only]
-                    Line 3: "Better?" or similar short question
+                    PROMPT: [refined prompt in plain text only]
+                    Line 2: "Better?" or similar short question
                     
                     No asterisks or formatting in the prompt text.
                     """
@@ -2199,32 +2198,17 @@ private struct PromptBrainstormView: View {
                     
                     isThinking = false
                     
-                    // Split text into acknowledgment and question
-                    let parts = textPart.components(separatedBy: "\n\n")
-                    if parts.count >= 2 {
-                        // Add acknowledgment first
-                        if !parts[0].isEmpty {
-                            messages.append(ChatMessage(text: parts[0], isUser: false))
-                        }
-                        // Add refined prompt
-                        if let prompt = extractedPrompt {
-                            currentPrompt = prompt
-                            messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
-                        }
-                        // Add question after
-                        if !parts[1].isEmpty {
-                            messages.append(ChatMessage(text: parts[1], isUser: false))
-                        }
-                    } else {
-                        // Fallback
-                        if let prompt = extractedPrompt {
-                            currentPrompt = prompt
-                            messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
-                        }
-                        if !textPart.isEmpty {
-                            messages.append(ChatMessage(text: textPart, isUser: false))
-                        }
+                    // Add refined prompt first
+                    if let prompt = extractedPrompt {
+                        currentPrompt = prompt
+                        messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
                     }
+                    
+                    // Then add the question
+                    if !textPart.isEmpty {
+                        messages.append(ChatMessage(text: textPart, isUser: false))
+                    }
+                    
                     return
                 }
                 
@@ -2276,7 +2260,7 @@ private struct PromptBrainstormView: View {
                         messages.append(ChatMessage(text: parts[1], isUser: false))
                     }
                 } else {
-                    // Fallback: add prompt, then any text
+                    // Fallback: add prompt, then question
                     if let prompt = extractedPrompt {
                         currentPrompt = prompt
                         messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
