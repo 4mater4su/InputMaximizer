@@ -169,22 +169,11 @@ struct GeneratorView: View {
     
     @FocusState private var promptIsFocused: Bool
     
-    @AppStorage("generatorSuggestionsExpandedV1") private var suggestionsExpanded: Bool = true
+    @AppStorage("generatorSuggestionsExpandedV1") private var suggestionsExpanded: Bool = false
     @State private var suggestionsFeed: [String] = []
 
-    // TEMP: always-on fallback suggestions for NextPromptSuggestionsView
-    private let defaultSuggestionsAlwaysOn: [String] = [
-        "Write a short scene about meeting a stranger in a café.",
-        "Describe a childhood memory using vivid sensory details.",
-        "Tell a mini travel diary from a night train across Europe."
-    ]
-
-    // If you want to be able to flip this off later, keep a flag:
-    private let debugAlwaysUseDefaults = false
-
-    private var suggestionsForUI: [String] {
-        let s = suggestionsFeed
-        return s.isEmpty ? defaultSuggestionsAlwaysOn : s
+    private var hasSuggestions: Bool {
+        !suggestionsFeed.isEmpty
     }
 
     private let supportedLanguages: [String] = [
@@ -763,27 +752,28 @@ struct GeneratorView: View {
                     .padding(.top, 42)
                     .buttonStyle(.plain)
 
-                    // Suggestions only render when expanded
-                    if suggestionsExpanded {
-                        NextPromptSuggestionsView(
-                            isExpanded: $suggestionsExpanded,
-                            suggestions: suggestionsForUI,
-                            onPick: { picked in
-                                mode = .prompt
-                                userPrompt = picked
-                            }
-                        )
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        //.transition(.opacity.combined(with: .move(edge: .top)))
+                    // Suggestions only render when we have generated suggestions
+                    if hasSuggestions {
+                        if suggestionsExpanded {
+                            NextPromptSuggestionsView(
+                                isExpanded: $suggestionsExpanded,
+                                suggestions: suggestionsFeed,
+                                onPick: { picked in
+                                    mode = .prompt
+                                    userPrompt = picked
+                                }
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                        }
                     }
                 }
-                // Reserve bottom space when hidden (so overlay isn’t clipped)
-                .padding(.bottom, suggestionsExpanded ? 0 : 30)
+                // Reserve bottom space when hidden (so overlay isn't clipped)
+                .padding(.bottom, (hasSuggestions && !suggestionsExpanded) ? 30 : 0)
 
-                // Centered chevron-down toggle, styled like the Advanced Options card header
+                // Centered chevron-down toggle - only show if we have suggestions
                 .overlay(alignment: .bottom) {
-                    if !suggestionsExpanded {
+                    if hasSuggestions && !suggestionsExpanded {
                         Button {
                             Task { @MainActor in
                                 suggestionsExpanded = true
@@ -1053,7 +1043,13 @@ struct GeneratorView: View {
             generator.$nextPromptSuggestions
                 .receive(on: RunLoop.main)   // ensure updates arrive on main
         ) { newValue in
+            let hadSuggestions = !suggestionsFeed.isEmpty
             suggestionsFeed = newValue
+            
+            // Auto-expand when suggestions are first generated
+            if !hadSuggestions && !newValue.isEmpty {
+                suggestionsExpanded = true
+            }
         }
 
 
@@ -1203,24 +1199,30 @@ private struct NextPromptSuggestionsView: View {
     var body: some View {
         VStack(spacing: 0) {
 
-            // HEADER — toggle chevron
+            // HEADER — with title and toggle chevron
             Button {
                 Task { @MainActor in
                     isExpanded.toggle()
                 }
             } label: {
-                ZStack {
-                    HStack {
-                        Spacer()
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                HStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lightbulb.fill")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.yellow)
+                        Text("Next prompt ideas")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
                     }
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, minHeight: isExpanded ? 10 : 0, alignment: .center)
+                .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
-                .padding(.vertical, isExpanded ? 10 : 0)
-                .padding(.horizontal, 0)
+                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
                 .background(Color.appBackground)
             }
             .buttonStyle(.plain)
@@ -1243,7 +1245,7 @@ private struct NextPromptSuggestionsView: View {
                         .tint(.accentColor)
                     }
                 }
-                .padding(.bottom, 0)
+                .padding(.bottom, 12)
                 .padding(.horizontal, 12)
                 .transition(.opacity)
             }
