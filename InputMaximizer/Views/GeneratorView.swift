@@ -770,43 +770,6 @@ struct GeneratorView: View {
                         }
                     }
                     
-                    // Brainstorm button when no suggestions available
-                    if !hasSuggestions {
-                        VStack(spacing: 0) {
-                            Button {
-                                showPromptBrainstorm = true
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "sparkles")
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundStyle(.yellow)
-                                    Text("Brainstorm ideas")
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(.primary)
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 14)
-                                .frame(maxWidth: .infinity)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(Color(.tertiarySystemBackground))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                                .stroke(Color.yellow.opacity(0.3), lineWidth: 1.5)
-                                        )
-                                )
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Brainstorm prompt ideas with AI")
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                    }
                 }
                 // Reserve bottom space for chevron overlay when suggestions collapsed
                 .padding(.bottom, (hasSuggestions && !suggestionsExpanded) ? 30 : 0)
@@ -833,6 +796,40 @@ struct GeneratorView: View {
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
+            
+            // Brainstorm button in its own section for proper spacing
+            if !hasSuggestions {
+                Section {
+                    Button {
+                        showPromptBrainstorm = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "sparkles")
+                                .foregroundStyle(.yellow)
+                            Text("Brainstorm ideas")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 6)
+                    .accessibilityLabel("Brainstorm prompt ideas with AI")
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
 
 
             // --- Advanced group as a single card ---
@@ -2033,17 +2030,20 @@ private struct PromptBrainstormView: View {
                     }
                 }
             }
-            .alert("Use this prompt?", isPresented: $showConfirmation) {
-                Button("Use Prompt") {
-                    if let prompt = currentPrompt {
-                        onSelectPrompt(prompt)
-                        dismiss()
-                    }
-                }
-                Button("Keep Refining", role: .cancel) {}
-            } message: {
-                if let prompt = currentPrompt {
-                    Text(prompt)
+            .overlay {
+                if showConfirmation {
+                    MagicalPromptConfirmation(
+                        isPresented: $showConfirmation,
+                        onUse: {
+                            if let prompt = currentPrompt {
+                                onSelectPrompt(prompt)
+                                dismiss()
+                            }
+                        },
+                        onRefine: {
+                            showConfirmation = false
+                        }
+                    )
                 }
             }
             .onAppear {
@@ -2109,16 +2109,18 @@ private struct PromptBrainstormView: View {
                     Keep it to 1-2 short sentences. Be conversational.
                     """
                 } else {
-                    // Second follow-up: ask about complexity or theme
+                    // Second follow-up: ask about mood, perspective, or specific elements
                     let allMessages = messages.filter { $0.isUser }.map { $0.text }.joined(separator: " | ")
                     prompt = """
                     Context: \(allMessages)
                     
-                    Ask ONE short follow-up question about either:
-                    - The complexity level (simple daily life vs detailed/complex)
-                    - A specific vocabulary theme they want
+                    Ask ONE short follow-up question about:
+                    - The mood or tone (serious, humorous, mysterious, etc.)
+                    - A specific element they want included
+                    - The perspective (first person, describing a scene, etc.)
                     
                     Just 1-2 short sentences. Keep it casual.
+                    Do NOT ask about text length or language level.
                     """
                 }
                 
@@ -2334,11 +2336,148 @@ private struct ThinkingIndicator: View {
                     }
                 }
             
+            /*
             Text("Thinking")
                 .font(.body.weight(.medium))
                 .foregroundStyle(.secondary)
+            */
         }
         .padding(.horizontal)
+    }
+}
+
+private struct MagicalPromptConfirmation: View {
+    @Binding var isPresented: Bool
+    var onUse: () -> Void
+    var onRefine: () -> Void
+    
+    @State private var scale: CGFloat = 0.8
+    @State private var opacity: Double = 0
+    @State private var sparkleRotation: Double = 0
+    
+    var body: some View {
+        ZStack {
+            // Dimmed background
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    onRefine()
+                }
+            
+            // Magical confirmation card
+            VStack(spacing: 24) {
+                // Sparkles decoration at top
+                HStack(spacing: 8) {
+                    ForEach(0..<3) { index in
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.yellow)
+                            .rotationEffect(.degrees(sparkleRotation + Double(index * 120)))
+                    }
+                }
+                
+                // Main prompt icon
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [.purple.opacity(0.3), .blue.opacity(0.3)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 80, height: 80)
+                    
+                    Image(systemName: "wand.and.stars")
+                        .font(.system(size: 36, weight: .medium))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.purple, .blue, .cyan],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+                
+                Text("Use this prompt?")
+                    .font(.title2.weight(.bold))
+                    .multilineTextAlignment(.center)
+                
+                HStack(spacing: 16) {
+                    // Keep Refining button
+                    Button {
+                        onRefine()
+                    } label: {
+                        VStack(spacing: 8) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.orange)
+                            
+                            Text("Refine")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color(.secondarySystemGroupedBackground))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.orange.opacity(0.5), lineWidth: 2)
+                        )
+                    }
+                    
+                    // Use Prompt button
+                    Button {
+                        onUse()
+                    } label: {
+                        VStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.green)
+                            
+                            Text("Use It!")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(.primary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color(.secondarySystemGroupedBackground))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.green.opacity(0.5), lineWidth: 2)
+                        )
+                    }
+                }
+            }
+            .padding(32)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color(.systemGroupedBackground))
+                    .shadow(color: .black.opacity(0.3), radius: 30, y: 10)
+            )
+            .padding(.horizontal, 40)
+            .scaleEffect(scale)
+            .opacity(opacity)
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                scale = 1.0
+                opacity = 1.0
+            }
+            
+            withAnimation(
+                .linear(duration: 3)
+                .repeatForever(autoreverses: false)
+            ) {
+                sparkleRotation = 360
+            }
+        }
     }
 }
 
