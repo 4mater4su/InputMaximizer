@@ -796,41 +796,6 @@ struct GeneratorView: View {
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
-            
-            // Brainstorm button in its own section for proper spacing
-            if !hasSuggestions {
-                Section {
-                    Button {
-                        showPromptBrainstorm = true
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "sparkles")
-                                .foregroundStyle(.yellow)
-                            Text("Brainstorm ideas")
-                                .font(.headline)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color(uiColor: .secondarySystemGroupedBackground))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
-                        )
-                        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.vertical, 6)
-                    .accessibilityLabel("Brainstorm prompt ideas with AI")
-                }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-            }
-
 
             // --- Advanced group as a single card ---
             Section {
@@ -1037,6 +1002,34 @@ struct GeneratorView: View {
         }
 
         .navigationTitle("Generator")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showPromptBrainstorm = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("AI")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        LinearGradient(
+                            colors: [Color.blue, Color(red: 0.0, green: 0.4, blue: 0.7), Color(red: 0.0, green: 0.2, blue: 0.5)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        .clipShape(Capsule())
+                    )
+                    .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 1))
+                    .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 4)
+                }
+                .accessibilityLabel("Brainstorm prompt ideas with AI")
+            }
+        }
         .listStyle(.insetGrouped)
         .environment(\.generatorAdvancedExpanded, advancedExpandedBinding)
         .sheet(isPresented: $showConfigurator) {
@@ -2054,11 +2047,56 @@ private struct PromptBrainstormView: View {
     
     private func startConversation() {
         let greetings = [
-            "Hey! Let's brainstorm together. What interests you?",
-            "Hi! What would you like to explore today?",
-            "Hello! What's on your mind? Any topics you're curious about?",
-            "Hey there! What kind of lesson are you thinking about?",
-            "Hi! Ready to create something interesting? What topics do you enjoy?"
+            "Hey! How are you?",
+            "Hi there! How's it going?",
+            "Hey! Tell me about something funny that happened today.",
+            "Hi! What's new with you?",
+            "Hey there! How's your day been?",
+            "Hi! Anything interesting happen today?",
+            "Hey! What made you smile today?",
+            "Hi there! What's been on your mind lately?",
+            "Hey! How are you feeling today?",
+            "Hi! What's something cool you discovered recently?",
+            "Hey there! What have you been up to?",
+            "Hi! Tell me something interesting about your day.",
+            "Hey! What's caught your attention lately?",
+            "Hi there! How have things been going?",
+            "Hey! What's something you're curious about?",
+            "Hi! How's your week going so far?",
+            "Hey there! What's making you happy today?",
+            "Hi! Tell me about something you're excited about.",
+            "Hey! What's been inspiring you lately?",
+            "Hi there! How are things with you?",
+            "Hey! What's something new you learned recently?",
+            "Hi! What's on your mind right now?",
+            "Hey there! Tell me what you've been thinking about.",
+            "Hi! What's something good that happened lately?",
+            "Hey! What are you in the mood for today?",
+            "Hi there! How's everything going?",
+            "Hey! What's something you're looking forward to?",
+            "Hi! Tell me about your day so far.",
+            "Hey there! What's been fun recently?",
+            "Hi! What made you laugh today?",
+            "Hey! How have you been lately?",
+            "Hi there! What's something that caught your eye today?",
+            "Hey! What's been keeping you busy?",
+            "Hi! Tell me something random!",
+            "Hey there! What's something you've been enjoying?",
+            "Hi! How's life treating you?",
+            "Hey! What's a fun thing you did recently?",
+            "Hi there! What's something you're working on?",
+            "Hey! Tell me about something interesting.",
+            "Hi! What's been good with you?",
+            "Hey there! What's something that surprised you today?",
+            "Hi! How are you doing today?",
+            "Hey! What's something you're grateful for today?",
+            "Hi there! What's been memorable lately?",
+            "Hey! Tell me what's been going on.",
+            "Hi! What's something you find fascinating right now?",
+            "Hey there! What's a story you want to share?",
+            "Hi! How's your day treating you?",
+            "Hey! What's been interesting in your world?",
+            "Hi there! Tell me about something you noticed today."
         ]
         
         let greeting = greetings.randomElement() ?? greetings[0]
@@ -2094,35 +2132,26 @@ private struct PromptBrainstormView: View {
                 response = ""
                 
             case .exploring:
-                // Ask follow-up questions to understand better - one at a time
-                let userMessageCount = messages.filter { $0.isUser }.count
+                // Respond naturally and spontaneously to the conversation
+                let allMessages = messages.filter { $0.isUser }.map { $0.text }.joined(separator: " | ")
                 
-                let prompt: String
-                if userMessageCount == 1 {
-                    // First follow-up: ask about setting/scenario
-                    prompt = """
-                    The user is interested in: "\(userMessage)"
-                    
-                    Ask ONE short follow-up question about what kind of setting or scenario would be interesting.
-                    Examples: "A busy market?" "A quiet library?" "A family dinner?"
-                    
-                    Keep it to 1-2 short sentences. Be conversational.
-                    """
-                } else {
-                    // Second follow-up: ask about mood, perspective, or specific elements
-                    let allMessages = messages.filter { $0.isUser }.map { $0.text }.joined(separator: " | ")
-                    prompt = """
-                    Context: \(allMessages)
-                    
-                    Ask ONE short follow-up question about:
-                    - The mood or tone (serious, humorous, mysterious, etc.)
-                    - A specific element they want included
-                    - The perspective (first person, describing a scene, etc.)
-                    
-                    Just 1-2 short sentences. Keep it casual.
-                    Do NOT ask about text length or language level.
-                    """
-                }
+                let prompt = """
+                You are a friendly assistant helping brainstorm language learning lesson ideas.
+                
+                Conversation so far: "\(allMessages)"
+                Latest message: "\(userMessage)"
+                
+                Respond naturally. You can:
+                - Ask ONE question to learn more (about topics, interests, settings, mood, details, etc.)
+                - Make a brief observation or comment
+                - Express curiosity about something they mentioned
+                
+                IMPORTANT:
+                - Ask only ONE question per response
+                - Keep it very short and conversational (1-2 sentences max)
+                - Be natural and spontaneous, don't follow a pattern
+                - Do NOT ask about text length or language level
+                """
                 
                 response = try await generator.chatViaProxySimple(prompt)
                 // Stay in exploring stage for follow-ups

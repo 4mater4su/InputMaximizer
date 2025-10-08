@@ -354,7 +354,7 @@ struct ContentView: View {
         var bestParagraph = 0
         var maxVisibleArea: CGFloat = 0
         
-        for (paragraphIndex, group) in groupedByParagraph.enumerated() {
+        for (paragraphIndex, _) in groupedByParagraph.enumerated() {
             // Calculate approximate position of this paragraph
             let paragraphStartY = CGFloat(paragraphIndex) * 300 // Approximate paragraph height
             let paragraphEndY = paragraphStartY + 300
