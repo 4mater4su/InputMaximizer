@@ -825,7 +825,8 @@ struct ContentView: View {
             DragGesture()
                 .onEnded { value in
                     // Swipe from right to left (negative translation.width)
-                    if value.translation.width < -50 && abs(value.translation.height) < 100 {
+                    // Allow generous vertical movement to make gesture very forgiving
+                    if value.translation.width < -50 && abs(value.translation.height) < 400 {
                         loadKeywordPairs(for: currentLesson.folderName)
                         showKeywords = true
                     }
@@ -1477,7 +1478,8 @@ private struct KeywordsView: View {
         DragGesture()
             .onEnded { value in
                 // Swipe from left to right (positive translation.width)
-                if value.translation.width > 50 && abs(value.translation.height) < 100 {
+                // Allow generous vertical movement to make gesture very forgiving
+                if value.translation.width > 50 && abs(value.translation.height) < 400 {
                     dismiss()
                 }
             }
