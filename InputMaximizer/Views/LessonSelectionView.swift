@@ -191,6 +191,63 @@ extension FolderStore {
     }
 }
 
+// MARK: - Folder Lesson Card
+
+private struct FolderLessonCard: View {
+    let lesson: Lesson
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                // Book icon
+                Image(systemName: "book.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.blue)
+                    .frame(width: 40, height: 40)
+                    .background(Color.blue.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(lesson.title)
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                    
+                    if let target = lesson.targetLanguage, let helper = lesson.translationLanguage {
+                        HStack(spacing: 4) {
+                            Text(target)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Image(systemName: "arrow.right")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text(helper)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                
+                Spacer(minLength: 0)
+                
+                // Chevron
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(.separator).opacity(0.3), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: Color.black.opacity(0.03), radius: 2, x: 0, y: 1)
+    }
+}
+
 // MARK: - Folder Detail
 
 @MainActor
@@ -225,49 +282,45 @@ struct FolderDetailView: View {
     @State private var selectedLessonIDs = Set<String>()
 
     var body: some View {
-        List {
-            if lessonsInFolder.isEmpty {
-                ContentUnavailableView(
-                    "Empty Folder",
-                    systemImage: "folder",
-                    description: Text("Add lessons to this folder using the + Add/Remove button.")
-                )
-            } else {
-                ForEach(lessonsInFolder) { lesson in
-                    Button { selectedLesson = lesson } label: {
-                        HStack {
-                            Image(systemName: "book")
-                            Text(lesson.title).font(.headline)
+        ScrollView {
+            VStack(spacing: 16) {
+                if lessonsInFolder.isEmpty {
+                    ContentUnavailableView(
+                        "Empty Folder",
+                        systemImage: "folder",
+                        description: Text("Add lessons using the + button above.")
+                    )
+                    .padding(.top, 40)
+                } else {
+                    ForEach(lessonsInFolder) { lesson in
+                        Button { selectedLesson = lesson } label: {
+                            FolderLessonCard(lesson: lesson)
                         }
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button {
-                            if let idx = folderStore.index(of: currentFolder.id) {
-                                var ids = folderStore.folders[idx].lessonIDs
-                                ids.removeAll { $0 == lesson.id }
-                                folderStore.folders[idx].lessonIDs = ids
-                            }
-                        } label: {
-                            Label("Remove", systemImage: "minus.circle")
-                        }
-
-                        if store.isDeletable(lesson) {
-                            Button(role: .destructive) {
-                                lessonToDelete = lesson
-                                showDeleteConfirm = true
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button {
+                                if let idx = folderStore.index(of: currentFolder.id) {
+                                    var ids = folderStore.folders[idx].lessonIDs
+                                    ids.removeAll { $0 == lesson.id }
+                                    folderStore.folders[idx].lessonIDs = ids
+                                }
                             } label: {
-                                Label("Delete", systemImage: "trash")
+                                Label("Remove from Folder", systemImage: "folder.badge.minus")
+                            }
+                            
+                            if store.isDeletable(lesson) {
+                                Button(role: .destructive) {
+                                    lessonToDelete = lesson
+                                    showDeleteConfirm = true
+                                } label: {
+                                    Label("Delete Lesson", systemImage: "trash")
+                                }
                             }
                         }
                     }
-                }
-                .onMove { indices, newOffset in
-                    guard let idx = folderStore.index(of: currentFolder.id) else { return }
-                    var ids = folderStore.folders[idx].lessonIDs
-                    ids.move(fromOffsets: indices, toOffset: newOffset)
-                    folderStore.folders[idx].lessonIDs = ids
                 }
             }
+            .padding()
         }
         .scrollContentBackground(.hidden)
         .background(Color.appBackground)
@@ -276,18 +329,22 @@ struct FolderDetailView: View {
         .toolbarBackground(Color.appBackground, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                EditButton()
                 Button {
                     selectedLessonIDs = Set(currentFolder.lessonIDs)
                     showMembersSheet = true
                 } label: {
-                    Label("Add/Remove", systemImage: "plusminus")
+                    Label("Add/Remove", systemImage: "plus.circle")
                 }
-                Button {
-                    renameText = currentFolder.name
-                    showRenameSheet = true
+                
+                Menu {
+                    Button {
+                        renameText = currentFolder.name
+                        showRenameSheet = true
+                    } label: {
+                        Label("Rename Folder", systemImage: "pencil")
+                    }
                 } label: {
-                    Label("Rename", systemImage: "pencil")
+                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
@@ -324,48 +381,117 @@ struct FolderDetailView: View {
 
     private var membersSheet: some View {
         NavigationStack {
-            List(lessons, id: \._id) { lesson in
-                let isAlreadyInAFolder = folderedLessonIDs.contains(lesson.id)
-
-                HStack(spacing: 12) {
-                    Image(systemName: selectedLessonIDs.contains(lesson.id) ? "checkmark.circle.fill" : "circle")
-                        .imageScale(.large)
-                        .symbolRenderingMode(.hierarchical)
-
-                    Text(lesson.title)
-                        .font(.body)
-                        .foregroundStyle(isAlreadyInAFolder ? .orange : .primary)
-
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if selectedLessonIDs.contains(lesson.id) {
-                        selectedLessonIDs.remove(lesson.id)
-                    } else {
-                        selectedLessonIDs.insert(lesson.id)
+            ScrollView {
+                VStack(spacing: 12) {
+                    // Quick stats
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(selectedLessonIDs.count)")
+                                .font(.title2.bold())
+                                .foregroundColor(.blue)
+                            Text("selected")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Divider()
+                            .frame(height: 40)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(lessons.count)")
+                                .font(.title2.bold())
+                                .foregroundColor(.primary)
+                            Text("total")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Button(selectedLessonIDs.isEmpty ? "Select All" : "Deselect All") {
+                            if selectedLessonIDs.isEmpty {
+                                selectedLessonIDs = Set(lessons.map { $0.id })
+                            } else {
+                                selectedLessonIDs.removeAll()
+                            }
+                        }
+                        .font(.subheadline.weight(.medium))
+                    }
+                    .padding()
+                    .background(Color(.tertiarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    
+                    // Lessons
+                    VStack(spacing: 8) {
+                        ForEach(lessons, id: \._id) { lesson in
+                            let isSelected = selectedLessonIDs.contains(lesson.id)
+                            let isInOtherFolder = folderedLessonIDs.contains(lesson.id) && !currentFolder.lessonIDs.contains(lesson.id)
+                            
+                            Button {
+                                if isSelected {
+                                    selectedLessonIDs.remove(lesson.id)
+                                } else {
+                                    selectedLessonIDs.insert(lesson.id)
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                        .font(.title3)
+                                        .foregroundStyle(isSelected ? .blue : .secondary)
+                                        .frame(width: 28)
+                                    
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(lesson.title)
+                                            .font(.body)
+                                            .foregroundColor(.primary)
+                                            .multilineTextAlignment(.leading)
+                                        
+                                        if isInOtherFolder {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "folder.fill")
+                                                    .font(.caption2)
+                                                Text("In another folder")
+                                                    .font(.caption)
+                                            }
+                                            .foregroundColor(.orange)
+                                        }
+                                    }
+                                    
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(isSelected ? Color.blue.opacity(0.08) : Color(.secondarySystemBackground))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(isSelected ? Color.blue.opacity(0.3) : Color.clear, lineWidth: 1.5)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .padding()
             }
-            .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Color.appBackground)
-            .navigationTitle("Add/Remove Lessons")
+            .navigationTitle("Manage Lessons")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showMembersSheet = false } }
+                ToolbarItem(placement: .cancellationAction) { 
+                    Button("Cancel") { showMembersSheet = false } 
+                }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button("Done") {
                         folderStore.setLessonIDs(id: currentFolder.id, to: Array(selectedLessonIDs))
                         showMembersSheet = false
                     }
                 }
             }
         }
-        // The preselected items are visible immediately
         .onAppear {
             selectedLessonIDs = Set(currentFolder.lessonIDs)
         }
