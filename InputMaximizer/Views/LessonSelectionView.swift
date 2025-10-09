@@ -460,6 +460,7 @@ struct LessonSelectionView: View {
     @State private var lessonToAddToFolder: Lesson?
     @State private var showAddToFolderSheet = false
     @State private var selectedFolderForAdd: UUID?
+    @State private var refreshTrigger = UUID()
     
     enum FolderFilterStatus: String, CaseIterable {
         case all = "All"
@@ -745,6 +746,7 @@ struct LessonSelectionView: View {
                                             selectedLesson = lesson
                                         } label: {
                                             LessonCardWithFolder(lesson: lesson, folderStore: folderStore)
+                                                .id("\(lesson.id)-\(refreshTrigger)")
                                         }
                                         .buttonStyle(.plain)
                                         .contextMenu {
@@ -767,6 +769,7 @@ struct LessonSelectionView: View {
                                     }
                                 }
                             }
+                            .id("foldered-\(refreshTrigger)")
                         }
                         
                         // Show divider between foldered and unfiled lessons
@@ -903,6 +906,7 @@ struct LessonSelectionView: View {
                         onDismiss: { 
                             showAddToFolderSheet = false
                             lessonToAddToFolder = nil
+                            refreshTrigger = UUID() // Force refresh
                         }
                     )
                 }
