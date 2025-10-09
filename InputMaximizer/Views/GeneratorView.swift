@@ -179,12 +179,14 @@ struct GeneratorView: View {
     }
 
     private let supportedLanguages: [String] = [
-        "Afrikaans","Arabic","Armenian","Azerbaijani","Belarusian","Bosnian","Bulgarian","Catalan","Chinese (Simplified)","Chinese (Traditional)","Croatian",
-        "Czech","Danish","Dutch","English","Estonian","Finnish","French", "French (Canada)","Galician","German","Greek","Hebrew","Hindi",
+        "Afrikaans","Arabic (Egypt)","Arabic (Gulf)","Arabic (Levantine)","Arabic (Maghrebi)","Arabic (Modern Standard)","Armenian","Azerbaijani","Belarusian","Bosnian","Bulgarian","Catalan",
+        "Chinese (Cantonese - Traditional)","Chinese (Mandarin - Simplified)","Chinese (Mandarin - Traditional)","Croatian",
+        "Czech","Danish","Dutch","English (Australia)","English (India)","English (UK)","English (US)","Estonian","Finnish","French", "French (Canada)","Galician",
+        "German","German (Austria)","German (Switzerland)","Greek","Hebrew","Hindi",
         "Hungarian","Icelandic","Indonesian","Italian","Japanese","Kannada","Kazakh","Korean","Latvian","Lithuanian",
-        "Macedonian","Malay","Marathi","Maori","Nepali","Norwegian","Persian","Polish","Portuguese (Portugal)","Portuguese (Brazil)","Romanian","Russian",
-        "Serbian","Slovak","Slovenian","Spanish","Spanish (Latinoamérica)","Spanish (Mexico)","Swahili","Swedish","Tagalog","Tamil","Thai","Turkish","Ukrainian",
-        "Urdu","Vietnamese","Welsh"
+        "Macedonian","Malay (Malaysia)","Marathi","Maori","Nepali","Norwegian (Bokmål)","Norwegian (Nynorsk)","Persian (Dari)","Persian (Tajik)","Polish","Portuguese (Portugal)","Portuguese (Brazil)","Romanian","Russian",
+        "Serbian","Slovak","Slovenian","Spanish (Argentina)","Spanish (Latinoamérica)","Spanish (Mexico)","Spanish (Spain)","Swahili (Kenya)","Swahili (Tanzania)","Swedish","Tagalog","Tamil","Thai","Turkish","Ukrainian",
+        "Urdu","Vietnamese (Northern)","Vietnamese (Southern)","Welsh"
     ]
 
     // Modes
