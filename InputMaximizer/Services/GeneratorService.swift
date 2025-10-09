@@ -28,6 +28,9 @@ final class GeneratorService: ObservableObject {
     @Published var outOfCredits = false
     
     @Published var nextPromptSuggestions: [String] = []
+    
+    // Track keyword extraction per lesson
+    @Published var extractingKeywordsForLesson: String? = nil
 
     static func fetchServerBalance() async throws -> Int {
         try await proxy.balance(deviceId: DeviceID.current)

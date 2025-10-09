@@ -182,6 +182,11 @@ struct ContentView: View {
     @State private var showKeywords = false
     @State private var loadedKeywordPairs: [KeywordPair] = []
     @State private var mostVisibleParagraph: Int = 0
+    
+    // Check if keywords are being extracted for THIS lesson
+    private var isExtractingKeywords: Bool {
+        generator.extractingKeywordsForLesson == currentLesson.folderName
+    }
 
     
     @State private var toastMessage: String? = nil
@@ -338,6 +343,244 @@ struct ContentView: View {
                 )
             }
         }
+    }
+    
+    // MARK: - Manual keyword extraction
+    private func extractKeywordsManually() {
+        let lessonId = currentLesson.folderName
+        
+        // Prevent multiple extractions - inform user if one is already running
+        guard generator.extractingKeywordsForLesson == nil else {
+            // Find the lesson name that's currently being extracted
+            if let extractingLessonId = generator.extractingKeywordsForLesson,
+               let extractingLesson = store.lessons.first(where: { $0.folderName == extractingLessonId }) {
+                showToast(message: "Already extracting keywords for \"\(extractingLesson.title)\"", success: false)
+            } else {
+                showToast(message: "Another keyword extraction is already in progress", success: false)
+            }
+            return
+        }
+        
+        Task {
+            await MainActor.run {
+                generator.extractingKeywordsForLesson = lessonId
+            }
+            
+            defer {
+                Task { @MainActor in
+                    generator.extractingKeywordsForLesson = nil
+                }
+            }
+            
+            do {
+                let lesson = currentLesson
+                
+                // Try loading from Documents directory first, then fallback to bundle (for default lessons)
+                let docsBase = FileManager.docsLessonsDir.appendingPathComponent(lesson.folderName, isDirectory: true)
+                let docsSegmentsURL = docsBase.appendingPathComponent("segments_\(lesson.folderName).json")
+                
+                var segmentsURL: URL
+                if FileManager.default.fileExists(atPath: docsSegmentsURL.path) {
+                    segmentsURL = docsSegmentsURL
+                } else if let bundleURL = Bundle.main.url(forResource: "segments_\(lesson.folderName)", withExtension: "json") {
+                    segmentsURL = bundleURL
+                } else {
+                    await MainActor.run {
+                        showToast(message: "Failed to find lesson segments", success: false)
+                    }
+                    return
+                }
+                
+                // Load segments and reconstruct the primary (target language) text
+                guard let segmentsData = try? Data(contentsOf: segmentsURL),
+                      let segments = try? JSONDecoder().decode([Segment].self, from: segmentsData) else {
+                    await MainActor.run {
+                        showToast(message: "Failed to load lesson text", success: false)
+                    }
+                    return
+                }
+                
+                // Reconstruct the primary text from segments
+                // Group by paragraph and join with double newlines
+                let paragraphGroups = Dictionary(grouping: segments, by: { $0.paragraph })
+                let primaryText = paragraphGroups
+                    .sorted { $0.key < $1.key }
+                    .map { _, segs in
+                        segs.sorted { $0.id < $1.id }
+                            .map { $0.pt_text }
+                            .joined(separator: " ")
+                    }
+                    .joined(separator: "\n\n")
+                
+                guard !primaryText.isEmpty else {
+                    await MainActor.run {
+                        showToast(message: "Failed to load lesson text", success: false)
+                    }
+                    return
+                }
+                
+                // Get languages from lesson
+                guard let targetLang = lesson.targetLanguage,
+                      let translationLang = lesson.translationLanguage else {
+                    await MainActor.run {
+                        showToast(message: "Missing language information", success: false)
+                    }
+                    return
+                }
+                
+                await MainActor.run {
+                    showToast(message: "Extracting keywords...", success: true)
+                }
+                
+                // Start a job for keyword extraction
+                let deviceId = DeviceID.current
+                let (jobId, jobToken) = try await GeneratorService.proxy.jobStart(
+                    deviceId: deviceId,
+                    amount: 1,
+                    ttlSeconds: 600
+                )
+                
+                defer {
+                    Task {
+                        await GeneratorService.proxy.jobCancel(deviceId: deviceId, jobId: jobId)
+                    }
+                }
+                
+                // Call the extraction function
+                let keywordPairsText = try await extractKeywordPairsHelper(
+                    targetText: primaryText,
+                    targetLang: targetLang,
+                    translationLang: translationLang,
+                    jobId: jobId,
+                    jobToken: jobToken
+                )
+                
+                // Save the keywords file (always to Documents directory, even for default lessons)
+                let keywordsURL = docsBase.appendingPathComponent("keywords_\(lesson.folderName).txt")
+                
+                // Create the directory if it doesn't exist (for default lessons)
+                try? FileManager.default.createDirectory(at: docsBase, withIntermediateDirectories: true)
+                
+                try (keywordPairsText + "\n").data(using: .utf8)?.write(to: keywordsURL)
+                
+                // Commit the job
+                try await GeneratorService.proxy.jobCommit(deviceId: deviceId, jobId: jobId)
+                
+                // Reload the keywords (this will update the view automatically)
+                await MainActor.run {
+                    loadKeywordPairs(for: lesson.folderName)
+                    showToast(message: "Keywords extracted successfully! (\(loadedKeywordPairs.count) pairs)", success: true)
+                }
+                
+            } catch {
+                await MainActor.run {
+                    showToast(message: "Extraction failed: \(error.localizedDescription)", success: false)
+                }
+            }
+        }
+    }
+    
+    // Helper function for keyword extraction (similar to GeneratorService but standalone)
+    private func extractKeywordPairsHelper(
+        targetText: String,
+        targetLang: String,
+        translationLang: String,
+        jobId: String,
+        jobToken: String
+    ) async throws -> String {
+        let system = """
+        Extract the most relevant KEYWORDS and SHORT PHRASES from the user's TARGET-LANGUAGE text,
+        then provide a concise translation into the requested helper language.
+
+        - Exclude words that are identical or nearly identical in both languages (cognates).
+        - Exclude names of people, places, and other proper nouns.
+        - Focus on words and phrases that are important for understanding the meaning and are not obvious to a beginner.
+        - Prefer verbs, nouns, and adjectives.
+        - Include both single keywords and a few useful collocations.
+        - Deduplicate entries.
+        - Prefer 1–4 word spans (or compact characters for CJK). Avoid full sentences.
+        - Aim for 24–40 pairs for a ~300–500 word text; scale proportionally if much shorter/longer.
+        """
+        
+        let user = """
+        Target language name: \(targetLang)
+        Translation language name: \(translationLang)
+
+        Text to analyze (target language):
+        \(targetText)
+        """
+        
+        // Define JSON Schema for structured output (matches main generation)
+        let jsonSchema: [String: Any] = [
+            "type": "json_schema",
+            "json_schema": [
+                "name": "keyword_extraction",
+                "description": "A list of keyword pairs with target language words/phrases and their translations",
+                "strict": true,
+                "schema": [
+                    "type": "object",
+                    "properties": [
+                        "pairs": [
+                            "type": "array",
+                            "description": "Array of keyword pairs from the text",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "target": [
+                                        "type": "string",
+                                        "description": "The keyword or phrase in the target language"
+                                    ],
+                                    "translation": [
+                                        "type": "string",
+                                        "description": "The translation in the helper language"
+                                    ]
+                                ],
+                                "required": ["target", "translation"],
+                                "additionalProperties": false
+                            ]
+                        ]
+                    ],
+                    "required": ["pairs"],
+                    "additionalProperties": false
+                ]
+            ]
+        ]
+        
+        let body: [String: Any] = [
+            "model": "gpt-5-nano",
+            "messages": [
+                ["role": "system", "content": system],
+                ["role": "user", "content": user]
+            ],
+            "response_format": jsonSchema
+        ]
+        
+        // Call the proxy directly instead of going through GeneratorService
+        let deviceId = DeviceID.current
+        let responseJson = try await ProxyClient(
+            baseURL: URL(string: "https://inputmax-proxy.inputmax.workers.dev")!
+        ).chat(deviceId: deviceId, jobId: jobId, jobToken: jobToken, body: body)
+        
+        // Extract the content from the response (matches GeneratorService approach)
+        let raw = (((responseJson["choices"] as? [[String:Any]])?.first?["message"] as? [String:Any])?["content"] as? String) ?? ""
+        
+        // Parse the JSON response
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let pairs = json["pairs"] as? [[String: Any]] else {
+            throw NSError(domain: "KeywordExtraction", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to parse keyword pairs JSON"])
+        }
+        
+        // Convert to tab-separated format for compatibility with existing file format
+        let lines = pairs.compactMap { pair -> String? in
+            guard let target = pair["target"] as? String,
+                  let translation = pair["translation"] as? String else {
+                return nil
+            }
+            return "\(target)\t\(translation)"
+        }
+        
+        return lines.joined(separator: "\n")
     }
 
     
@@ -977,7 +1220,13 @@ struct ContentView: View {
                     titleTarget: lessonLangs.targetShort,
                     titleTrans: lessonLangs.translationShort,
                     pairs: loadedKeywordPairs,
-                    targetParagraph: mostVisibleParagraph
+                    targetParagraph: mostVisibleParagraph,
+                    lesson: currentLesson,
+                    isExtracting: isExtractingKeywords,
+                    isAnyExtracting: generator.extractingKeywordsForLesson != nil,
+                    onExtract: {
+                        extractKeywordsManually()
+                    }
                 )
             }
         }
@@ -1384,6 +1633,10 @@ private struct KeywordsView: View {
     let titleTrans: String     // e.g., "EN"
     let pairs: [KeywordPair]
     let targetParagraph: Int   // paragraph to scroll to based on lesson view
+    let lesson: Lesson         // the current lesson for extraction
+    let isExtracting: Bool     // whether extraction is currently running for THIS lesson
+    let isAnyExtracting: Bool  // whether ANY extraction is currently running
+    let onExtract: () -> Void  // callback to trigger manual extraction
     @Environment(\.dismiss) private var dismiss
     
     // Group keywords by paragraph
@@ -1415,6 +1668,17 @@ private struct KeywordsView: View {
     @ViewBuilder
     private var keywordsList: some View {
         List {
+            // Show extraction status or button when no keywords exist
+            if pairs.isEmpty {
+                Section {
+                    if isExtracting {
+                        extractingView
+                    } else {
+                        extractButton
+                    }
+                }
+            }
+            
             ForEach(groupedKeywords, id: \.0) { paragraphIndex, paragraphPairs in
                 Section {
                     ForEach(paragraphPairs) { pair in
@@ -1426,7 +1690,7 @@ private struct KeywordsView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Keywords & Phrases")
+        .navigationTitle(isExtracting ? "Extracting..." : "Keywords & Phrases")
     }
     
     // Extracted keyword row view
@@ -1471,6 +1735,87 @@ private struct KeywordsView: View {
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
         }
+    }
+    
+    // Extracted extracting view (shown during extraction)
+    @ViewBuilder
+    private var extractingView: some View {
+        VStack(spacing: 20) {
+            ProgressView()
+                .scaleEffect(1.5)
+                .tint(.blue)
+                .padding(.top, 40)
+            
+            VStack(spacing: 8) {
+                Text("Extracting Keywords...")
+                    .font(.headline)
+                
+                Text("The AI is analyzing the lesson text to find important words and phrases.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+            .padding(.bottom, 40)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 30)
+    }
+    
+    // Extracted extract button
+    @ViewBuilder
+    private var extractButton: some View {
+        VStack(spacing: 16) {
+            VStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 40))
+                    .foregroundStyle(isAnyExtracting ? .gray : .yellow)
+                
+                Text("No Keywords Available")
+                    .font(.headline)
+                
+                if isAnyExtracting {
+                    Text("Another keyword extraction is in progress. Please wait until it completes.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                } else {
+                    Text("This lesson doesn't have keywords yet. Extract them now to see important words and phrases.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+            }
+            .padding(.vertical, 20)
+            
+            Button {
+                onExtract()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "wand.and.stars")
+                    Text("Extract Keywords")
+                }
+                .font(.headline)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .background(
+                    LinearGradient(
+                        colors: isAnyExtracting ? [.gray, .gray.opacity(0.8)] : [.blue, .purple],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(isAnyExtracting)
+            .opacity(isAnyExtracting ? 0.6 : 1.0)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 30)
     }
     
     // Extracted swipe gesture
