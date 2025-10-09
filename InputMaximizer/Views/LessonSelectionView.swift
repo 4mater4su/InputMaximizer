@@ -279,81 +279,113 @@ struct FolderDetailView: View {
     @State private var renameText: String = ""
     @State private var selectedLessonIDs = Set<String>()
 
-    var body: some View {
-        List {
-            if lessonsInFolder.isEmpty {
-                ContentUnavailableView(
-                    "Empty Folder",
-                    systemImage: "folder",
-                    description: Text("Add lessons using the + button above.")
-                )
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            } else {
-                ForEach(lessonsInFolder) { lesson in
-                    Button { selectedLesson = lesson } label: {
-                        FolderLessonCard(lesson: lesson)
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .moveDisabled(false)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        if store.isDeletable(lesson) {
-                            Button(role: .destructive) {
-                                lessonToDelete = lesson
-                                showDeleteConfirm = true
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                        
-                        Button {
-                            if let idx = folderStore.index(of: currentFolder.id) {
-                                var ids = folderStore.folders[idx].lessonIDs
-                                ids.removeAll { $0 == lesson.id }
-                                folderStore.folders[idx].lessonIDs = ids
-                            }
-                        } label: {
-                            Label("Remove", systemImage: "folder.badge.minus")
-                        }
-                        .tint(.orange)
-                    }
-                    .contextMenu {
-                        Button {
-                            if let idx = folderStore.index(of: currentFolder.id) {
-                                var ids = folderStore.folders[idx].lessonIDs
-                                ids.removeAll { $0 == lesson.id }
-                                folderStore.folders[idx].lessonIDs = ids
-                            }
-                        } label: {
-                            Label("Remove from Folder", systemImage: "folder.badge.minus")
-                        }
-                        
-                        if store.isDeletable(lesson) {
-                            Button(role: .destructive) {
-                                lessonToDelete = lesson
-                                showDeleteConfirm = true
-                            } label: {
-                                Label("Delete Lesson", systemImage: "trash")
-                            }
-                        }
-                    }
-                }
-                .onMove { indices, newOffset in
-                    guard let idx = folderStore.index(of: currentFolder.id) else { return }
-                    var ids = folderStore.folders[idx].lessonIDs
-                    ids.move(fromOffsets: indices, toOffset: newOffset)
-                    folderStore.folders[idx].lessonIDs = ids
-                }
+    private var emptyView: some View {
+        ContentUnavailableView(
+            "Empty Folder",
+            systemImage: "folder",
+            description: Text("Add lessons using the + button above.")
+        )
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+    
+    private var lessonRows: some View {
+        ForEach(lessonsInFolder) { lesson in
+            lessonRow(for: lesson)
+        }
+        .onMove { indices, newOffset in
+            guard let idx = folderStore.index(of: currentFolder.id) else { return }
+            var ids = folderStore.folders[idx].lessonIDs
+            ids.move(fromOffsets: indices, toOffset: newOffset)
+            folderStore.folders[idx].lessonIDs = ids
+        }
+    }
+    
+    private func lessonRow(for lesson: Lesson) -> some View {
+        Button { selectedLesson = lesson } label: {
+            FolderLessonCard(lesson: lesson)
+                .environment(\.layoutDirection, .leftToRight)
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        .moveDisabled(false)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            swipeActionsContent(for: lesson)
+        }
+        .contextMenu {
+            contextMenuContent(for: lesson)
+        }
+    }
+    
+    @ViewBuilder
+    private func swipeActionsContent(for lesson: Lesson) -> some View {
+        if store.isDeletable(lesson) {
+            Button(role: .destructive) {
+                lessonToDelete = lesson
+                showDeleteConfirm = true
+            } label: {
+                Label("Delete", systemImage: "trash")
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Color.appBackground)
-        .environment(\.defaultMinListRowHeight, 0)
-        .environment(\.editMode, .constant(.active))
+        
+        Button {
+            if let idx = folderStore.index(of: currentFolder.id) {
+                var ids = folderStore.folders[idx].lessonIDs
+                ids.removeAll { $0 == lesson.id }
+                folderStore.folders[idx].lessonIDs = ids
+            }
+        } label: {
+            Label("Remove", systemImage: "folder.badge.minus")
+        }
+        .tint(.orange)
+    }
+    
+    @ViewBuilder
+    private func contextMenuContent(for lesson: Lesson) -> some View {
+        Button {
+            if let idx = folderStore.index(of: currentFolder.id) {
+                var ids = folderStore.folders[idx].lessonIDs
+                ids.removeAll { $0 == lesson.id }
+                folderStore.folders[idx].lessonIDs = ids
+            }
+        } label: {
+            Label("Remove from Folder", systemImage: "folder.badge.minus")
+        }
+        
+        if store.isDeletable(lesson) {
+            Button(role: .destructive) {
+                lessonToDelete = lesson
+                showDeleteConfirm = true
+            } label: {
+                Label("Delete Lesson", systemImage: "trash")
+            }
+        }
+    }
+
+    private var lessonList: some View {
+        List {
+            if lessonsInFolder.isEmpty {
+                emptyView
+            } else {
+                lessonRows
+            }
+        }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.appBackground)
+            .environment(\.defaultMinListRowHeight, 0)
+            .environment(\.editMode, .constant(.active))
+            .environment(\.layoutDirection, .rightToLeft)
+            .scrollIndicators(.hidden)
+    }
+    
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            lessonList
+        }
+        .environment(\.layoutDirection, .leftToRight)
         .navigationTitle(currentFolder.name)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarBackground(Color.appBackground, for: .navigationBar)
