@@ -70,6 +70,9 @@ struct GeneratorView: View {
     
     @EnvironmentObject private var lessonStore: LessonStore
     @EnvironmentObject private var generator: GeneratorService
+    @EnvironmentObject private var seriesStore: SeriesMetadataStore
+    @EnvironmentObject private var generationQueue: GenerationQueue
+    @EnvironmentObject private var folderStore: FolderStore
     @Environment(\.dismiss) private var dismiss
 
     // Persistence for aspect selections
@@ -173,6 +176,13 @@ struct GeneratorView: View {
     @State private var suggestionsFeed: [String] = []
     
     @State private var showPromptBrainstorm = false
+    
+    // Series generation
+    @State private var enableSeries = false
+    @State private var seriesPartCount = 3
+    @State private var generateAllNow = true
+    @State private var seriesOutline = ""
+    @State private var seriesExpanded = false
 
     private var hasSuggestions: Bool {
         !suggestionsFeed.isEmpty
@@ -573,6 +583,119 @@ struct GeneratorView: View {
         (try? JSONEncoder().encode(row)) ?? Data()
     }
     
+    // MARK: - Series Generation Functions
+    
+    private func generateSingleLesson() {
+        // No local debit here; proxy debits per request.
+        if mode == .random && randomTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            randomTopic = buildRandomTopic()
+        }
+
+        let reqMode: GeneratorService.Request.GenerationMode = (mode == .prompt) ? .prompt : .random
+        let reqSeg: GeneratorService.Request.Segmentation = (segmentation == .paragraphs) ? .paragraphs : .sentences
+
+        var req = GeneratorService.Request(
+            languageLevel: languageLevel,
+            mode: reqMode,
+            userPrompt: userPrompt,
+            genLanguage: genLanguage,
+            transLanguage: transLanguage,
+            segmentation: reqSeg,
+            lengthWords: lengthPreset.words,
+            speechSpeed: speechSpeed,
+            userChosenTopic: randomTopic.isEmpty ? nil : randomTopic,
+            topicPool: nil
+        )
+        req.translationStyle = translationStyle
+
+        generator.start(req, lessonStore: lessonStore)
+    }
+    
+    private func generateSeries() {
+        let seriesId = UUID().uuidString
+        let outline = seriesOutline.isEmpty ? nil : seriesOutline
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        var items: [QueueItem] = []
+        
+        for partNum in 1...seriesPartCount {
+            let shouldGenerate = generateAllNow || partNum == 1
+            guard shouldGenerate else { continue }
+            
+            let reqMode: GeneratorService.Request.GenerationMode = (mode == .prompt) ? .prompt : .random
+            let reqSeg: GeneratorService.Request.Segmentation = (segmentation == .paragraphs) ? .paragraphs : .sentences
+            
+            var req = GeneratorService.Request(
+                languageLevel: languageLevel,
+                mode: reqMode,
+                userPrompt: userPrompt,
+                genLanguage: genLanguage,
+                transLanguage: transLanguage,
+                segmentation: reqSeg,
+                lengthWords: lengthPreset.words,
+                speechSpeed: speechSpeed,
+                userChosenTopic: randomTopic.isEmpty ? nil : randomTopic,
+                topicPool: nil
+            )
+            req.translationStyle = translationStyle
+            
+            // Add series context
+            if partNum == 1 {
+                req.seriesMode = .multiPartOutline(totalParts: seriesPartCount)
+                req.seriesContext = GeneratorService.Request.SeriesContext(
+                    seriesId: seriesId,
+                    partNumber: partNum,
+                    totalParts: seriesPartCount,
+                    previousSummary: nil,
+                    outline: outline
+                )
+            } else {
+                // Subsequent parts will get summary from previous part
+                req.seriesMode = .continuation(fromLessonId: "placeholder")
+                req.seriesContext = GeneratorService.Request.SeriesContext(
+                    seriesId: seriesId,
+                    partNumber: partNum,
+                    totalParts: seriesPartCount,
+                    previousSummary: nil,  // Will be filled by queue
+                    outline: outline
+                )
+            }
+            
+            let baseName = mode == .random ? (randomTopic.isEmpty ? "Random" : randomTopic) : userPrompt
+            let folderName = "\(baseName) (Series)"
+            
+            items.append(QueueItem(
+                id: UUID(),
+                request: req,
+                seriesId: seriesId,
+                partNumber: partNum,
+                totalParts: seriesPartCount,
+                folderName: folderName,
+                status: .pending
+            ))
+        }
+        
+        // Create series metadata
+        let baseName = mode == .random ? (randomTopic.isEmpty ? "Random" : randomTopic) : userPrompt
+        let seriesMeta = SeriesMetadata(
+            id: seriesId,
+            title: "\(baseName) (Series)",
+            folderId: "",  // Will be set by queue
+            lessonIDs: [],
+            totalParts: seriesPartCount,
+            completedParts: 0,
+            mode: outline != nil ? .outline : .continuation,
+            createdAt: Date(),
+            outline: outline
+        )
+        seriesStore.save(seriesMeta)
+        
+        // Enqueue items
+        generationQueue.enqueue(items: items)
+    }
+    
     private var allSupportedLanguages: [String] { supportedLanguages }
     
 
@@ -665,35 +788,20 @@ struct GeneratorView: View {
     @ViewBuilder private func actionSection() -> some View {
         Section {
             Button {
-                // No local debit here; proxy debits per request.
-                if mode == .random && randomTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    randomTopic = buildRandomTopic()
+                if enableSeries {
+                    generateSeries()
+                } else {
+                    generateSingleLesson()
                 }
-
-                let reqMode: GeneratorService.Request.GenerationMode = (mode == .prompt) ? .prompt : .random
-                let reqSeg: GeneratorService.Request.Segmentation = (segmentation == .paragraphs) ? .paragraphs : .sentences
-
-                var req = GeneratorService.Request(
-                    languageLevel: languageLevel,
-                    mode: reqMode,
-                    userPrompt: userPrompt,
-                    genLanguage: genLanguage,
-                    transLanguage: transLanguage,
-                    segmentation: reqSeg,
-                    lengthWords: lengthPreset.words,
-                    speechSpeed: speechSpeed,
-                    userChosenTopic: randomTopic.isEmpty ? nil : randomTopic, // wrap to nil if empty
-                    topicPool: nil
-                )
-                req.translationStyle = translationStyle
-
-                generator.start(req, lessonStore: lessonStore)
             } label: {
-                HStack { if generator.isBusy { ProgressView() }
-                    Text(generator.isBusy ? "Generating..." : "Generate Lesson")
+                HStack {
+                    if generator.isBusy || generationQueue.isProcessing {
+                        ProgressView()
+                    }
+                    Text(generator.isBusy || generationQueue.isProcessing ? "Generating..." : "Generate")
                 }
             }
-            .disabled(generator.isBusy || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+            .disabled(generator.isBusy || generationQueue.isProcessing || (mode == .prompt && userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
 
 
             Text("Credits: \(serverBalance)")
@@ -798,6 +906,76 @@ struct GeneratorView: View {
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
+            
+            // --- Series Generation Card ---
+            if !generationQueue.isProcessing {
+                Section {
+                    AdvancedCard(expanded: $seriesExpanded, title: "Series Generation") {
+                        Toggle("Enable Multi-Lesson Series", isOn: $enableSeries)
+                            .padding(.vertical, 8)
+                        
+                        if enableSeries {
+                            Divider()
+                                .padding(.vertical, 8)
+                            
+                            // Part count picker
+                            HStack {
+                                Text("Number of Parts")
+                                Spacer()
+                                Picker("", selection: $seriesPartCount) {
+                                    ForEach(2...5, id: \.self) { count in
+                                        Text("\(count) parts").tag(count)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                            }
+                            
+                            // Generate all at once toggle
+                            Toggle("Generate All At Once", isOn: $generateAllNow)
+                                .padding(.vertical, 4)
+                            
+                            if !generateAllNow {
+                                Text("First part will be generated. Use 'Continue Story' in the lesson player to generate more.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 4)
+                            }
+                            
+                            // Optional outline (only for 3+ parts)
+                            if seriesPartCount >= 3 {
+                                Divider()
+                                    .padding(.vertical, 8)
+                                
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Outline (Optional)")
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                    
+                                    TextField("One idea per line for each part...", text: $seriesOutline, axis: .vertical)
+                                        .lineLimit(2...5)
+                                        .textFieldStyle(.roundedBorder)
+                                    
+                                    Text("Provide a brief description for each part to guide the narrative.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
+            
+            // Show queue if processing
+            if generationQueue.isProcessing || !generationQueue.queuedItems.isEmpty {
+                Section {
+                    GenerationQueueView(queue: generationQueue, generator: generator)
+                        .padding(.horizontal, 16)
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
 
             // --- Advanced group as a single card ---
             Section {

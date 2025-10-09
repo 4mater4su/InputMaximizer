@@ -178,14 +178,28 @@ struct ContentView: View {
     
     @EnvironmentObject private var generator: GeneratorService
     @EnvironmentObject private var store: LessonStore
+    @EnvironmentObject private var seriesStore: SeriesMetadataStore
+    @EnvironmentObject private var generationQueue: GenerationQueue
+    @EnvironmentObject private var folderStore: FolderStore
 
     @State private var showKeywords = false
+    @State private var showContinuationSheet = false
     @State private var loadedKeywordPairs: [KeywordPair] = []
     @State private var mostVisibleParagraph: Int = 0
     
     // Check if keywords are being extracted for THIS lesson
     private var isExtractingKeywords: Bool {
         generator.extractingKeywordsForLesson == currentLesson.folderName
+    }
+    
+    // Check if lesson can be continued (always true for standalone, or if series not complete)
+    private var canContinueLesson: Bool {
+        // If lesson is part of a series, check if series can continue
+        if let series = seriesStore.getSeries(forLessonId: currentLesson.id) {
+            return series.canContinue
+        }
+        // Standalone lessons can always be continued
+        return true
     }
 
     
@@ -201,6 +215,27 @@ struct ContentView: View {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             if !Task.isCancelled { withAnimation { toastMessage = nil } }
         }
+    }
+    
+    private func handleSegmentTap(_ segment: DisplaySegment) {
+        if !isViewingActiveLesson {
+            audioManager.loadLesson(
+                folderName: currentLesson.folderName,
+                lessonTitle: currentLesson.title
+            )
+        }
+        if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.originalID }) {
+            audioManager.playInContinuousLane(from: idx)
+        }
+    }
+    
+    private func handleParagraphVisible(_ paragraphIndex: Int) {
+        mostVisibleParagraph = paragraphIndex
+    }
+    
+    private func handleShowKeywords() {
+        loadKeywordPairs(for: currentLesson.folderName)
+        showKeywords = true
     }
     
     @State private var showDelaySheet = false
@@ -949,9 +984,221 @@ struct ContentView: View {
 
     // MARK: - View
     var body: some View {
+        contentStack
+    }
+    
+    @ViewBuilder
+    private var contentStack: some View {
+        contentWithGesture
+            .overlay(alignment: .top) { toastOverlay }
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbarContent }
+            .sheet(isPresented: $showDelaySheet) { delaySheet }
+            .sheet(isPresented: $showKeywords) { keywordsSheet }
+            .sheet(isPresented: $showContinuationSheet) { continuationSheet }
+    }
+    
+    @ViewBuilder
+    private var contentWithGesture: some View {
         VStack(spacing: 10) {
-
-            // Transcript with auto-scroll and tap-to-start
+            transcriptView
+        }
+        .gesture(swipeGesture)
+        .accessibilityHint("Swipe left to open keywords and phrases")
+        .coordinateSpace(name: "lessonScroll")
+        .onAppear { handleAppear() }
+        .onChange(of: currentLesson.folderName, initial: false) { _, newFolderName in
+            handleLessonChange(newFolderName)
+        }
+        .onChange(of: shouldExplode, initial: false) { _, _ in
+            handleExplodeModeChange()
+        }
+        .onChange(of: audioManager.segments, initial: false) { _, _ in
+            handleSegmentsChange()
+        }
+        .onChange(of: storedDelay, initial: false) { _, newValue in
+            audioManager.segmentDelay = newValue
+        }
+    }
+    
+    private var swipeGesture: some Gesture {
+        DragGesture()
+            .onEnded { value in
+                if value.translation.width < -50 && abs(value.translation.height) < 400 {
+                    loadKeywordPairs(for: currentLesson.folderName)
+                    showKeywords = true
+                }
+            }
+    }
+    
+    @ViewBuilder
+    private var toastOverlay: some View {
+        if let message = toastMessage {
+            ToastBanner(message: message, isSuccess: toastIsSuccess) {
+                handleToastTap(message: message)
+            }
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+    
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if canContinueLesson {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    showContinuationSheet = true
+                } label: {
+                    Label("Continue", systemImage: "plus.rectangle.on.rectangle")
+                        .labelStyle(.iconOnly)
+                }
+            }
+        }
+        
+        ToolbarItem(placement: .navigationBarTrailing) {
+            toolbarChips
+        }
+    }
+    
+    private func handleAppear() {
+        let base = audioManager.previewSegments(for: currentLesson.folderName)
+        displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
+        lessonLangs = LessonLanguageResolver.resolve(for: currentLesson)
+        loadKeywordPairs(for: currentLesson.folderName)
+    }
+    
+    private func handleLessonChange(_ newFolderName: String) {
+        let base = audioManager.previewSegments(for: newFolderName)
+        displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
+        lessonLangs = LessonLanguageResolver.resolve(for: currentLesson)
+        loadKeywordPairs(for: newFolderName)
+    }
+    
+    private func handleExplodeModeChange() {
+        let base = audioManager.previewSegments(for: currentLesson.folderName)
+        displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
+    }
+    
+    private func handleSegmentsChange() {
+        let base = audioManager.previewSegments(for: currentLesson.folderName)
+        displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
+    }
+    
+    private func handleToastTap(message: String) {
+        if message.contains("Keywords extracted") {
+            showKeywords = true
+            withAnimation { toastMessage = nil }
+        } else if let id = generator.lastLessonID {
+            if let idxInLocal = lessons.firstIndex(where: { $0.id == id || $0.folderName == id }) {
+                currentLessonIndex = idxInLocal
+                let base = audioManager.previewSegments(for: lessons[idxInLocal].folderName)
+                displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
+                lessonLangs = LessonLanguageResolver.resolve(for: lessons[idxInLocal])
+            } else {
+                NotificationCenter.default.post(name: .openGeneratedLesson,
+                                                object: nil,
+                                                userInfo: ["id": id])
+                dismiss()
+            }
+            withAnimation { toastMessage = nil }
+        }
+    }
+    
+    @ViewBuilder
+    private var toolbarChips: some View {
+        ToolbarChips(
+            fontComfortModeRaw: $fontComfortModeRaw,
+            storedDelay: $storedDelay,
+            textDisplayModeRaw: $textDisplayModeRaw,
+            delayPresets: delayPresets,
+            secondsString: secondsString,
+            showDelaySheet: $showDelaySheet,
+            langs: lessonLangs,
+            measuredWidth: chipMeasuredWidth,
+            playbackAXLabel: playbackAXLabel,
+            textModeAXLabel: textModeAXLabel,
+            textModeChipContent: textModeChipContent,
+            playbackChipContent: playbackChipContent,
+            onTogglePlayback: handleTogglePlayback
+        )
+        .onPreferenceChange(WidthPrefKey.self) { newMax in
+            Task { @MainActor in
+                let minW: CGFloat = 100
+                let maxW: CGFloat = 150
+                let clamped = min(max(newMax, minW), maxW)
+                if abs(clamped - chipMeasuredWidth) > 0.5 {
+                    chipMeasuredWidth = clamped
+                }
+            }
+        }
+    }
+    
+    private func handleTogglePlayback() {
+        let next: AudioManager.PlaybackMode = {
+            switch audioManager.playbackMode {
+            case .target: return .both
+            case .both: return .translation
+            case .translation: return .target
+            }
+        }()
+        audioManager.playbackMode = next
+    }
+    
+    @ViewBuilder
+    private var delaySheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Pause Between Segments: \(storedDelay, specifier: "%.1f")s")
+                    Slider(value: $storedDelay, in: 0...20, step: 0.5)
+                        .accessibilityLabel("Pause Between Segments")
+                }
+            }
+            .navigationTitle("Playback Pause")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showDelaySheet = false }
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var keywordsSheet: some View {
+        NavigationStack {
+            KeywordsView(
+                titleTarget: lessonLangs.targetShort,
+                titleTrans: lessonLangs.translationShort,
+                pairs: loadedKeywordPairs,
+                targetParagraph: mostVisibleParagraph,
+                lesson: currentLesson,
+                isExtracting: isExtractingKeywords,
+                isAnyExtracting: generator.extractingKeywordsForLesson != nil,
+                onExtract: {
+                    extractKeywordsManually()
+                },
+                onReload: {
+                    loadKeywordPairs(for: currentLesson.folderName)
+                }
+            )
+        }
+    }
+    
+    @ViewBuilder
+    private var continuationSheet: some View {
+        ContinuationSheet(
+            lesson: currentLesson,
+            seriesStore: seriesStore,
+            generationQueue: generationQueue,
+            generator: generator,
+            folderStore: folderStore,
+            lessonStore: store
+        )
+        .presentationDetents([.medium, .large])
+    }
+    
+    @ViewBuilder
+    private var transcriptView: some View {
             ScrollViewReader { proxy in
                 TranscriptList(
                     groups: groupedByParagraph,
@@ -959,28 +1206,12 @@ struct ContentView: View {
                     displayMode: textDisplayMode,
                     playingSegmentID: playingSegmentID,
                     headerTitle: currentLesson.title,
-                    onTap: { segment in
-                        if !isViewingActiveLesson {
-                            audioManager.loadLesson(
-                                folderName: currentLesson.folderName,
-                                lessonTitle: currentLesson.title
-                            )
-                        }
-                        if let idx = audioManager.segments.firstIndex(where: { $0.id == segment.originalID }) {
-                            audioManager.playInContinuousLane(from: idx)
-                        }
-                    },
-                    onParagraphVisible: { paragraphIndex in
-                        mostVisibleParagraph = paragraphIndex
-                    },
+                    onTap: handleSegmentTap,
+                    onParagraphVisible: handleParagraphVisible,
                     fontComfortMode: fontComfortMode,
                     isTargetChinese: isTargetChinese,
                     isTranslationChinese: isTranslationChinese,
-                    
-                    onShowKeywords: {                       // NEW
-                        loadKeywordPairs(for: currentLesson.folderName)
-                        showKeywords = true
-                    }
+                    onShowKeywords: handleShowKeywords
                 )
                 .onChange(of: audioManager.currentIndex, initial: false) { _, _ in
                     guard let id = playingScrollID else { return }
@@ -1056,181 +1287,169 @@ struct ContentView: View {
                     .background(.ultraThinMaterial) // keep blur effect
                 )
             }
-
         }
-        .gesture(
-            DragGesture()
-                .onEnded { value in
-                    // Swipe from right to left (negative translation.width)
-                    // Allow generous vertical movement to make gesture very forgiving
-                    if value.translation.width < -50 && abs(value.translation.height) < 400 {
-                        loadKeywordPairs(for: currentLesson.folderName)
-                        showKeywords = true
+    }
+
+// MARK: - Continuation Sheet
+private struct ContinuationSheet: View {
+    let lesson: Lesson
+    let seriesStore: SeriesMetadataStore
+    let generationQueue: GenerationQueue
+    let generator: GeneratorService
+    let folderStore: FolderStore
+    let lessonStore: LessonStore
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var partsCount = 1
+    @State private var generateAll = false
+    
+    private var existingSeries: SeriesMetadata? {
+        seriesStore.getSeries(forLessonId: lesson.id)
+    }
+    
+    private var remainingParts: Int? {
+        if let series = existingSeries {
+            return series.totalParts - series.completedParts
+        }
+        return nil
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 20) {
+                // Header
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Continue Story")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Text("Based on: \(lesson.title)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal)
+                
+                if let remaining = remainingParts {
+                    Text("This lesson is part of a series. \(remaining) part(s) remaining.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal)
+                }
+                
+                // Options
+                VStack(spacing: 16) {
+                    Picker("Generate", selection: $partsCount) {
+                        Text("1 part").tag(1)
+                        if (remainingParts ?? 5) >= 2 {
+                            Text("2 parts").tag(2)
+                        }
+                        if (remainingParts ?? 5) >= 3 {
+                            Text("3 parts").tag(3)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    
+                    if partsCount > 1 {
+                        Toggle("Generate all at once", isOn: $generateAll)
                     }
                 }
-        )
-        .accessibilityHint("Swipe left to open keywords and phrases")
-        .coordinateSpace(name: "lessonScroll")
-        .onAppear {
-            let base = audioManager.previewSegments(for: currentLesson.folderName)
-            displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
-            lessonLangs = LessonLanguageResolver.resolve(for: currentLesson)
+                .padding()
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(12)
+                .padding(.horizontal)
+                
+                Spacer()
+                
+                // Generate button
+                Button {
+                    generateContinuation()
+                    dismiss()
+                } label: {
+                    Text("Generate")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundStyle(.white)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal)
+                .disabled(generationQueue.isProcessing || generator.isBusy)
+            }
+            .padding(.vertical)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+    
+    private func generateContinuation() {
+        // Simple continuation generation - just queue new parts
+        let seriesId = existingSeries?.id ?? UUID().uuidString
+        let startPart = (existingSeries?.completedParts ?? 0) + 1
+        let totalParts = startPart + partsCount - 1
+        
+        var items: [QueueItem] = []
+        
+        for partNum in startPart...min(startPart + partsCount - 1, totalParts) {
+            let shouldGenerate = generateAll || partNum == startPart
+            guard shouldGenerate else { continue }
             
-            audioManager.segmentDelay = storedDelay
-            audioManager.requestNextLesson = { [weak audioManager] in
-                DispatchQueue.main.async {
-                    goToNextLessonAndPlay()
-                    audioManager?.didFinishLesson = false
-                }
-            }
-        }
-        .onChange(of: generator.isBusy, initial: false) { _, isBusy in
-            guard !isBusy else { return }
-            let status = generator.status.lowercased()
-
-            if let id = generator.lastLessonID,
-               let lesson = store.lessons.first(where: { $0.id == id || $0.folderName == id }) {
-                withAnimation(.spring()) {
-                    showToast(message: "Lesson created: \(lesson.title). Tap to open.", success: true)
-                }
-            } else if status.hasPrefix("error") {
-                withAnimation(.spring()) { showToast(message: "Generation failed. Tap to review.", success: false) }
-            } else if status.contains("cancelled") {
-                withAnimation(.spring()) { showToast(message: "Generation cancelled.", success: false) }
-            }
-        }
-        
-        .onChange(of: currentLessonIndex, initial: false) { _, _ in
-            let base = audioManager.previewSegments(for: currentLesson.folderName)
-            displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
-            lessonLangs = LessonLanguageResolver.resolve(for: currentLesson)
-        }
-
-        .onChange(of: audioManager.currentLessonFolderName, initial: false) { _, newFolder in
-            if let folder = newFolder,
-               let idx = lessons.firstIndex(where: { $0.folderName == folder }) {
-                currentLessonIndex = idx
-                let base = audioManager.previewSegments(for: folder)
-                displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
-                lessonLangs = LessonLanguageResolver.resolve(for: currentLesson)
-            }
-        }
-
-        .onChange(of: storedDelay, initial: false) { _, newValue in
-            audioManager.segmentDelay = newValue
-        }
-
-        .overlay(alignment: .top) {
-            if let message = toastMessage {
-                ToastBanner(message: message, isSuccess: toastIsSuccess) {
-                    // Check if this is a keyword extraction completion toast
-                    if message.contains("Keywords extracted") {
-                        showKeywords = true
-                        withAnimation { toastMessage = nil }
-                    } else if let id = generator.lastLessonID {
-                        if let idxInLocal = lessons.firstIndex(where: { $0.id == id || $0.folderName == id }) {
-                            // Open locally
-                            currentLessonIndex = idxInLocal
-                            let base = audioManager.previewSegments(for: lessons[idxInLocal].folderName)
-                            displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
-                            lessonLangs = LessonLanguageResolver.resolve(for: lessons[idxInLocal])
-                        } else {
-                            // Not in local list → tell Selection to open it, then leave this screen
-                            NotificationCenter.default.post(name: .openGeneratedLesson,
-                                                            object: nil,
-                                                            userInfo: ["id": id])
-                            dismiss()
-                        }
-                        withAnimation { toastMessage = nil }
-                    }
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
+            var req = GeneratorService.Request(
+                languageLevel: .B1,
+                mode: .prompt,
+                userPrompt: "Continue the story",
+                genLanguage: lesson.targetLanguage ?? "English",
+                transLanguage: lesson.translationLanguage ?? "Spanish",
+                segmentation: .sentences,
+                lengthWords: 300,
+                speechSpeed: .regular
+            )
+            
+            // Continuation mode
+            req.seriesMode = .continuation(fromLessonId: lesson.id)
+            req.seriesContext = GeneratorService.Request.SeriesContext(
+                seriesId: seriesId,
+                partNumber: partNum,
+                totalParts: totalParts,
+                previousSummary: existingSeries?.lastSummary,
+                outline: existingSeries?.outline
+            )
+            
+            let folderName = "\(lesson.title) (Series)"
+            
+            items.append(QueueItem(
+                id: UUID(),
+                request: req,
+                seriesId: seriesId,
+                partNumber: partNum,
+                totalParts: totalParts,
+                folderName: folderName,
+                status: .pending
+            ))
         }
         
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        //.navigationBarBackButtonHidden(true)   // hide system back button
-
-        // MARK: - Toolbar
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                ToolbarChips(
-                    fontComfortModeRaw: $fontComfortModeRaw,
-                    storedDelay: $storedDelay,
-                    textDisplayModeRaw: $textDisplayModeRaw,
-                    delayPresets: delayPresets,
-                    secondsString: secondsString,
-                    showDelaySheet: $showDelaySheet,
-                    langs: lessonLangs,
-                    measuredWidth: chipMeasuredWidth,
-                    playbackAXLabel: playbackAXLabel,
-                    textModeAXLabel: textModeAXLabel,
-                    textModeChipContent: textModeChipContent,
-                    playbackChipContent: playbackChipContent,
-                    onTogglePlayback: {
-                        let next: AudioManager.PlaybackMode = {
-                            switch audioManager.playbackMode {
-                            case .target: return .translation
-                            case .translation: return .both
-                            case .both: return .target
-                            }
-                        }()
-                        audioManager.setPlaybackMode(next)
-                        audioManager.playInContinuousLane(from: audioManager.currentIndex)
-                    }
-                )
-                // keep your width measuring
-                .onPreferenceChange(WidthPrefKey.self) { newMax in
-                    Task { @MainActor in
-                        let minW: CGFloat = 100  // slightly smaller so more likely to fit
-                        let maxW: CGFloat = 150
-                        let clamped = min(max(newMax, minW), maxW)
-                        if abs(clamped - chipMeasuredWidth) > 0.5 {
-                            chipMeasuredWidth = clamped
-                        }
-                    }
-                }
-            }
+        // Create or update series metadata
+        if existingSeries == nil {
+            let seriesMeta = SeriesMetadata(
+                id: seriesId,
+                title: "\(lesson.title) (Series)",
+                folderId: "",
+                lessonIDs: [lesson.id],
+                totalParts: totalParts,
+                completedParts: 1,
+                mode: .continuation,
+                createdAt: Date(),
+                outline: nil,
+                lastSummary: nil
+            )
+            seriesStore.save(seriesMeta)
         }
         
-        .sheet(isPresented: $showDelaySheet) {
-            NavigationStack {
-                Form {
-                    Section {
-                        Text("Pause Between Segments: \(storedDelay, specifier: "%.1f")s")
-                        Slider(value: $storedDelay, in: 0...20, step: 0.5)
-                            .accessibilityLabel("Pause Between Segments")
-                    }
-                }
-                .navigationTitle("Playback Pause")
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { showDelaySheet = false }
-                    }
-                }
-            }
-        }
-        
-        .sheet(isPresented: $showKeywords) {
-            NavigationStack {
-                KeywordsView(
-                    titleTarget: lessonLangs.targetShort,
-                    titleTrans: lessonLangs.translationShort,
-                    pairs: loadedKeywordPairs,
-                    targetParagraph: mostVisibleParagraph,
-                    lesson: currentLesson,
-                    isExtracting: isExtractingKeywords,
-                    isAnyExtracting: generator.extractingKeywordsForLesson != nil,
-                    onExtract: {
-                        extractKeywordsManually()
-                    },
-                    onReload: {
-                        loadKeywordPairs(for: currentLesson.folderName)
-                    }
-                )
-            }
-        }
+        // Enqueue items
+        generationQueue.enqueue(items: items)
     }
 }
 

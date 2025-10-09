@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct Segment: Codable, Identifiable {
+struct Segment: Codable, Identifiable, Equatable {
     let id: Int
     let pt_text: String
     let en_text: String

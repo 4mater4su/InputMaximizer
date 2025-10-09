@@ -103,11 +103,15 @@ struct Folder: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     var lessonIDs: [String]
+    var seriesId: String?  // Optional: links to a multi-lesson series
+    var createdAt: Date?
 
-    init(id: UUID = UUID(), name: String, lessonIDs: [String]) {
+    init(id: UUID = UUID(), name: String, lessonIDs: [String], seriesId: String? = nil, createdAt: Date? = nil) {
         self.id = id
         self.name = name
         self.lessonIDs = lessonIDs
+        self.seriesId = seriesId
+        self.createdAt = createdAt ?? Date()
     }
 }
 

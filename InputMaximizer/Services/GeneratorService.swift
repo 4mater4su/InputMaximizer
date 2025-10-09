@@ -64,6 +64,20 @@ final class GeneratorService: ObservableObject {
         enum LanguageLevel: String, Codable, CaseIterable { case A1, A2, B1, B2, C1, C2 }
         
         enum TranslationStyle: String, Codable, CaseIterable { case literal, idiomatic }
+        
+        enum SeriesMode: Equatable, Sendable {
+            case single
+            case multiPartOutline(totalParts: Int)
+            case continuation(fromLessonId: String)
+        }
+        
+        struct SeriesContext: Equatable, Sendable {
+            let seriesId: String
+            let partNumber: Int
+            let totalParts: Int
+            let previousSummary: String?  // For continuation
+            let outline: [String]?  // For outline mode
+        }
 
         
         var languageLevel: LanguageLevel = .B1   // sensible default
@@ -81,8 +95,12 @@ final class GeneratorService: ObservableObject {
         var translationStyle: TranslationStyle = .idiomatic
         
         // Random topic inputs from the UI
-        var userChosenTopic: String? = nil         // if user pressed “Randomize” we pass it here
+        var userChosenTopic: String? = nil         // if user pressed "Randomize" we pass it here
         var topicPool: [String]? = nil             // the interests array to sample from
+        
+        // Series generation
+        var seriesMode: SeriesMode = .single
+        var seriesContext: SeriesContext? = nil
     }
 
     /// Start a generation job. If one is running, ignore.
@@ -980,13 +998,52 @@ private extension GeneratorService {
 
 
         func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int, jobId: String, jobToken: String) async throws -> String {
+            // Build series context if applicable
+            var seriesInstructions = ""
+            if let seriesContext = req.seriesContext {
+                seriesInstructions = """
+                
+                SERIES CONTEXT:
+                You are generating PART \(seriesContext.partNumber) of \(seriesContext.totalParts) in a multi-lesson series.
+                
+                """
+                
+                if let outline = seriesContext.outline, !outline.isEmpty {
+                    // Outline-based mode
+                    seriesInstructions += """
+                    Series Outline:
+                    \(outline.enumerated().map { "Part \($0 + 1): \($1)" }.joined(separator: "\n"))
+                    
+                    Focus on Part \(seriesContext.partNumber). This should be a complete chapter that:
+                    - Stands alone with a clear beginning and end
+                    - Advances the overall narrative according to the outline
+                    - Sets up the next part naturally (if not the final part)
+                    - Maintains consistent style, tone, and characters throughout the series
+                    
+                    """
+                } else if let previousSummary = seriesContext.previousSummary {
+                    // Continuation mode
+                    seriesInstructions += """
+                    Previous Lesson Summary:
+                    \(previousSummary)
+                    
+                    Generate the next chapter that:
+                    - Continues naturally from where the previous lesson ended
+                    - Maintains character consistency and narrative style
+                    - Introduces new elements while respecting established context
+                    - Forms a complete episode with its own arc
+                    
+                    """
+                }
+            }
+            
             let system = """
             You are a world-class writer. Follow the user's prompt meticulously.
             Write in \(targetLang). Aim for ~\(wordCount) words total.
             Write at CEFR level \(req.languageLevel.rawValue).
             Follow these constraints:
             \(CEFRGuidance.guidance(level: req.languageLevel, targetLanguage: targetLang))
-            
+            \(seriesInstructions)
             Format requirements:
             • Title: short title (no quotes)
             • Body: main text content
