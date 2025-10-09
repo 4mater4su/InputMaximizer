@@ -197,44 +197,42 @@ private struct FolderLessonCard: View {
     let lesson: Lesson
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                // Book icon
-                Image(systemName: "book.fill")
-                    .font(.system(size: 24))
-                    .foregroundStyle(.blue)
-                    .frame(width: 40, height: 40)
-                    .background(Color.blue.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+        HStack(spacing: 12) {
+            // Book icon
+            Image(systemName: "book.fill")
+                .font(.system(size: 24))
+                .foregroundStyle(.blue)
+                .frame(width: 40, height: 40)
+                .background(Color.blue.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(lesson.title)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
                 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(lesson.title)
-                        .font(.headline)
-                        .foregroundColor(.primary)
-                        .lineLimit(2)
-                    
-                    if let target = lesson.targetLanguage, let helper = lesson.translationLanguage {
-                        HStack(spacing: 4) {
-                            Text(target)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Image(systemName: "arrow.right")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                            Text(helper)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                if let target = lesson.targetLanguage, let helper = lesson.translationLanguage {
+                    HStack(spacing: 4) {
+                        Text(target)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Image(systemName: "arrow.right")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text(helper)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
-                
-                Spacer(minLength: 0)
-                
-                // Chevron
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
+            
+            Spacer(minLength: 0)
+            
+            // Chevron
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -282,48 +280,80 @@ struct FolderDetailView: View {
     @State private var selectedLessonIDs = Set<String>()
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                if lessonsInFolder.isEmpty {
-                    ContentUnavailableView(
-                        "Empty Folder",
-                        systemImage: "folder",
-                        description: Text("Add lessons using the + button above.")
-                    )
-                    .padding(.top, 40)
-                } else {
-                    ForEach(lessonsInFolder) { lesson in
-                        Button { selectedLesson = lesson } label: {
-                            FolderLessonCard(lesson: lesson)
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button {
-                                if let idx = folderStore.index(of: currentFolder.id) {
-                                    var ids = folderStore.folders[idx].lessonIDs
-                                    ids.removeAll { $0 == lesson.id }
-                                    folderStore.folders[idx].lessonIDs = ids
-                                }
+        List {
+            if lessonsInFolder.isEmpty {
+                ContentUnavailableView(
+                    "Empty Folder",
+                    systemImage: "folder",
+                    description: Text("Add lessons using the + button above.")
+                )
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            } else {
+                ForEach(lessonsInFolder) { lesson in
+                    Button { selectedLesson = lesson } label: {
+                        FolderLessonCard(lesson: lesson)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .moveDisabled(false)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if store.isDeletable(lesson) {
+                            Button(role: .destructive) {
+                                lessonToDelete = lesson
+                                showDeleteConfirm = true
                             } label: {
-                                Label("Remove from Folder", systemImage: "folder.badge.minus")
+                                Label("Delete", systemImage: "trash")
                             }
-                            
-                            if store.isDeletable(lesson) {
-                                Button(role: .destructive) {
-                                    lessonToDelete = lesson
-                                    showDeleteConfirm = true
-                                } label: {
-                                    Label("Delete Lesson", systemImage: "trash")
-                                }
+                        }
+                        
+                        Button {
+                            if let idx = folderStore.index(of: currentFolder.id) {
+                                var ids = folderStore.folders[idx].lessonIDs
+                                ids.removeAll { $0 == lesson.id }
+                                folderStore.folders[idx].lessonIDs = ids
+                            }
+                        } label: {
+                            Label("Remove", systemImage: "folder.badge.minus")
+                        }
+                        .tint(.orange)
+                    }
+                    .contextMenu {
+                        Button {
+                            if let idx = folderStore.index(of: currentFolder.id) {
+                                var ids = folderStore.folders[idx].lessonIDs
+                                ids.removeAll { $0 == lesson.id }
+                                folderStore.folders[idx].lessonIDs = ids
+                            }
+                        } label: {
+                            Label("Remove from Folder", systemImage: "folder.badge.minus")
+                        }
+                        
+                        if store.isDeletable(lesson) {
+                            Button(role: .destructive) {
+                                lessonToDelete = lesson
+                                showDeleteConfirm = true
+                            } label: {
+                                Label("Delete Lesson", systemImage: "trash")
                             }
                         }
                     }
                 }
+                .onMove { indices, newOffset in
+                    guard let idx = folderStore.index(of: currentFolder.id) else { return }
+                    var ids = folderStore.folders[idx].lessonIDs
+                    ids.move(fromOffsets: indices, toOffset: newOffset)
+                    folderStore.folders[idx].lessonIDs = ids
+                }
             }
-            .padding()
         }
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Color.appBackground)
+        .environment(\.defaultMinListRowHeight, 0)
+        .environment(\.editMode, .constant(.active))
         .navigationTitle(currentFolder.name)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarBackground(Color.appBackground, for: .navigationBar)
@@ -425,7 +455,9 @@ struct FolderDetailView: View {
                     VStack(spacing: 8) {
                         ForEach(lessons, id: \._id) { lesson in
                             let isSelected = selectedLessonIDs.contains(lesson.id)
-                            let isInOtherFolder = folderedLessonIDs.contains(lesson.id) && !currentFolder.lessonIDs.contains(lesson.id)
+                            let otherFolders = folderStore.folders
+                                .filter { $0.id != currentFolder.id && $0.lessonIDs.contains(lesson.id) }
+                                .map { $0.name }
                             
                             Button {
                                 if isSelected {
@@ -446,12 +478,13 @@ struct FolderDetailView: View {
                                             .foregroundColor(.primary)
                                             .multilineTextAlignment(.leading)
                                         
-                                        if isInOtherFolder {
+                                        if !otherFolders.isEmpty {
                                             HStack(spacing: 4) {
                                                 Image(systemName: "folder.fill")
                                                     .font(.caption2)
-                                                Text("In another folder")
+                                                Text("Also in: \(otherFolders.joined(separator: ", "))")
                                                     .font(.caption)
+                                                    .lineLimit(1)
                                             }
                                             .foregroundColor(.orange)
                                         }
@@ -703,6 +736,14 @@ struct LessonSelectionView: View {
                             .onSubmit {
                                 searchIsFocused = false
                             }
+                            .toolbar {
+                                ToolbarItemGroup(placement: .keyboard) {
+                                    Spacer()
+                                    Button("Done") {
+                                        searchIsFocused = false
+                                    }
+                                }
+                            }
                         if !searchText.isEmpty {
                             Button {
                                 searchText = ""
@@ -716,20 +757,12 @@ struct LessonSelectionView: View {
                     .background(Color(uiColor: .tertiarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     
-                    if searchIsFocused {
-                        Button("Done") {
-                            searchIsFocused = false
-                        }
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                    } else {
-                        Button {
-                            showFilterSheet = true
-                        } label: {
-                            Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                                .font(.system(size: 22))
-                                .foregroundStyle(hasActiveFilters ? .blue : .secondary)
-                        }
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    Button {
+                        showFilterSheet = true
+                    } label: {
+                        Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                            .font(.system(size: 22))
+                            .foregroundStyle(hasActiveFilters ? .blue : .secondary)
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: searchIsFocused)
@@ -1185,8 +1218,10 @@ private struct LessonCardWithFolder: View {
     let lesson: Lesson
     let folderStore: FolderStore
     
-    private var folderName: String? {
-        folderStore.folders.first(where: { $0.lessonIDs.contains(lesson.id) })?.name
+    private var folderNames: [String] {
+        folderStore.folders
+            .filter { $0.lessonIDs.contains(lesson.id) }
+            .map { $0.name }
     }
     
     var body: some View {
@@ -1195,8 +1230,8 @@ private struct LessonCardWithFolder: View {
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
+            // Language badges
             HStack(spacing: 8) {
-                // Language badges
                 if let targetLang = lesson.targetLanguage, let targetCode = lesson.targetLangCode {
                     LanguageBadge(language: targetLang, code: targetCode, isTarget: true)
                 }
@@ -1210,22 +1245,30 @@ private struct LessonCardWithFolder: View {
                 if let helperLang = lesson.translationLanguage, let helperCode = lesson.translationLangCode {
                     LanguageBadge(language: helperLang, code: helperCode, isTarget: false)
                 }
-                
-                // Folder indicator
-                if let folder = folderName {
-                    Spacer()
-                    HStack(spacing: 4) {
-                        Image(systemName: "folder.fill")
-                            .font(.caption2)
-                        Text(folder)
-                            .font(.caption)
-                            .lineLimit(1)
+            }
+            
+            // Folder indicators - show all folders
+            if !folderNames.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder.fill")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(folderNames, id: \.self) { folderName in
+                                Text(folderName)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Color.secondary.opacity(0.15))
+                                    .foregroundColor(.secondary)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                            }
+                        }
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color.secondary.opacity(0.15))
-                    .foregroundColor(.secondary)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
