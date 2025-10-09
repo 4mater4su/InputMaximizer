@@ -444,6 +444,28 @@ struct LessonSelectionView: View {
     @State private var showingCreateFolder = false
     @State private var newFolderName: String = ""
     @State private var selectedLessonIDs = Set<String>()
+    
+    // Search and filter state
+    @State private var searchText: String = ""
+    @State private var showFilterSheet = false
+    @State private var filterTargetLanguages = Set<String>()
+    @State private var filterHelperLanguages = Set<String>()
+    @State private var filterLevels = Set<String>()
+    @State private var filterSegmentation: String? = nil
+    @State private var filterSpeechSpeed: String? = nil
+    @State private var filterFolderStatus: FolderFilterStatus = .all
+    @FocusState private var searchIsFocused: Bool
+    
+    // Add to folder state
+    @State private var lessonToAddToFolder: Lesson?
+    @State private var showAddToFolderSheet = false
+    @State private var selectedFolderForAdd: UUID?
+    
+    enum FolderFilterStatus: String, CaseIterable {
+        case all = "All"
+        case inFolders = "In Folders"
+        case unfiled = "Unfiled"
+    }
 
     private func lessonsList(containing lesson: Lesson) -> [Lesson] {
         if let folder = folderStore.folders.first(where: { $0.lessonIDs.contains(lesson.id) }) {
@@ -453,131 +475,375 @@ struct LessonSelectionView: View {
             return unfiledLessons
         }
     }
+    
+    // MARK: - Filter Helpers
+    
+    private var allTargetLanguages: [String] {
+        Array(Set(store.lessons.compactMap { $0.targetLanguage })).sorted()
+    }
+    
+    private var allHelperLanguages: [String] {
+        Array(Set(store.lessons.compactMap { $0.translationLanguage })).sorted()
+    }
+    
+    private var hasActiveFilters: Bool {
+        !searchText.isEmpty ||
+        !filterTargetLanguages.isEmpty ||
+        !filterHelperLanguages.isEmpty ||
+        !filterLevels.isEmpty ||
+        filterSegmentation != nil ||
+        filterSpeechSpeed != nil ||
+        filterFolderStatus != .all
+    }
+    
+    private func matchesFilters(_ lesson: Lesson) -> Bool {
+        // Search text
+        if !searchText.isEmpty {
+            let searchLower = searchText.lowercased()
+            if !lesson.title.lowercased().contains(searchLower) {
+                return false
+            }
+        }
+        
+        // Target language
+        if !filterTargetLanguages.isEmpty {
+            guard let lang = lesson.targetLanguage, filterTargetLanguages.contains(lang) else {
+                return false
+            }
+        }
+        
+        // Helper language
+        if !filterHelperLanguages.isEmpty {
+            guard let lang = lesson.translationLanguage, filterHelperLanguages.contains(lang) else {
+                return false
+            }
+        }
+        
+        // Folder status
+        switch filterFolderStatus {
+        case .all:
+            break
+        case .inFolders:
+            if !folderedLessonIDs.contains(lesson.id) {
+                return false
+            }
+        case .unfiled:
+            if folderedLessonIDs.contains(lesson.id) {
+                return false
+            }
+        }
+        
+        return true
+    }
+    
+    private var filteredLessons: [Lesson] {
+        store.lessons.filter { matchesFilters($0) }
+    }
+    
+    private var filteredUnfiledLessons: [Lesson] {
+        filteredLessons.filter { !folderedLessonIDs.contains($0.id) }
+    }
+    
+    private var filteredFolderedLessons: [Lesson] {
+        // When search/filters are active, show matching lessons even if they're in folders
+        guard hasActiveFilters else { return [] }
+        return filteredLessons.filter { folderedLessonIDs.contains($0.id) }
+    }
+    
+    private var filteredFolders: [(folder: Folder, matchCount: Int)] {
+        folderStore.folders.compactMap { folder in
+            let matchingLessons = folder.lessonIDs.compactMap { id in
+                store.lessons.first(where: { $0.id == id })
+            }.filter { matchesFilters($0) }
+            
+            let count = matchingLessons.count
+            return count > 0 ? (folder, count) : nil
+        }
+    }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-
-                    // NOW PLAYING BAR
-                    if let playing = activeLesson,
-                       (audioManager.isPlaying || audioManager.isPaused || !audioManager.segments.isEmpty) {
-                        Button {
-                            resumeLesson = playing
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: audioManager.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                    .font(.system(size: 24, weight: .semibold))
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Now Playing")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Text(playing.title)
-                                        .font(.headline)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.body.weight(.semibold))
+            VStack(spacing: 0) {
+                // Search Bar
+                HStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search lessons...", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .focused($searchIsFocused)
+                            .submitLabel(.done)
+                            .onSubmit {
+                                searchIsFocused = false
+                            }
+                        if !searchText.isEmpty {
+                            Button {
+                                searchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
                                     .foregroundStyle(.secondary)
                             }
-                            .padding(12)
-                            .cardBackground()
                         }
                     }
-
-                    // Folders
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Label("Folders", systemImage: "folder")
-                                .font(.title3.bold())
-                            Spacer()
-                            Button {
-                                newFolderName = ""
-                                selectedLessonIDs = []
-                                showingCreateFolder = true
-                            } label: {
-                                Label("New Folder", systemImage: "folder.badge.plus")
-                            }
-                            .buttonStyle(.bordered)
-                            .accessibilityLabel("Create a new folder")
+                    .padding(10)
+                    .background(Color(uiColor: .tertiarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    
+                    if searchIsFocused {
+                        Button("Done") {
+                            searchIsFocused = false
                         }
-
-                        if folderStore.folders.isEmpty {
-                            Text("No folders yet. Tap **New Folder** to group lessons.")
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)   //  center
-                                .frame(maxWidth: .infinity)        //  take full width
-                        } else {
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                                ForEach(folderStore.folders) { folder in
-                                    NavigationLink(value: folder) {
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            Image(systemName: "folder.fill")
-                                                .font(.system(size: 28))
-                                            Text(folder.name)
-                                                .font(.headline)
-                                                .lineLimit(1)
-                                            Text("\(folder.lessonIDs.count) lesson\(folder.lessonIDs.count == 1 ? "" : "s")")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        .padding()
-                                        .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
-                                        .background(Color.folderTile)
-                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.hairline, lineWidth: 1))
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    }
-                                    .contextMenu {
-                                        Button(role: .destructive) {
-                                            folderStore.remove(folder)
-                                        } label: {
-                                            Label("Delete Folder", systemImage: "trash")
-                                        }
-                                    }
-                                }
-                            }
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    } else {
+                        Button {
+                            showFilterSheet = true
+                        } label: {
+                            Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                                .font(.system(size: 22))
+                                .foregroundStyle(hasActiveFilters ? .blue : .secondary)
                         }
-                    }
-
-                    Divider()
-
-                    // Lessons
-                    VStack(spacing: 16) {
-                        if unfiledLessons.isEmpty {
-                            Text("No unfiled lessons. Everything is already in folders.")
-                                .multilineTextAlignment(.center)
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 40)
-                        } else {
-                            ForEach(unfiledLessons) { lesson in
-                                Button {
-                                    selectedLesson = lesson
-                                } label: {
-                                    Text(lesson.title)
-                                        .font(.headline)
-                                        .frame(maxWidth: .infinity)
-                                        .padding()
-                                        .cardBackground()
-                                }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                    if store.isDeletable(lesson) {
-                                        Button(role: .destructive) {
-                                            lessonToDelete = lesson
-                                            showDeleteConfirm = true
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
-                .padding()
+                .animation(.easeInOut(duration: 0.2), value: searchIsFocused)
+                .padding(.horizontal)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+                
+                // Filter chips
+                if hasActiveFilters && (!filterTargetLanguages.isEmpty || !filterHelperLanguages.isEmpty || filterFolderStatus != .all) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(filterTargetLanguages), id: \.self) { lang in
+                                FilterChip(title: lang, color: .blue) {
+                                    filterTargetLanguages.remove(lang)
+                                }
+                            }
+                            ForEach(Array(filterHelperLanguages), id: \.self) { lang in
+                                FilterChip(title: lang, color: .green) {
+                                    filterHelperLanguages.remove(lang)
+                                }
+                            }
+                            if filterFolderStatus != .all {
+                                FilterChip(title: filterFolderStatus.rawValue, color: .orange) {
+                                    filterFolderStatus = .all
+                                }
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    .padding(.bottom, 8)
+                }
+                
+                Divider()
+                
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+
+                        // NOW PLAYING BAR
+                        if let playing = activeLesson,
+                           (audioManager.isPlaying || audioManager.isPaused || !audioManager.segments.isEmpty) {
+                            Button {
+                                resumeLesson = playing
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: audioManager.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                        .font(.system(size: 24, weight: .semibold))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Now Playing")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text(playing.title)
+                                            .font(.headline)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(12)
+                                .cardBackground()
+                            }
+                        }
+
+                        // Folders (with match counts)
+                        if !filteredFolders.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Label("Folders", systemImage: "folder")
+                                        .font(.title3.bold())
+                                    Spacer()
+                                    Button {
+                                        newFolderName = ""
+                                        selectedLessonIDs = []
+                                        showingCreateFolder = true
+                                    } label: {
+                                        Label("New Folder", systemImage: "folder.badge.plus")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .accessibilityLabel("Create a new folder")
+                                }
+
+                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                                    ForEach(filteredFolders, id: \.folder.id) { item in
+                                        NavigationLink(value: item.folder) {
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                Image(systemName: "folder.fill")
+                                                    .font(.system(size: 28))
+                                                Text(item.folder.name)
+                                                    .font(.headline)
+                                                    .lineLimit(1)
+                                                HStack(spacing: 4) {
+                                                    if hasActiveFilters {
+                                                        Text("\(item.matchCount)")
+                                                            .font(.caption.bold())
+                                                            .foregroundColor(.blue)
+                                                        Text("of")
+                                                            .font(.caption)
+                                                            .foregroundColor(.secondary)
+                                                    }
+                                                    Text("\(item.folder.lessonIDs.count) lesson\(item.folder.lessonIDs.count == 1 ? "" : "s")")
+                                                        .font(.caption)
+                                                        .foregroundColor(.secondary)
+                                                }
+                                            }
+                                            .padding()
+                                            .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
+                                            .background(Color.folderTile)
+                                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.hairline, lineWidth: 1))
+                                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                                        }
+                                        .contextMenu {
+                                            Button(role: .destructive) {
+                                                folderStore.remove(item.folder)
+                                            } label: {
+                                                Label("Delete Folder", systemImage: "trash")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Show divider only if we have both folders and lessons
+                        if !filteredFolders.isEmpty && !filteredUnfiledLessons.isEmpty {
+                            Divider()
+                        }
+
+                        // Lessons from folders (when searching/filtering)
+                        if !filteredFolderedLessons.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Label("Matching Lessons in Folders", systemImage: "doc.text.magnifyingglass")
+                                        .font(.title3.bold())
+                                }
+                                
+                                VStack(spacing: 16) {
+                                    ForEach(filteredFolderedLessons) { lesson in
+                                        Button {
+                                            selectedLesson = lesson
+                                        } label: {
+                                            LessonCardWithFolder(lesson: lesson, folderStore: folderStore)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .contextMenu {
+                                            Button {
+                                                lessonToAddToFolder = lesson
+                                                showAddToFolderSheet = true
+                                            } label: {
+                                                Label("Move to Folder", systemImage: "folder.badge.plus")
+                                            }
+                                            
+                                            if store.isDeletable(lesson) {
+                                                Button(role: .destructive) {
+                                                    lessonToDelete = lesson
+                                                    showDeleteConfirm = true
+                                                } label: {
+                                                    Label("Delete", systemImage: "trash")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Show divider between foldered and unfiled lessons
+                        if !filteredFolderedLessons.isEmpty && !filteredUnfiledLessons.isEmpty {
+                            Divider()
+                        }
+                        
+                        // Unfiled lessons (with language badges)
+                        if !filteredUnfiledLessons.isEmpty {
+                            VStack(spacing: 16) {
+                                // Show section header only when we also have foldered lessons
+                                if !filteredFolderedLessons.isEmpty {
+                                    HStack {
+                                        Label("Unfiled Lessons", systemImage: "doc")
+                                            .font(.title3.bold())
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                
+                                ForEach(filteredUnfiledLessons) { lesson in
+                                    Button {
+                                        selectedLesson = lesson
+                                    } label: {
+                                        LessonCard(lesson: lesson)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .contextMenu {
+                                        Button {
+                                            lessonToAddToFolder = lesson
+                                            showAddToFolderSheet = true
+                                        } label: {
+                                            Label("Add to Folder", systemImage: "folder.badge.plus")
+                                        }
+                                        
+                                        if store.isDeletable(lesson) {
+                                            Button(role: .destructive) {
+                                                lessonToDelete = lesson
+                                                showDeleteConfirm = true
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Empty state
+                        if filteredFolders.isEmpty && filteredUnfiledLessons.isEmpty && filteredFolderedLessons.isEmpty {
+                            VStack(spacing: 16) {
+                                if hasActiveFilters {
+                                    ContentUnavailableView(
+                                        "No matches",
+                                        systemImage: "magnifyingglass",
+                                        description: Text("Try adjusting your search or filters")
+                                    )
+                                } else if folderStore.folders.isEmpty && unfiledLessons.isEmpty {
+                                    ContentUnavailableView(
+                                        "No lessons yet",
+                                        systemImage: "book",
+                                        description: Text("Tap Generate to create your first lesson")
+                                    )
+                                } else {
+                                    ContentUnavailableView(
+                                        "All lessons are in folders",
+                                        systemImage: "folder.fill",
+                                        description: Text("Great organization!")
+                                    )
+                                }
+                            }
+                            .padding(.top, 40)
+                        }
+                    }
+                    .padding()
+                }
             }
+            .background(Color.appBackground)
             .scrollContentBackground(.hidden)
             .background(Color.appBackground)
             .navigationTitle("Select a Lesson")
@@ -618,6 +884,28 @@ struct LessonSelectionView: View {
             .sheet(isPresented: $showingCreateFolder) { createFolderSheet }
             .sheet(isPresented: $showAppearanceSheet) {
                 AppearanceSettingsView()
+            }
+            .sheet(isPresented: $showFilterSheet) {
+                FilterSheet(
+                    filterTargetLanguages: $filterTargetLanguages,
+                    filterHelperLanguages: $filterHelperLanguages,
+                    filterFolderStatus: $filterFolderStatus,
+                    allTargetLanguages: allTargetLanguages,
+                    allHelperLanguages: allHelperLanguages
+                )
+            }
+            .sheet(isPresented: $showAddToFolderSheet) {
+                if let lesson = lessonToAddToFolder {
+                    AddToFolderSheet(
+                        lesson: lesson,
+                        folderStore: folderStore,
+                        selectedFolderId: $selectedFolderForAdd,
+                        onDismiss: { 
+                            showAddToFolderSheet = false
+                            lessonToAddToFolder = nil
+                        }
+                    )
+                }
             }
             .alert("Delete lesson?", isPresented: $showDeleteConfirm, presenting: lessonToDelete) { lesson in
                 Button("Delete", role: .destructive) {
@@ -748,6 +1036,388 @@ struct LessonSelectionView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Filter Chip Component
+
+private struct FilterChip: View {
+    let title: String
+    let color: Color
+    let onRemove: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.medium))
+            Button {
+                onRemove()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(color.opacity(0.15))
+        .foregroundColor(color)
+        .clipShape(Capsule())
+    }
+}
+
+// MARK: - Lesson Card Component
+
+private struct LessonCard: View {
+    let lesson: Lesson
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(lesson.title)
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            // Language badges
+            HStack(spacing: 8) {
+                if let targetLang = lesson.targetLanguage, let targetCode = lesson.targetLangCode {
+                    LanguageBadge(language: targetLang, code: targetCode, isTarget: true)
+                }
+                
+                if let targetLang = lesson.targetLanguage, let helperLang = lesson.translationLanguage {
+                    Image(systemName: "arrow.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                
+                if let helperLang = lesson.translationLanguage, let helperCode = lesson.translationLangCode {
+                    LanguageBadge(language: helperLang, code: helperCode, isTarget: false)
+                }
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity)
+        .cardBackground()
+    }
+}
+
+// MARK: - Lesson Card With Folder Component
+
+private struct LessonCardWithFolder: View {
+    let lesson: Lesson
+    let folderStore: FolderStore
+    
+    private var folderName: String? {
+        folderStore.folders.first(where: { $0.lessonIDs.contains(lesson.id) })?.name
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(lesson.title)
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            HStack(spacing: 8) {
+                // Language badges
+                if let targetLang = lesson.targetLanguage, let targetCode = lesson.targetLangCode {
+                    LanguageBadge(language: targetLang, code: targetCode, isTarget: true)
+                }
+                
+                if let targetLang = lesson.targetLanguage, let helperLang = lesson.translationLanguage {
+                    Image(systemName: "arrow.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                
+                if let helperLang = lesson.translationLanguage, let helperCode = lesson.translationLangCode {
+                    LanguageBadge(language: helperLang, code: helperCode, isTarget: false)
+                }
+                
+                // Folder indicator
+                if let folder = folderName {
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Image(systemName: "folder.fill")
+                            .font(.caption2)
+                        Text(folder)
+                            .font(.caption)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.secondary.opacity(0.15))
+                    .foregroundColor(.secondary)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity)
+        .cardBackground()
+    }
+}
+
+// MARK: - Language Badge Component
+
+private struct LanguageBadge: View {
+    let language: String
+    let code: String
+    let isTarget: Bool
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(shortCode)
+                .font(.caption2.weight(.semibold))
+                .textCase(.uppercase)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(isTarget ? Color.blue.opacity(0.15) : Color.green.opacity(0.15))
+        .foregroundColor(isTarget ? .blue : .green)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+    
+    private var shortCode: String {
+        // Extract short language code (e.g., "pt-BR" -> "PT", "en" -> "EN")
+        code.split(separator: "-").first.map(String.init)?.uppercased() ?? code.uppercased()
+    }
+}
+
+// MARK: - Filter Sheet
+
+private struct FilterSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var filterTargetLanguages: Set<String>
+    @Binding var filterHelperLanguages: Set<String>
+    @Binding var filterFolderStatus: LessonSelectionView.FolderFilterStatus
+    
+    let allTargetLanguages: [String]
+    let allHelperLanguages: [String]
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Target Language") {
+                    if allTargetLanguages.isEmpty {
+                        Text("No target languages available")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(allTargetLanguages, id: \.self) { lang in
+                            Button {
+                                if filterTargetLanguages.contains(lang) {
+                                    filterTargetLanguages.remove(lang)
+                                } else {
+                                    filterTargetLanguages.insert(lang)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(lang)
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    if filterTargetLanguages.contains(lang) {
+                                        Image(systemName: "checkmark")
+                                            .foregroundColor(.blue)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                Section("Helper Language") {
+                    if allHelperLanguages.isEmpty {
+                        Text("No helper languages available")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(allHelperLanguages, id: \.self) { lang in
+                            Button {
+                                if filterHelperLanguages.contains(lang) {
+                                    filterHelperLanguages.remove(lang)
+                                } else {
+                                    filterHelperLanguages.insert(lang)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(lang)
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    if filterHelperLanguages.contains(lang) {
+                                        Image(systemName: "checkmark")
+                                            .foregroundColor(.green)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                Section("Folder Status") {
+                    ForEach(LessonSelectionView.FolderFilterStatus.allCases, id: \.self) { status in
+                        Button {
+                            filterFolderStatus = status
+                        } label: {
+                            HStack {
+                                Text(status.rawValue)
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                if filterFolderStatus == status {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.orange)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.appBackground)
+            .navigationTitle("Filters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.appBackground, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Clear All") {
+                        filterTargetLanguages.removeAll()
+                        filterHelperLanguages.removeAll()
+                        filterFolderStatus = .all
+                    }
+                    .disabled(filterTargetLanguages.isEmpty && filterHelperLanguages.isEmpty && filterFolderStatus == .all)
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Add to Folder Sheet
+
+private struct AddToFolderSheet: View {
+    let lesson: Lesson
+    @ObservedObject var folderStore: FolderStore
+    @Binding var selectedFolderId: UUID?
+    let onDismiss: () -> Void
+    
+    @State private var showCreateNewFolder = false
+    @State private var newFolderName = ""
+    
+    private var currentFolderId: UUID? {
+        folderStore.folders.first(where: { $0.lessonIDs.contains(lesson.id) })?.id
+    }
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                if !folderStore.folders.isEmpty {
+                    Section("Select Folder") {
+                        ForEach(folderStore.folders) { folder in
+                            Button {
+                                moveToFolder(folder.id)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "folder.fill")
+                                        .foregroundColor(.secondary)
+                                    Text(folder.name)
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    if currentFolderId == folder.id {
+                                        Image(systemName: "checkmark")
+                                            .foregroundColor(.blue)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                Section {
+                    Button {
+                        showCreateNewFolder = true
+                    } label: {
+                        Label("Create New Folder", systemImage: "folder.badge.plus")
+                    }
+                }
+                
+                if currentFolderId != nil {
+                    Section {
+                        Button(role: .destructive) {
+                            removeFromCurrentFolder()
+                        } label: {
+                            Label("Remove from Current Folder", systemImage: "folder.badge.minus")
+                        }
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.appBackground)
+            .navigationTitle("Move Lesson")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.appBackground, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onDismiss()
+                    }
+                }
+            }
+            .alert("New Folder", isPresented: $showCreateNewFolder) {
+                TextField("Folder name", text: $newFolderName)
+                Button("Cancel", role: .cancel) {
+                    newFolderName = ""
+                }
+                Button("Create") {
+                    createFolderAndAdd()
+                }
+                .disabled(newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } message: {
+                Text("Enter a name for the new folder")
+            }
+        }
+    }
+    
+    private func moveToFolder(_ folderId: UUID) {
+        // Remove from current folder if in one
+        if let currentFolder = currentFolderId,
+           let idx = folderStore.index(of: currentFolder) {
+            folderStore.folders[idx].lessonIDs.removeAll { $0 == lesson.id }
+        }
+        
+        // Add to new folder
+        if let idx = folderStore.index(of: folderId) {
+            if !folderStore.folders[idx].lessonIDs.contains(lesson.id) {
+                folderStore.folders[idx].lessonIDs.append(lesson.id)
+            }
+        }
+        
+        onDismiss()
+    }
+    
+    private func removeFromCurrentFolder() {
+        if let currentFolder = currentFolderId,
+           let idx = folderStore.index(of: currentFolder) {
+            folderStore.folders[idx].lessonIDs.removeAll { $0 == lesson.id }
+        }
+        onDismiss()
+    }
+    
+    private func createFolderAndAdd() {
+        let trimmedName = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        
+        // Remove from current folder if in one
+        if let currentFolder = currentFolderId,
+           let idx = folderStore.index(of: currentFolder) {
+            folderStore.folders[idx].lessonIDs.removeAll { $0 == lesson.id }
+        }
+        
+        // Create new folder with this lesson
+        folderStore.addFolder(named: trimmedName, lessonIDs: [lesson.id])
+        newFolderName = ""
+        onDismiss()
     }
 }
 
