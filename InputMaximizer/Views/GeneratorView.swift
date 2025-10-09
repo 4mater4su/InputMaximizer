@@ -2186,9 +2186,9 @@ private struct PromptBrainstormView: View {
                     
                     Create a REFINED lesson prompt (1-2 sentences) based on their feedback. Make it vivid and scenario-based.
                     
-                    Format:
-                    PROMPT: [refined prompt in plain text only]
-                    Line 2: "Better?" or similar short question
+                    Format your response as:
+                    Line 1: PROMPT: [refined prompt in plain text only]
+                    Line 2: A natural follow-up question or comment (one sentence)
                     
                     No asterisks or formatting in the prompt text.
                     """
@@ -2198,13 +2198,14 @@ private struct PromptBrainstormView: View {
                     
                     isThinking = false
                     
+                    // ORDER: Prompt first, then follow-up question
                     // Add refined prompt first
                     if let prompt = extractedPrompt {
                         currentPrompt = prompt
                         messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
                     }
                     
-                    // Then add the question
+                    // Add the follow-up question/comment
                     if !textPart.isEmpty {
                         messages.append(ChatMessage(text: textPart, isUser: false))
                     }
@@ -2228,9 +2229,8 @@ private struct PromptBrainstormView: View {
                 Make it a specific, vivid scene.
                 
                 Format your response as:
-                Line 1: Brief excitement (3-4 words)
-                Line 2: PROMPT: [the actual prompt in plain text, no formatting]
-                Line 3: "What do you think?"
+                Line 1: PROMPT: [the actual prompt in plain text, no formatting]
+                Line 2: A natural follow-up question or comment about the prompt (one sentence)
                 
                 Use plain text only, no asterisks or special characters in the prompt.
                 """
@@ -2239,35 +2239,17 @@ private struct PromptBrainstormView: View {
                 let (textPart, extractedPrompt) = extractPromptAndText(from: promptResponse)
                 
                 isThinking = false
-                if !response.isEmpty {
-                    messages.append(ChatMessage(text: response, isUser: false))
+                
+                // ORDER: Prompt first, then follow-up question (NO response before prompt)
+                // Add prompt first
+                if let prompt = extractedPrompt {
+                    currentPrompt = prompt
+                    messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
                 }
                 
-                // Split the text part into excitement and question
-                let parts = textPart.components(separatedBy: "\n\n")
-                if parts.count >= 2 {
-                    // Add excitement first
-                    if !parts[0].isEmpty {
-                        messages.append(ChatMessage(text: parts[0], isUser: false))
-                    }
-                    // Add prompt
-                    if let prompt = extractedPrompt {
-                        currentPrompt = prompt
-                        messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
-                    }
-                    // Add question after
-                    if !parts[1].isEmpty {
-                        messages.append(ChatMessage(text: parts[1], isUser: false))
-                    }
-                } else {
-                    // Fallback: add prompt, then question
-                    if let prompt = extractedPrompt {
-                        currentPrompt = prompt
-                        messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
-                    }
-                    if !textPart.isEmpty {
-                        messages.append(ChatMessage(text: textPart, isUser: false))
-                    }
+                // Add the follow-up question/comment
+                if !textPart.isEmpty {
+                    messages.append(ChatMessage(text: textPart, isUser: false))
                 }
                 
                 conversationStage = .refining
