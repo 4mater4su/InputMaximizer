@@ -982,64 +982,14 @@ struct LessonSelectionView: View {
     // MARK: - Create Folder Sheet
 
     private var createFolderSheet: some View {
-        NavigationStack {
-            Form {
-                Section("Folder Name") {
-                    TextField("e.g. Travel, Grammar, Week 1", text: $newFolderName)
-                        .textInputAutocapitalization(.words)
-                }
-                Section("Include Lessons") {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            ForEach(store.lessons, id: \._id) { lesson in
-                                let isAlreadyInAFolder = folderedLessonIDs.contains(lesson.id)
-
-                                HStack(spacing: 12) {
-                                    Image(systemName: selectedLessonIDs.contains(lesson.id) ? "checkmark.circle.fill" : "circle")
-                                        .imageScale(.large)
-                                        .symbolRenderingMode(.hierarchical)
-
-                                    Text(lesson.title)
-                                        .font(.body)
-                                        .foregroundStyle(isAlreadyInAFolder ? .orange : .primary)
-
-                                    Spacer(minLength: 0)
-                                }
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    if selectedLessonIDs.contains(lesson.id) {
-                                        selectedLessonIDs.remove(lesson.id)
-                                    } else {
-                                        selectedLessonIDs.insert(lesson.id)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 4)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .refreshable { store.load() }
-                    .frame(minHeight: 400)
-                }
-            }
-            .scrollContentBackground(.hidden)
-            .background(Color.appBackground)
-            .navigationTitle("New Folder")
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(Color.appBackground, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showingCreateFolder = false } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        folderStore.addFolder(named: newFolderName, lessonIDs: Array(selectedLessonIDs))
-                        showingCreateFolder = false
-                    }
-                    .disabled(newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
+        SmartFolderCreationSheet(
+            store: store,
+            folderStore: folderStore,
+            folderedLessonIDs: folderedLessonIDs,
+            newFolderName: $newFolderName,
+            selectedLessonIDs: $selectedLessonIDs,
+            onDismiss: { showingCreateFolder = false }
+        )
     }
 }
 
@@ -1422,6 +1372,332 @@ private struct AddToFolderSheet: View {
         folderStore.addFolder(named: trimmedName, lessonIDs: [lesson.id])
         newFolderName = ""
         onDismiss()
+    }
+}
+
+// MARK: - Smart Folder Creation Sheet
+
+private struct SmartFolderCreationSheet: View {
+    @ObservedObject var store: LessonStore
+    @ObservedObject var folderStore: FolderStore
+    let folderedLessonIDs: Set<String>
+    
+    @Binding var newFolderName: String
+    @Binding var selectedLessonIDs: Set<String>
+    let onDismiss: () -> Void
+    
+    @State private var searchText = ""
+    @State private var selectedSuggestions = Set<String>()
+    @FocusState private var folderNameFocused: Bool
+    
+    // Smart suggestions based on lesson titles
+    private var smartSuggestions: [String] {
+        var suggestions = Set<String>()
+        let unfiledLessons = store.lessons.filter { !folderedLessonIDs.contains($0.id) }
+        
+        // Common keywords that indicate themes
+        let keywords = [
+            "travel", "food", "restaurant", "shopping", "market",
+            "grammar", "conversation", "family", "work", "school",
+            "culture", "history", "music", "sports", "health",
+            "business", "hotel", "airport", "transport", "weather",
+            "daily", "routine", "hobby", "weekend", "vacation"
+        ]
+        
+        for lesson in unfiledLessons {
+            let title = lesson.title.lowercased()
+            for keyword in keywords {
+                if title.contains(keyword) {
+                    suggestions.insert(keyword.capitalized)
+                }
+            }
+        }
+        
+        // Language-based suggestions
+        if let firstLesson = unfiledLessons.first {
+            if let lang = firstLesson.targetLanguage {
+                suggestions.insert(lang)
+            }
+        }
+        
+        return Array(suggestions).sorted().prefix(6).map { $0 }
+    }
+    
+    private var filteredLessons: [Lesson] {
+        let unfiled = store.lessons.filter { !folderedLessonIDs.contains($0.id) }
+        if searchText.isEmpty {
+            return unfiled
+        }
+        let searchLower = searchText.lowercased()
+        return unfiled.filter { $0.title.lowercased().contains(searchLower) }
+    }
+    
+    // Group lessons by language
+    private var lessonsByLanguage: [(language: String, lessons: [Lesson])] {
+        let unfiled = filteredLessons
+        var grouped: [String: [Lesson]] = [:]
+        
+        for lesson in unfiled {
+            let lang = lesson.targetLanguage ?? "Other"
+            grouped[lang, default: []].append(lesson)
+        }
+        
+        return grouped.map { (language: $0.key, lessons: $0.value) }
+            .sorted { $0.language < $1.language }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                // Folder Name Section
+                Section {
+                    HStack(spacing: 8) {
+                        TextField("Folder Name", text: $newFolderName)
+                            .textInputAutocapitalization(.words)
+                            .focused($folderNameFocused)
+                            .toolbar {
+                                ToolbarItemGroup(placement: .keyboard) {
+                                    Spacer()
+                                    Button("Done") {
+                                        folderNameFocused = false
+                                    }
+                                }
+                            }
+                        
+                        if !newFolderName.isEmpty {
+                            Button {
+                                newFolderName = ""
+                                selectedSuggestions.removeAll()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    
+                    // Smart Suggestions
+                    if !smartSuggestions.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(selectedSuggestions.isEmpty ? "Suggestions (tap to add)" : "Selected Themes")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            
+                            FlowLayout(spacing: 8) {
+                                ForEach(smartSuggestions, id: \.self) { suggestion in
+                                    Button {
+                                        toggleSuggestion(suggestion)
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Text(suggestion)
+                                                .font(.subheadline)
+                                            if selectedSuggestions.contains(suggestion) {
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .font(.caption)
+                                            }
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(selectedSuggestions.contains(suggestion) ? Color.blue : Color.blue.opacity(0.1))
+                                        .foregroundColor(selectedSuggestions.contains(suggestion) ? .white : .blue)
+                                        .clipShape(Capsule())
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                } header: {
+                    Text("Folder Name")
+                }
+                
+                // Quick Stats
+                Section {
+                    HStack {
+                        Label("\(selectedLessonIDs.count) selected", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.blue)
+                        Spacer()
+                        Button(selectedLessonIDs.isEmpty ? "Select All" : "Deselect All") {
+                            if selectedLessonIDs.isEmpty {
+                                selectedLessonIDs = Set(filteredLessons.map { $0.id })
+                            } else {
+                                selectedLessonIDs.removeAll()
+                            }
+                        }
+                        .font(.subheadline)
+                    }
+                }
+                
+                // Search Bar
+                Section {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search lessons...", text: $searchText)
+                    }
+                }
+                
+                // Lessons Grouped by Language
+                ForEach(lessonsByLanguage, id: \.language) { group in
+                    Section(group.language) {
+                        ForEach(group.lessons) { lesson in
+                            Button {
+                                toggleLesson(lesson.id)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: selectedLessonIDs.contains(lesson.id) ? "checkmark.circle.fill" : "circle")
+                                        .imageScale(.large)
+                                        .symbolRenderingMode(.hierarchical)
+                                        .foregroundStyle(selectedLessonIDs.contains(lesson.id) ? .blue : .secondary)
+                                    
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(lesson.title)
+                                            .font(.body)
+                                            .foregroundStyle(.primary)
+                                        
+                                        if let target = lesson.targetLanguage, let helper = lesson.translationLanguage {
+                                            Text("\(target) → \(helper)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    
+                                    Spacer(minLength: 0)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.appBackground)
+            .navigationTitle("New Folder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.appBackground, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onDismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        folderStore.addFolder(named: newFolderName, lessonIDs: Array(selectedLessonIDs))
+                        onDismiss()
+                    }
+                    .disabled(newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+    
+    private func toggleLesson(_ id: String) {
+        if selectedLessonIDs.contains(id) {
+            selectedLessonIDs.remove(id)
+        } else {
+            selectedLessonIDs.insert(id)
+        }
+    }
+    
+    private func toggleSuggestion(_ suggestion: String) {
+        if selectedSuggestions.contains(suggestion) {
+            // Remove suggestion
+            selectedSuggestions.remove(suggestion)
+            
+            // Unselect lessons that match this suggestion
+            let keyword = suggestion.lowercased()
+            let matching = store.lessons.filter { lesson in
+                !folderedLessonIDs.contains(lesson.id) &&
+                (lesson.title.lowercased().contains(keyword) ||
+                 lesson.targetLanguage?.lowercased().contains(keyword) == true)
+            }
+            for lesson in matching {
+                selectedLessonIDs.remove(lesson.id)
+            }
+        } else {
+            // Add suggestion
+            selectedSuggestions.insert(suggestion)
+            
+            // Auto-select matching lessons
+            autoSelectMatchingLessons(for: suggestion)
+        }
+        
+        // Update folder name with all selected suggestions
+        updateFolderName()
+    }
+    
+    private func autoSelectMatchingLessons(for suggestion: String) {
+        let keyword = suggestion.lowercased()
+        let matching = store.lessons.filter { lesson in
+            !folderedLessonIDs.contains(lesson.id) &&
+            (lesson.title.lowercased().contains(keyword) ||
+             lesson.targetLanguage?.lowercased().contains(keyword) == true)
+        }
+        for lesson in matching {
+            selectedLessonIDs.insert(lesson.id)
+        }
+    }
+    
+    private func updateFolderName() {
+        if !selectedSuggestions.isEmpty {
+            newFolderName = Array(selectedSuggestions).sorted().joined(separator: " + ")
+        }
+    }
+}
+
+// MARK: - Flow Layout for Suggestions
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = FlowResult(
+            in: proposal.replacingUnspecifiedDimensions().width,
+            subviews: subviews,
+            spacing: spacing
+        )
+        return result.size
+    }
+    
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = FlowResult(
+            in: bounds.width,
+            subviews: subviews,
+            spacing: spacing
+        )
+        for (index, subview) in subviews.enumerated() {
+            subview.place(at: CGPoint(x: bounds.minX + result.positions[index].x,
+                                     y: bounds.minY + result.positions[index].y),
+                         proposal: .unspecified)
+        }
+    }
+    
+    struct FlowResult {
+        var size: CGSize = .zero
+        var positions: [CGPoint] = []
+        
+        init(in maxWidth: CGFloat, subviews: Subviews, spacing: CGFloat) {
+            var currentX: CGFloat = 0
+            var currentY: CGFloat = 0
+            var lineHeight: CGFloat = 0
+            
+            for subview in subviews {
+                let size = subview.sizeThatFits(.unspecified)
+                
+                if currentX + size.width > maxWidth && currentX > 0 {
+                    currentX = 0
+                    currentY += lineHeight + spacing
+                    lineHeight = 0
+                }
+                
+                positions.append(CGPoint(x: currentX, y: currentY))
+                lineHeight = max(lineHeight, size.height)
+                currentX += size.width + spacing
+            }
+            
+            self.size = CGSize(width: maxWidth, height: currentY + lineHeight)
+        }
     }
 }
 
