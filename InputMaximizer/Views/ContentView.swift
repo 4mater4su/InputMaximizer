@@ -429,10 +429,10 @@ struct ContentView: View {
                 }
                 
                 await MainActor.run {
-                    showToast(message: "Extracting keywords...", success: true)
+                    showToast(message: "Extracting keywords (free)...", success: true)
                 }
                 
-                // Start a job for keyword extraction
+                // Start a job for keyword extraction (will be cancelled, not committed - free)
                 let deviceId = DeviceID.current
                 let (jobId, jobToken) = try await GeneratorService.proxy.jobStart(
                     deviceId: deviceId,
@@ -440,6 +440,7 @@ struct ContentView: View {
                     ttlSeconds: 600
                 )
                 
+                // Always cancel the job (never commit) to make extraction free
                 defer {
                     Task {
                         await GeneratorService.proxy.jobCancel(deviceId: deviceId, jobId: jobId)
@@ -463,9 +464,6 @@ struct ContentView: View {
                 
                 try (keywordPairsText + "\n").data(using: .utf8)?.write(to: keywordsURL)
                 
-                // Commit the job
-                try await GeneratorService.proxy.jobCommit(deviceId: deviceId, jobId: jobId)
-                
                 // Reload the keywords (this will update the view automatically)
                 await MainActor.run {
                     loadKeywordPairs(for: lesson.folderName)
@@ -480,7 +478,7 @@ struct ContentView: View {
         }
     }
     
-    // Helper function for keyword extraction (similar to GeneratorService but standalone)
+    // Helper function for keyword extraction (free - job is cancelled, not committed)
     private func extractKeywordPairsHelper(
         targetText: String,
         targetLang: String,
@@ -555,13 +553,13 @@ struct ContentView: View {
             "response_format": jsonSchema
         ]
         
-        // Call the proxy directly instead of going through GeneratorService
+        // Call the proxy directly
         let deviceId = DeviceID.current
         let responseJson = try await ProxyClient(
             baseURL: URL(string: "https://inputmax-proxy.inputmax.workers.dev")!
         ).chat(deviceId: deviceId, jobId: jobId, jobToken: jobToken, body: body)
         
-        // Extract the content from the response (matches GeneratorService approach)
+        // Extract the content from the response
         let raw = (((responseJson["choices"] as? [[String:Any]])?.first?["message"] as? [String:Any])?["content"] as? String) ?? ""
         
         // Parse the JSON response
