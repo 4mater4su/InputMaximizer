@@ -1387,21 +1387,30 @@ private struct SmartFolderCreationSheet: View {
     let onDismiss: () -> Void
     
     @State private var searchText = ""
-    @State private var selectedSuggestions = Set<String>()
+    @State private var selectedSuggestion: String?
+    @State private var cachedSuggestions: [String]?
     @FocusState private var folderNameFocused: Bool
+    @FocusState private var searchFocused: Bool
     
-    // Smart suggestions based on lesson titles
-    private var smartSuggestions: [String] {
+    // Smart suggestions based on lesson titles - computed once
+    private func computeSuggestions() -> [String] {
         var suggestions = Set<String>()
         let unfiledLessons = store.lessons.filter { !folderedLessonIDs.contains($0.id) }
         
-        // Common keywords that indicate themes
+        guard !unfiledLessons.isEmpty else { return [] }
+        
+        // 1. Extract common keywords from titles
         let keywords = [
-            "travel", "food", "restaurant", "shopping", "market",
-            "grammar", "conversation", "family", "work", "school",
-            "culture", "history", "music", "sports", "health",
-            "business", "hotel", "airport", "transport", "weather",
-            "daily", "routine", "hobby", "weekend", "vacation"
+            "travel", "food", "restaurant", "shopping", "market", "café", "coffee",
+            "grammar", "conversation", "family", "work", "school", "office",
+            "culture", "history", "music", "sports", "health", "medicine",
+            "business", "hotel", "airport", "transport", "train", "bus",
+            "weather", "daily", "routine", "hobby", "weekend", "vacation",
+            "home", "house", "apartment", "city", "town", "village",
+            "friend", "meeting", "phone", "email", "letter", "news",
+            "doctor", "hospital", "pharmacy", "emergency", "help",
+            "bank", "money", "price", "pay", "buy", "sell",
+            "time", "date", "calendar", "schedule", "appointment"
         ]
         
         for lesson in unfiledLessons {
@@ -1413,14 +1422,76 @@ private struct SmartFolderCreationSheet: View {
             }
         }
         
-        // Language-based suggestions
-        if let firstLesson = unfiledLessons.first {
-            if let lang = firstLesson.targetLanguage {
-                suggestions.insert(lang)
+        // 2. Language-based suggestions (one per unique language)
+        let uniqueLanguages = Set(unfiledLessons.compactMap { $0.targetLanguage })
+        for lang in uniqueLanguages {
+            suggestions.insert(lang)
+        }
+        
+        // 3. Extract common words from titles (frequency analysis)
+        var wordFrequency: [String: Int] = [:]
+        let stopWords = Set(["the", "a", "an", "in", "on", "at", "to", "for", "of", "and", "or", "but", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "can", "you", "your", "my", "i", "me", "we", "us", "it", "this", "that"])
+        
+        for lesson in unfiledLessons {
+            let words = lesson.title.lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty && $0.count > 3 && !stopWords.contains($0) }
+            
+            for word in words {
+                wordFrequency[word, default: 0] += 1
             }
         }
         
-        return Array(suggestions).sorted().prefix(6).map { $0 }
+        // Add words that appear in multiple lessons
+        let commonWords = wordFrequency.filter { $0.value > 1 }.keys
+        for word in commonWords {
+            suggestions.insert(word.capitalized)
+        }
+        
+        // 4. Level-based suggestions if available
+        let levels = Set(["Beginner", "Intermediate", "Advanced", "A1", "A2", "B1", "B2", "C1", "C2"])
+        for lesson in unfiledLessons {
+            let title = lesson.title
+            for level in levels {
+                if title.contains(level) {
+                    suggestions.insert(level)
+                }
+            }
+        }
+        
+        // 5. Generic helpful suggestions based on count
+        if unfiledLessons.count >= 3 {
+            suggestions.insert("Recent")
+            suggestions.insert("Favorites")
+        }
+        
+        // 6. Time-based suggestions if dates mentioned
+        let timeKeywords = ["morning", "afternoon", "evening", "night", "today", "tomorrow", "week", "month"]
+        for lesson in unfiledLessons {
+            let title = lesson.title.lowercased()
+            for timeWord in timeKeywords {
+                if title.contains(timeWord) {
+                    suggestions.insert("Daily Life")
+                    break
+                }
+            }
+        }
+        
+        // Return top 8 suggestions, prioritizing those with more matches
+        return Array(suggestions)
+            .sorted { a, b in
+                let countA = unfiledLessons.filter { 
+                    $0.title.lowercased().contains(a.lowercased()) || 
+                    $0.targetLanguage?.lowercased().contains(a.lowercased()) == true 
+                }.count
+                let countB = unfiledLessons.filter { 
+                    $0.title.lowercased().contains(b.lowercased()) || 
+                    $0.targetLanguage?.lowercased().contains(b.lowercased()) == true 
+                }.count
+                return countA > countB
+            }
+            .prefix(8)
+            .map { $0 }
     }
     
     private var filteredLessons: [Lesson] {
@@ -1455,53 +1526,44 @@ private struct SmartFolderCreationSheet: View {
                         TextField("Folder Name", text: $newFolderName)
                             .textInputAutocapitalization(.words)
                             .focused($folderNameFocused)
-                            .toolbar {
-                                ToolbarItemGroup(placement: .keyboard) {
-                                    Spacer()
-                                    Button("Done") {
-                                        folderNameFocused = false
-                                    }
-                                }
+                            .submitLabel(.done)
+                            .onSubmit {
+                                folderNameFocused = false
                             }
                         
-                        if !newFolderName.isEmpty {
-                            Button {
-                                newFolderName = ""
-                                selectedSuggestions.removeAll()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
+                    if !newFolderName.isEmpty {
+                        Button {
+                            newFolderName = ""
+                            selectedSuggestion = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
                         }
+                        .buttonStyle(.plain)
+                    }
                     }
                     
                     // Smart Suggestions
-                    if !smartSuggestions.isEmpty {
+                    if let suggestions = cachedSuggestions, !suggestions.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(selectedSuggestions.isEmpty ? "Suggestions (tap to add)" : "Selected Themes")
+                            Text(selectedSuggestion == nil ? "Suggestions (tap to select one)" : "Selected Category")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             
                             FlowLayout(spacing: 8) {
-                                ForEach(smartSuggestions, id: \.self) { suggestion in
+                                ForEach(suggestions, id: \.self) { suggestion in
                                     Button {
                                         toggleSuggestion(suggestion)
                                     } label: {
-                                        HStack(spacing: 6) {
-                                            Text(suggestion)
-                                                .font(.subheadline)
-                                            if selectedSuggestions.contains(suggestion) {
-                                                Image(systemName: "checkmark.circle.fill")
-                                                    .font(.caption)
-                                            }
-                                        }
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .background(selectedSuggestions.contains(suggestion) ? Color.blue : Color.blue.opacity(0.1))
-                                        .foregroundColor(selectedSuggestions.contains(suggestion) ? .white : .blue)
-                                        .clipShape(Capsule())
+                                        Text(suggestion)
+                                            .font(.subheadline)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 6)
+                                            .background(selectedSuggestion == suggestion ? Color.blue : Color.blue.opacity(0.1))
+                                            .foregroundColor(selectedSuggestion == suggestion ? .white : .blue)
+                                            .clipShape(Capsule())
                                     }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
@@ -1534,6 +1596,11 @@ private struct SmartFolderCreationSheet: View {
                         Image(systemName: "magnifyingglass")
                             .foregroundStyle(.secondary)
                         TextField("Search lessons...", text: $searchText)
+                            .focused($searchFocused)
+                            .submitLabel(.done)
+                            .onSubmit {
+                                searchFocused = false
+                            }
                     }
                 }
                 
@@ -1578,6 +1645,7 @@ private struct SmartFolderCreationSheet: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarBackground(Color.appBackground, for: .navigationBar)
             .toolbar {
+                // Navigation bar buttons
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { onDismiss() }
                 }
@@ -1587,6 +1655,22 @@ private struct SmartFolderCreationSheet: View {
                         onDismiss()
                     }
                     .disabled(newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                
+                // Unified keyboard toolbar
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        // Dismiss whichever field is focused
+                        folderNameFocused = false
+                        searchFocused = false
+                    }
+                }
+            }
+            .task {
+                // Compute suggestions once on first load - task ensures it runs only once
+                if cachedSuggestions == nil {
+                    cachedSuggestions = computeSuggestions()
                 }
             }
         }
@@ -1601,29 +1685,20 @@ private struct SmartFolderCreationSheet: View {
     }
     
     private func toggleSuggestion(_ suggestion: String) {
-        if selectedSuggestions.contains(suggestion) {
-            // Remove suggestion
-            selectedSuggestions.remove(suggestion)
-            
-            // Unselect lessons that match this suggestion
-            let keyword = suggestion.lowercased()
-            let matching = store.lessons.filter { lesson in
-                !folderedLessonIDs.contains(lesson.id) &&
-                (lesson.title.lowercased().contains(keyword) ||
-                 lesson.targetLanguage?.lowercased().contains(keyword) == true)
-            }
-            for lesson in matching {
-                selectedLessonIDs.remove(lesson.id)
-            }
+        if selectedSuggestion == suggestion {
+            // Deselect if tapping the same one
+            selectedSuggestion = nil
+            // Clear all selected lessons
+            selectedLessonIDs.removeAll()
         } else {
-            // Add suggestion
-            selectedSuggestions.insert(suggestion)
-            
-            // Auto-select matching lessons
+            // Select new suggestion and replace previous selection
+            selectedSuggestion = suggestion
+            // Clear previous selections and select matching lessons
+            selectedLessonIDs.removeAll()
             autoSelectMatchingLessons(for: suggestion)
         }
         
-        // Update folder name with all selected suggestions
+        // Update folder name
         updateFolderName()
     }
     
@@ -1640,8 +1715,11 @@ private struct SmartFolderCreationSheet: View {
     }
     
     private func updateFolderName() {
-        if !selectedSuggestions.isEmpty {
-            newFolderName = Array(selectedSuggestions).sorted().joined(separator: " + ")
+        if let suggestion = selectedSuggestion {
+            newFolderName = suggestion
+        } else {
+            // Clear if no suggestion selected
+            newFolderName = ""
         }
     }
 }
