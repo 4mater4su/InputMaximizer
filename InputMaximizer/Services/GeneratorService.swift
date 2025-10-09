@@ -204,13 +204,11 @@ final class GeneratorService: ObservableObject {
         }
         
         let body: [String: Any] = [
-            "model": "gpt-4o-mini",
+            "model": "gpt-5-nano",
             "messages": [
                 ["role": "system", "content": "You are a helpful, friendly assistant helping users brainstorm creative lesson ideas for language learning. Be concise and engaging."],
                 ["role": "user", "content": prompt]
-            ],
-            "temperature": 0.8,
-            "max_tokens": 300
+            ]
         ]
         
         return try await Self.chatViaProxy(body, jobId: jobId, jobToken: jobToken)
@@ -1675,22 +1673,6 @@ private extension GeneratorService {
             
             let out = try JSONEncoder().encode(list)
             try save(out, to: manifestURL)
-
-            
-            // ---- Extract & save keywords/phrases (minimal pairs list) ----
-            await progress("Extracting keywords & phrases…")
-
-            let pairsTxt = try await extractKeywordPairs(
-                targetText: bodyPrimary,                // analyze the target-language body
-                targetLang: req.genLanguage,
-                translationLang: req.transLanguage,
-                jobId: jobId,
-                jobToken: jobToken
-            )
-
-            // Store as plain text with one pair per line (TAB as the separator).
-            let keywordsURL = base.appendingPathComponent("keywords_\(lessonID).txt")
-            try save((pairsTxt + "\n").data(using: .utf8)!, to: keywordsURL)
 
             
             // ---- Commit the credit hold only after success ----
