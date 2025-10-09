@@ -2186,10 +2186,12 @@ private struct PromptBrainstormView: View {
                     
                     Create a REFINED lesson prompt (1-2 sentences) based on their feedback. Make it vivid and scenario-based.
                     
-                    Format your response as:
+                    Format your response EXACTLY as:
                     Line 1: PROMPT: [refined prompt in plain text only]
-                    Line 2: A natural follow-up question or comment (one sentence)
+                    Line 2: [blank line]
+                    Line 3: A natural follow-up question asking if this version is better or if they'd like more changes (one sentence)
                     
+                    IMPORTANT: You MUST include the follow-up question on line 3.
                     No asterisks or formatting in the prompt text.
                     """
                     
@@ -2205,10 +2207,9 @@ private struct PromptBrainstormView: View {
                         messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
                     }
                     
-                    // Add the follow-up question/comment
-                    if !textPart.isEmpty {
-                        messages.append(ChatMessage(text: textPart, isUser: false))
-                    }
+                    // Add the follow-up question/comment (with fallback)
+                    let followUp = textPart.isEmpty ? "Is this version better?" : textPart
+                    messages.append(ChatMessage(text: followUp, isUser: false))
                     
                     return
                 }
@@ -2228,10 +2229,12 @@ private struct PromptBrainstormView: View {
                 Create ONE creative lesson prompt (1-2 sentences) for language learning.
                 Make it a specific, vivid scene.
                 
-                Format your response as:
+                Format your response EXACTLY as:
                 Line 1: PROMPT: [the actual prompt in plain text, no formatting]
-                Line 2: A natural follow-up question or comment about the prompt (one sentence)
+                Line 2: [blank line]
+                Line 3: A natural follow-up question asking what they think or if they'd like to refine it (one sentence)
                 
+                IMPORTANT: You MUST include the follow-up question on line 3.
                 Use plain text only, no asterisks or special characters in the prompt.
                 """
                 
@@ -2247,10 +2250,9 @@ private struct PromptBrainstormView: View {
                     messages.append(ChatMessage(text: prompt, isUser: false, isPrompt: true))
                 }
                 
-                // Add the follow-up question/comment
-                if !textPart.isEmpty {
-                    messages.append(ChatMessage(text: textPart, isUser: false))
-                }
+                // Add the follow-up question/comment (with fallback)
+                let followUp = textPart.isEmpty ? "What do you think about this prompt?" : textPart
+                messages.append(ChatMessage(text: followUp, isUser: false))
                 
                 conversationStage = .refining
                 return
