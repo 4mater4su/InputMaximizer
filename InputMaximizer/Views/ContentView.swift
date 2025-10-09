@@ -1224,6 +1224,9 @@ struct ContentView: View {
                     isAnyExtracting: generator.extractingKeywordsForLesson != nil,
                     onExtract: {
                         extractKeywordsManually()
+                    },
+                    onReload: {
+                        loadKeywordPairs(for: currentLesson.folderName)
                     }
                 )
             }
@@ -1635,6 +1638,7 @@ private struct KeywordsView: View {
     let isExtracting: Bool     // whether extraction is currently running for THIS lesson
     let isAnyExtracting: Bool  // whether ANY extraction is currently running
     let onExtract: () -> Void  // callback to trigger manual extraction
+    let onReload: () -> Void   // callback to reload keywords after extraction
     @Environment(\.dismiss) private var dismiss
     
     // Group keywords by paragraph
@@ -1655,6 +1659,12 @@ private struct KeywordsView: View {
                                 proxy.scrollTo("keyword_\(firstKeyword.id)", anchor: UnitPoint.top)
                             }
                         }
+                    }
+                }
+                .onChange(of: isExtracting) { wasExtracting, isNowExtracting in
+                    // When extraction finishes (was true, now false), reload keywords
+                    if wasExtracting && !isNowExtracting {
+                        onReload()
                     }
                 }
                 .gesture(swipeToDismissGesture)
