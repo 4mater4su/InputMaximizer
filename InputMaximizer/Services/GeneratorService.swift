@@ -204,11 +204,13 @@ final class GeneratorService: ObservableObject {
         }
         
         let body: [String: Any] = [
-            "model": "gpt-5-nano",
+            "model": "gpt-4o-mini",
             "messages": [
                 ["role": "system", "content": "You are a helpful, friendly assistant helping users brainstorm creative lesson ideas for language learning. Be concise and engaging."],
                 ["role": "user", "content": prompt]
-            ]
+            ],
+            "temperature": 0.7,
+            "max_tokens": 300
         ]
         
         return try await Self.chatViaProxy(body, jobId: jobId, jobToken: jobToken)
@@ -338,11 +340,43 @@ private extension GeneratorService {
         var lastError: Error?
         var delay = initialDelay
         for i in 0..<attempts {
-            do { return try await op() }
-            catch is CancellationError { throw NetError.timedOut } // respect cancellation
+            do { 
+                return try await op() 
+            }
+            catch is CancellationError { 
+                throw NetError.timedOut  // respect cancellation
+            }
+            catch let error as URLError {
+                // Handle specific network errors
+                lastError = error
+                
+                // Don't retry on certain errors
+                switch error.code {
+                case .badURL, .unsupportedURL, .badServerResponse:
+                    throw error  // Not transient, don't retry
+                case .timedOut, .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet:
+                    // Transient errors - retry with backoff
+                    if i < attempts - 1 {
+                        print("⚠️ Network error (\(error.code.rawValue)), retrying in \(delay)s... (attempt \(i + 1)/\(attempts))")
+                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        delay *= factor
+                        continue
+                    }
+                default:
+                    // Unknown error - retry once
+                    if i < attempts - 1 {
+                        print("⚠️ Unknown network error (\(error.code.rawValue)), retrying...")
+                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        delay *= factor
+                        continue
+                    }
+                }
+            }
             catch {
                 lastError = error
+                // For non-URLErrors (like server errors), retry with backoff
                 if i < attempts - 1 {
+                    print("⚠️ Request error: \(error.localizedDescription), retrying in \(delay)s...")
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                     delay *= factor
                     continue
@@ -381,20 +415,22 @@ private extension GeneratorService {
     }
 
     // MARK: - Networking (same logic you already have, but parameterized)
+    /// Chat via proxy with background-capable session (continues when app is backgrounded)
     static func chatViaProxy(_ body: [String:Any], jobId: String, jobToken: String) async throws -> String {
-        let json = try await retry {
-            try await withTimeout(60) {
-                try await proxy.chat(deviceId: DeviceID.current, jobId: jobId, jobToken: jobToken, body: body)
+        let json = try await retry(attempts: 3, initialDelay: 1.0) {
+            try await withTimeout(90) {  // Increased timeout for background resilience
+                try await proxy.chatBackground(deviceId: DeviceID.current, jobId: jobId, jobToken: jobToken, body: body)
             }
         }
         let content = (((json["choices"] as? [[String:Any]])?.first?["message"] as? [String:Any])?["content"] as? String) ?? ""
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// TTS via proxy with background-capable session (continues when app is backgrounded)
     static func ttsViaProxy(text: String, language: String, speed: Request.SpeechSpeed, jobId: String, jobToken: String) async throws -> Data {
-        try await retry {
-            try await withTimeout(90) {   // TTS can be slower than chat
-                try await proxy.tts(deviceId: DeviceID.current, jobId: jobId, jobToken: jobToken, text: text, language: language, speed: speed.rawValue)
+        try await retry(attempts: 3, initialDelay: 1.0) {
+            try await withTimeout(120) {   // Increased timeout for background resilience
+                try await proxy.ttsBackground(deviceId: DeviceID.current, jobId: jobId, jobToken: jobToken, text: text, language: language, speed: speed.rawValue)
             }
         }
     }

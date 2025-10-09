@@ -18,6 +18,18 @@ struct ProxyClient {
         return URLSession(configuration: cfg)
     }()
     
+    /// Background-capable session for long-running generation tasks
+    /// Continues to work when app is backgrounded (until force-quit)
+    private static let backgroundSession: URLSession = {
+        let cfg = URLSessionConfiguration.background(withIdentifier: "com.inputmax.generation")
+        cfg.timeoutIntervalForRequest = 60     // per-request inactivity timeout
+        cfg.timeoutIntervalForResource = 300   // 5 minutes max per resource
+        cfg.waitsForConnectivity = true
+        cfg.isDiscretionary = false            // Don't wait for optimal conditions
+        cfg.sessionSendsLaunchEvents = true    // Can wake app if needed
+        return URLSession(configuration: cfg, delegate: BackgroundSessionDelegate.shared, delegateQueue: nil)
+    }()
+    
     // MARK: - Credits: spend
     func spendCredits(deviceId: String, amount: Int = 1) async throws {
         var req = URLRequest(url: baseURL.appendingPathComponent("/credits/spend"))
@@ -160,6 +172,66 @@ struct ProxyClient {
         ])
 
         let (data, resp) = try await ProxyClient.session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+
+        if http.statusCode == 402 {
+            let msg = String(data: data, encoding: .utf8) ?? "Insufficient credits"
+            throw NSError(domain: "Credits", code: 402,
+                          userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "Server error"
+            throw NSError(domain: "Proxy", code: http.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        return data
+    }
+    
+    // MARK: - Background-capable versions for generation
+    
+    /// Background-capable chat request (continues when app is backgrounded)
+    func chatBackground(deviceId: String, jobId: String, jobToken: String, body: [String: Any]) async throws -> [String: Any] {
+        var req = URLRequest(url: baseURL.appendingPathComponent("/chat"))
+        req.httpMethod = "POST"
+        req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        req.setValue(jobId, forHTTPHeaderField: "X-Job-Id")
+        req.setValue(jobToken, forHTTPHeaderField: "X-Job-Token")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, resp) = try await BackgroundSessionDelegate.shared.dataTask(for: req, session: ProxyClient.backgroundSession)
+        guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+
+        if http.statusCode == 402 {
+            let msg = String(data: data, encoding: .utf8) ?? "Insufficient credits"
+            throw NSError(domain: "Credits", code: 402,
+                          userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "Server error"
+            throw NSError(domain: "Proxy", code: http.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: msg])
+        }
+        return (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+    }
+    
+    /// Background-capable TTS request (continues when app is backgrounded)
+    func ttsBackground(deviceId: String, jobId: String, jobToken: String, text: String, language: String, speed: String = "regular") async throws -> Data {
+        var req = URLRequest(url: baseURL.appendingPathComponent("/tts"))
+        req.httpMethod = "POST"
+        req.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        req.setValue(jobId, forHTTPHeaderField: "X-Job-Id")
+        req.setValue(jobToken, forHTTPHeaderField: "X-Job-Token")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "text": text,
+            "language": language,
+            "speed": speed,
+            "format": "mp3",
+            "voice": "shimmer"
+        ])
+
+        let (data, resp) = try await BackgroundSessionDelegate.shared.dataTask(for: req, session: ProxyClient.backgroundSession)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
 
         if http.statusCode == 402 {

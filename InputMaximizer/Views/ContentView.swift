@@ -428,10 +428,6 @@ struct ContentView: View {
                     return
                 }
                 
-                await MainActor.run {
-                    showToast(message: "Extracting keywords (free)...", success: true)
-                }
-                
                 // Start a job for keyword extraction (will be cancelled, not committed - free)
                 let deviceId = DeviceID.current
                 let (jobId, jobToken) = try await GeneratorService.proxy.jobStart(
@@ -1127,7 +1123,11 @@ struct ContentView: View {
         .overlay(alignment: .top) {
             if let message = toastMessage {
                 ToastBanner(message: message, isSuccess: toastIsSuccess) {
-                    if let id = generator.lastLessonID {
+                    // Check if this is a keyword extraction completion toast
+                    if message.contains("Keywords extracted") {
+                        showKeywords = true
+                        withAnimation { toastMessage = nil }
+                    } else if let id = generator.lastLessonID {
                         if let idxInLocal = lessons.firstIndex(where: { $0.id == id || $0.folderName == id }) {
                             // Open locally
                             currentLessonIndex = idxInLocal
@@ -1141,8 +1141,8 @@ struct ContentView: View {
                                                             userInfo: ["id": id])
                             dismiss()
                         }
+                        withAnimation { toastMessage = nil }
                     }
-                    withAnimation { toastMessage = nil }
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
