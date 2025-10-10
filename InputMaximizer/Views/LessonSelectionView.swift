@@ -334,6 +334,15 @@ struct FolderDetailView: View {
         let ids = currentFolder.lessonIDs
         return ids.compactMap { id in lessons.first(where: { $0.id == id }) }
     }
+    
+    private var filteredLessonsForMembers: [Lesson] {
+        if memberSearchText.isEmpty {
+            return lessons
+        }
+        return lessons.filter { lesson in
+            lesson.title.localizedCaseInsensitiveContains(memberSearchText)
+        }
+    }
 
     @State private var selectedLesson: Lesson?
     @State private var showMembersSheet = false
@@ -343,6 +352,7 @@ struct FolderDetailView: View {
     @State private var isReorderingEnabled = false
     @State private var isSelectionMode = false
     @State private var selectedLessonsForBatch = Set<String>()
+    @State private var memberSearchText: String = ""
 
     private var emptyView: some View {
                 ContentUnavailableView(
@@ -567,6 +577,7 @@ struct FolderDetailView: View {
         .onChange(of: showMembersSheet, initial: false) { _, isShowing in
             if isShowing {
                 selectedLessonIDs = Set(currentFolder.lessonIDs)
+                memberSearchText = "" // Clear search when opening sheet
             }
         }
         
@@ -593,10 +604,10 @@ struct FolderDetailView: View {
                             .frame(height: 40)
                         
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("\(lessons.count)")
+                            Text("\(filteredLessonsForMembers.count)")
                                 .font(.title2.bold())
                                 .foregroundColor(.primary)
-                            Text("total")
+                            Text(memberSearchText.isEmpty ? "total" : "found")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -605,7 +616,7 @@ struct FolderDetailView: View {
                         
                         Button(selectedLessonIDs.isEmpty ? "Select All" : "Deselect All") {
                             if selectedLessonIDs.isEmpty {
-                                selectedLessonIDs = Set(lessons.map { $0.id })
+                                selectedLessonIDs = Set(filteredLessonsForMembers.map { $0.id })
                             } else {
                                 selectedLessonIDs.removeAll()
                             }
@@ -616,9 +627,30 @@ struct FolderDetailView: View {
                     .background(Color(.tertiarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     
+                    // Search bar
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.secondary)
+                        TextField("Search lessons...", text: $memberSearchText)
+                            .textFieldStyle(.plain)
+                            .autocorrectionDisabled()
+                        
+                        if !memberSearchText.isEmpty {
+                            Button {
+                                memberSearchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(.tertiarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    
                     // Lessons
                     VStack(spacing: 8) {
-                        ForEach(lessons, id: \._id) { lesson in
+                        ForEach(filteredLessonsForMembers, id: \._id) { lesson in
                             let isSelected = selectedLessonIDs.contains(lesson.id)
                             let otherFolders = folderStore.folders
                                 .filter { $0.id != currentFolder.id && $0.lessonIDs.contains(lesson.id) }
