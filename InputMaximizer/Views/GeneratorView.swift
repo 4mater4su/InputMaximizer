@@ -875,7 +875,7 @@ struct GeneratorView: View {
     }
     
     @ViewBuilder
-    private var advancedCardContent: some View {
+    private var segmentationItem: some View {
         AdvancedItem(
             title: "Segmentation",
             infoAction: { showSegmentationInfo = true }
@@ -890,9 +890,10 @@ struct GeneratorView: View {
             .padding(.horizontal, 2)
             .accessibilityLabel("Segment by")
         }
-        
-        AdvancedSpacer()
-        
+    }
+    
+    @ViewBuilder
+    private var lengthItem: some View {
         AdvancedItem(
             title: "Length",
             trailing: "~\(lengthPreset.words) words"
@@ -907,27 +908,27 @@ struct GeneratorView: View {
             .padding(.horizontal, 2)
             .labelsHidden()
         }
-        
-        AdvancedSpacer()
-        
+    }
+    
+    @ViewBuilder
+    private var longFormItem: some View {
         AdvancedItem(title: "Long-form series") {
             VStack(alignment: .leading, spacing: 8) {
                 Toggle("Enable multi-lesson generation", isOn: $enableLongForm)
                 
                 if enableLongForm {
                     Divider()
-                    
                     Stepper("Total: \(longFormTotalWords) words", value: $longFormTotalWords, in: 600...3000, step: 300)
-                    
                     Text("Creates ~\(longFormTotalWords / 300) lessons from one coherent story")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
         }
-        
-        AdvancedSpacer()
-        
+    }
+    
+    @ViewBuilder
+    private var speechSpeedItem: some View {
         AdvancedItem(title: "Speech speed") {
             Picker("Speech speed", selection: $speechSpeed) {
                 Text("Regular").tag(SpeechSpeed.regular)
@@ -938,9 +939,10 @@ struct GeneratorView: View {
             .padding(.horizontal, 2)
             .labelsHidden()
         }
-        
-        AdvancedSpacer()
-        
+    }
+    
+    @ViewBuilder
+    private var languageLevelItem: some View {
         AdvancedItem(title: "Language level (CEFR)") {
             Picker("Level", selection: $languageLevel) {
                 ForEach(Array(LanguageLevel.allCases), id: \.self) { level in
@@ -952,9 +954,10 @@ struct GeneratorView: View {
             .padding(.horizontal, 2)
             .labelsHidden()
         }
-        
-        AdvancedSpacer()
-        
+    }
+    
+    @ViewBuilder
+    private var translationStyleItem: some View {
         AdvancedItem(
             title: "Translation style",
             infoAction: { showTranslationStyleInfo = true }
@@ -971,10 +974,25 @@ struct GeneratorView: View {
     }
     
     @ViewBuilder
-    private func advancedOptionsSection() -> some View {
+    private var advancedCardContent: some View {
+        segmentationItem
+        AdvancedSpacer()
+        lengthItem
+        AdvancedSpacer()
+        longFormItem
+        AdvancedSpacer()
+        speechSpeedItem
+        AdvancedSpacer()
+        languageLevelItem
+        AdvancedSpacer()
+        translationStyleItem
+    }
+    
+    private func advancedOptionsSection() -> AnyView {
         let advanced = advancedExpandedBinding
         
-        Section {
+        return AnyView(
+            Section {
                 AdvancedCard(expanded: advanced, title: "Advanced Options") {
                     advancedCardContent
                 }
@@ -1009,6 +1027,7 @@ struct GeneratorView: View {
             }
             .listRowInsets(EdgeInsets())               // removes the default insets
             .listRowBackground(Color.clear)            // removes the default grouped bg
+        )
     }
     
     @ViewBuilder
@@ -1026,12 +1045,17 @@ struct GeneratorView: View {
     }
     
     // MARK: - Form Content
+    @ViewBuilder
+    private var formBody: some View {
+        modeAndSuggestionsSection()
+        advancedOptionsSection()
+        languagesSection()
+        actionSection()
+    }
+    
     private var formContent: some View {
         Form {
-            modeAndSuggestionsSection()
-            advancedOptionsSection()
-            languagesSection()
-            actionSection()
+            formBody
         }
         .scrollContentBackground(.hidden)
         .background(Color.appBackground)
