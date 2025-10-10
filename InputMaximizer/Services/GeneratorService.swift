@@ -64,6 +64,11 @@ final class GeneratorService: ObservableObject {
         enum LanguageLevel: String, Codable, CaseIterable { case A1, A2, B1, B2, C1, C2 }
         
         enum TranslationStyle: String, Codable, CaseIterable { case literal, idiomatic }
+        
+        enum LengthMode: Equatable, Sendable {
+            case standard(words: Int)  // Single lesson (100-300 words)
+            case longForm(totalWords: Int, lessonsCount: Int)  // Multi-lesson
+        }
 
         
         var languageLevel: LanguageLevel = .B1   // sensible default
@@ -80,13 +85,15 @@ final class GeneratorService: ObservableObject {
         
         var translationStyle: TranslationStyle = .idiomatic
         
+        var lengthMode: LengthMode = .standard(words: 200)
+        
         // Random topic inputs from the UI
-        var userChosenTopic: String? = nil         // if user pressed “Randomize” we pass it here
+        var userChosenTopic: String? = nil         // if user pressed "Randomize" we pass it here
         var topicPool: [String]? = nil             // the interests array to sample from
     }
 
     /// Start a generation job. If one is running, ignore.
-    func start(_ req: Request, lessonStore: LessonStore) {
+    func start(_ req: Request, lessonStore: LessonStore, folderStore: FolderStore? = nil) {
         guard !isBusy else { return }
 
         isBusy = true
@@ -114,6 +121,8 @@ final class GeneratorService: ObservableObject {
             do {
                 let lessonID = try await Self.runGeneration(
                     req: req,
+                    lessonStore: lessonStore,
+                    folderStore: folderStore,
                     progress: { [weak self] message in   // ← async by signature
                         self?.status = message           // safe on @MainActor
                     }
@@ -122,6 +131,7 @@ final class GeneratorService: ObservableObject {
                 self.status = "Done. Open the lesson list and select."
                 self.isBusy = false
                 lessonStore.load()
+                folderStore?.load()
 
                 // NEW: reveal the already-precomputed suggestions without waiting
                 self.nextPromptSuggestions = self.nextPromptSuggestionsBuffer
@@ -847,10 +857,12 @@ private extension GeneratorService {
     
     
     // MARK: - The whole pipeline, headless
-    /// Returns the `lessonID` written to disk.
+    /// Returns the `lessonID` (or folder ID for long-form) written to disk.
     static func runGeneration(
         req: GeneratorService.Request,
-        progress: @MainActor @Sendable (String) async -> Void   // main-actor, non-async
+        lessonStore: LessonStore,
+        folderStore: FolderStore?,
+        progress: @escaping @MainActor @Sendable (String) async -> Void
     ) async throws -> String {
 
         // ---------- Local helpers ----------
@@ -1464,6 +1476,14 @@ private extension GeneratorService {
 
         // ---------- Two-phase credit hold (reserve → commit/cancel) ----------
         let deviceId = DeviceID.current
+        
+        // Check if this is long-form generation
+        if case .longForm(let totalWords, let lessonsCount) = req.lengthMode {
+            // Long-form generation: multiple lessons from one narrative
+            return try await runLongFormGeneration(req: req, totalWords: totalWords, lessonsCount: lessonsCount, lessonStore: lessonStore, folderStore: folderStore, progress: progress)
+        }
+        
+        // Standard single-lesson generation
         let (jobId, jobToken) = try await Self.proxy.jobStart(deviceId: deviceId, amount: 1, ttlSeconds: 1800)
 
         do {
@@ -1721,6 +1741,543 @@ private extension GeneratorService {
             await Self.proxy.jobCancel(deviceId: deviceId, jobId: jobId)
             throw error
         }
+    }
+    
+    // MARK: - Long-Form Generation Methods
+    
+    /// Run complete long-form generation workflow
+    static func runLongFormGeneration(
+        req: Request,
+        totalWords: Int,
+        lessonsCount: Int,
+        lessonStore: LessonStore,
+        folderStore: FolderStore?,
+        progress: @escaping @MainActor @Sendable (String) async -> Void
+    ) async throws -> String {
+        let deviceId = DeviceID.current
+        let (jobId, jobToken) = try await Self.proxy.jobStart(deviceId: deviceId, amount: lessonsCount, ttlSeconds: 3600)
+        
+        do {
+            // 1. Determine prompt
+            let userInput: String
+            switch req.mode {
+            case .random:
+                let topic: String = {
+                    if let t = req.userChosenTopic?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+                        return t
+                    }
+                    if let pool = req.topicPool, let pick = pool.randomElement() {
+                        return pick
+                    }
+                    return "uma jornada extraordinária"
+                }()
+                userInput = topic
+            case .prompt:
+                userInput = req.userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !userInput.isEmpty else {
+                    throw NSError(domain: "Generator", code: 1, userInfo: [NSLocalizedDescriptionKey: "Empty prompt"])
+                }
+            }
+            
+            // 2. Generate outline
+            await progress("Creating series outline...")
+            let outline = try await generateOutlineFromPrompt(
+                prompt: userInput,
+                targetLang: req.genLanguage,
+                lessonsCount: lessonsCount,
+                jobId: jobId,
+                jobToken: jobToken
+            )
+            
+            // 3. Generate complete long-form text
+            let completeOriginal = try await generateLongFormText(
+                prompt: userInput,
+                targetLang: req.genLanguage,
+                outline: outline,
+                totalWords: totalWords,
+                languageLevel: req.languageLevel,
+                jobId: jobId,
+                jobToken: jobToken,
+                progress: progress
+            )
+            
+            // 4. Translate complete text
+            await progress("Translating complete story...")
+            let completeTranslated = try await translateParagraphByParagraph(
+                text: completeOriginal,
+                targetLang: req.transLanguage,
+                style: req.translationStyle,
+                jobId: jobId,
+                jobToken: jobToken,
+                progress: progress
+            )
+            
+            // 5. Divide into lessons
+            await progress("Dividing into lessons...")
+            let lessonPairs = try divideIntoLessons(
+                originalText: completeOriginal,
+                translatedText: completeTranslated,
+                targetWordsPerLesson: 300
+            )
+            
+            // 6. Generate lessons with audio
+            var lessonIDs: [String] = []
+            let baseRoot = FileManager.docsLessonsDir
+            
+            for (index, lessonPair) in lessonPairs.enumerated() {
+                await progress("Generating lesson \(index + 1)/\(lessonPairs.count)...")
+                
+                // Generate title
+                let lessonTitle = "\(userInput.prefix(30)) - Part \(index + 1)"
+                let lessonID = slugify(lessonTitle) + "_\(Int(Date().timeIntervalSince1970))"
+                let lessonDir = baseRoot.appendingPathComponent(lessonID, isDirectory: true)
+                try FileManager.default.createDirectory(at: lessonDir, withIntermediateDirectories: true)
+                
+                // Segment text
+                await progress("Segmenting lesson \(index + 1)...")
+                let segments = try await segmentText(
+                    original: lessonPair.original,
+                    translated: lessonPair.translated,
+                    segmentation: req.segmentation,
+                    jobId: jobId,
+                    jobToken: jobToken
+                )
+                
+                // Generate audio
+                await progress("Generating audio for lesson \(index + 1)...")
+                var savedSegments: [Segment] = []
+                
+                for (segIndex, segment) in segments.enumerated() {
+                    let targetFile = "target_\(segIndex).mp3"
+                    let transFile = "trans_\(segIndex).mp3"
+                    
+                    // Generate TTS
+                    let targetAudio = try await ttsViaProxy(
+                        text: segment.original,
+                        language: req.genLanguage,
+                        speed: req.speechSpeed,
+                        jobId: jobId,
+                        jobToken: jobToken
+                    )
+                    
+                    let transAudio = try await ttsViaProxy(
+                        text: segment.translated,
+                        language: req.transLanguage,
+                        speed: req.speechSpeed,
+                        jobId: jobId,
+                        jobToken: jobToken
+                    )
+                    
+                    // Save audio files
+                    let targetURL = lessonDir.appendingPathComponent(targetFile)
+                    let transURL = lessonDir.appendingPathComponent(transFile)
+                    try targetAudio.write(to: targetURL)
+                    try transAudio.write(to: transURL)
+                    
+                    savedSegments.append(Segment(
+                        id: segIndex,
+                        pt_text: segment.original,
+                        en_text: segment.translated,
+                        pt_file: targetFile,
+                        en_file: transFile,
+                        paragraph: segment.paragraph
+                    ))
+                }
+                
+                // Save segments JSON
+                let segmentsData = try JSONEncoder().encode(savedSegments)
+                let segmentsURL = lessonDir.appendingPathComponent("segments_\(lessonID).json")
+                try segmentsData.write(to: segmentsURL)
+                
+                // Add lesson to store
+                await MainActor.run {
+                    let newLesson = Lesson(
+                        id: lessonID,
+                        title: lessonTitle,
+                        folderName: lessonID,
+                        targetLanguage: req.genLanguage,
+                        translationLanguage: req.transLanguage,
+                        targetLangCode: LessonLanguageResolver.languageCode(for: req.genLanguage),
+                        translationLangCode: LessonLanguageResolver.languageCode(for: req.transLanguage)
+                    )
+                    lessonStore.lessons.append(newLesson)
+                }
+                
+                lessonIDs.append(lessonID)
+            }
+            
+            // 7. Create folder for series using FolderStore
+            let folderName = "\(userInput.prefix(30))_\(Int(Date().timeIntervalSince1970))"
+            var folderID: String = ""
+            
+            await MainActor.run {
+                if let store = folderStore {
+                    let newFolder = Folder(
+                        id: UUID(),
+                        name: folderName,
+                        lessonIDs: lessonIDs
+                    )
+                    store.folders.append(newFolder)
+                    folderID = newFolder.id.uuidString
+                }
+            }
+            
+            // 8. Commit job
+            await progress("Finalizing...")
+            try await Self.proxy.jobCommit(deviceId: deviceId, jobId: jobId)
+            
+            // Return folder ID for navigation
+            return "folder:\(folderID)"
+            
+        } catch {
+            await Self.proxy.jobCancel(deviceId: deviceId, jobId: jobId)
+            throw error
+        }
+    }
+    
+    /// Segment text into sentences or paragraphs
+    private static func segmentText(
+        original: String,
+        translated: String,
+        segmentation: Request.Segmentation,
+        jobId: String,
+        jobToken: String
+    ) async throws -> [(original: String, translated: String, paragraph: Int)] {
+        switch segmentation {
+        case .paragraphs:
+            let origParas = original.components(separatedBy: "\n\n")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            let transParas = translated.components(separatedBy: "\n\n")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            
+            guard origParas.count == transParas.count else {
+                throw NSError(domain: "Generator", code: 9, userInfo: [NSLocalizedDescriptionKey: "Paragraph count mismatch in segmentation"])
+            }
+            
+            return zip(origParas, transParas).enumerated().map { (index, pair) in
+                (original: pair.0, translated: pair.1, paragraph: index)
+            }
+            
+        case .sentences:
+            // Split into sentences using existing logic
+            let origSentences = sentenceSplitKeepingClosers(original)
+            let transSentences = sentenceSplitKeepingClosers(translated)
+            
+            guard origSentences.count == transSentences.count else {
+                throw NSError(domain: "Generator", code: 10, userInfo: [NSLocalizedDescriptionKey: "Sentence count mismatch: orig=\(origSentences.count), trans=\(transSentences.count)"])
+            }
+            
+            var paragraphIndex = 0
+            return zip(origSentences, transSentences).enumerated().map { (index, pair) -> (original: String, translated: String, paragraph: Int) in
+                // Approximate paragraph tracking (every 3-4 sentences)
+                if index > 0 && index % 3 == 0 {
+                    paragraphIndex += 1
+                }
+                return (original: pair.0, translated: pair.1, paragraph: paragraphIndex)
+            }
+        }
+    }
+    
+    /// Generate a comprehensive outline for the entire series
+    private static func generateOutlineFromPrompt(prompt: String, targetLang: String, lessonsCount: Int, jobId: String, jobToken: String) async throws -> String {
+        let system = """
+        You are a world-class writer and content planner.
+        Create a comprehensive outline for an engaging narrative or essay in \(targetLang).
+        """
+        
+        let user = """
+        User's request: \(prompt)
+        
+        Create a detailed outline that will guide a \(lessonsCount)-lesson series.
+        The outline should describe the overall narrative arc or structure.
+        It should ensure continuity and coherence across all lessons.
+        Keep it concise but comprehensive (3-5 sentences).
+        """
+        
+        let body: [String: Any] = [
+            "model": "gpt-4o",
+            "messages": [
+                ["role": "system", "content": system],
+                ["role": "user", "content": user]
+            ],
+            "temperature": 0.7
+        ]
+        
+        return try await chatViaProxy(body, jobId: jobId, jobToken: jobToken)
+    }
+    
+    /// Generate complete long-form text iteratively, guided by outline
+    private static func generateLongFormText(prompt: String, targetLang: String, outline: String, totalWords: Int, languageLevel: Request.LanguageLevel, jobId: String, jobToken: String, progress: @escaping @MainActor @Sendable (String) async -> Void) async throws -> String {
+        
+        // 1. Generate opening (~300 words)
+        await progress("Generating story foundation...")
+        
+        let openingSystem = """
+        You are a world-class writer creating engaging content in \(targetLang).
+        Follow these constraints:
+        \(CEFRGuidance.guidance(level: languageLevel, targetLanguage: targetLang))
+        """
+        
+        let openingUser = """
+        User's request: \(prompt)
+        
+        Outline for the complete series:
+        \(outline)
+        
+        Write the opening of this narrative (approximately 300 words).
+        Begin the story but leave it open for continuation.
+        Write only in \(targetLang).
+        """
+        
+        let openingBody: [String: Any] = [
+            "model": "gpt-4o",
+            "messages": [
+                ["role": "system", "content": openingSystem],
+                ["role": "user", "content": openingUser]
+            ],
+            "temperature": 0.8
+        ]
+        
+        var completeText = try await chatViaProxy(openingBody, jobId: jobId, jobToken: jobToken)
+        
+        // 2. Iteratively extend until we reach target word count
+        var iteration = 0
+        let maxIterations = 20 // Safety limit
+        
+        while wordCount(of: completeText) < totalWords && iteration < maxIterations {
+            iteration += 1
+            await progress("Extending story (part \(iteration))...")
+            
+            let extensionSystem = """
+            You are a world-class writer. Continue narratives naturally and engagingly in \(targetLang).
+            Follow these constraints:
+            \(CEFRGuidance.guidance(level: languageLevel, targetLanguage: targetLang))
+            """
+            
+            let extensionUser = """
+            Outline for the complete series:
+            \(outline)
+            
+            Current text:
+            \(completeText)
+            
+            Continue this narrative naturally. Add approximately 300 words.
+            Do NOT repeat earlier sentences. Avoid ellipses ('...').
+            Keep the story flowing and maintain continuity with the outline.
+            Write only in \(targetLang).
+            """
+            
+            let extensionBody: [String: Any] = [
+                "model": "gpt-4o",
+                "messages": [
+                    ["role": "system", "content": extensionSystem],
+                    ["role": "user", "content": extensionUser]
+                ],
+                "temperature": 0.8
+            ]
+            
+            let extensionText = try await chatViaProxy(extensionBody, jobId: jobId, jobToken: jobToken)
+            let cleanedExtension = cleanupExtension(extensionText, previousText: completeText)
+            completeText += "\n\n" + cleanedExtension
+            
+            // Small delay to avoid rate limiting
+            try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+        }
+        
+        // 3. Add conclusion
+        await progress("Finalizing story...")
+        
+        let conclusionSystem = """
+        You are a world-class writer. Provide satisfying conclusions in \(targetLang).
+        Follow these constraints:
+        \(CEFRGuidance.guidance(level: languageLevel, targetLanguage: targetLang))
+        """
+        
+        let conclusionUser = """
+        Outline:
+        \(outline)
+        
+        Complete story so far:
+        \(completeText)
+        
+        Provide a conclusive ending (approximately 150-200 words) that wraps up the narrative.
+        Avoid repeating earlier lines or using ellipses.
+        Write only in \(targetLang).
+        """
+        
+        let conclusionBody: [String: Any] = [
+            "model": "gpt-4o",
+            "messages": [
+                ["role": "system", "content": conclusionSystem],
+                ["role": "user", "content": conclusionUser]
+            ],
+            "temperature": 0.8
+        ]
+        
+        let conclusion = try await chatViaProxy(conclusionBody, jobId: jobId, jobToken: jobToken)
+        let cleanedConclusion = cleanupExtension(conclusion, previousText: completeText)
+        completeText += "\n\n" + cleanedConclusion
+        
+        return completeText
+    }
+    
+    /// Remove repetition and cleanup extension text
+    private static func cleanupExtension(_ text: String, previousText: String) -> String {
+        var cleaned = text.replacingOccurrences(of: "...", with: "")
+                          .replacingOccurrences(of: "…", with: "")
+                          .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Remove repetition of last paragraph
+        let previousParagraphs = previousText.components(separatedBy: "\n\n")
+        if let lastParagraph = previousParagraphs.last?.trimmingCharacters(in: .whitespaces), !lastParagraph.isEmpty {
+            if cleaned.hasPrefix(lastParagraph) {
+                cleaned = String(cleaned.dropFirst(lastParagraph.count)).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        
+        return cleaned
+    }
+    
+    /// Count words in text
+    private static func wordCount(of text: String) -> Int {
+        text.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .count
+    }
+    
+    /// Translate complete text paragraph by paragraph
+    private static func translateParagraphByParagraph(text: String, targetLang: String, style: Request.TranslationStyle, jobId: String, jobToken: String, progress: @escaping @MainActor @Sendable (String) async -> Void) async throws -> String {
+        let paragraphs = text.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        guard !paragraphs.isEmpty else { return text }
+        
+        var translatedParagraphs: [String] = []
+        
+        for (index, paragraph) in paragraphs.enumerated() {
+            await progress("Translating paragraph \(index + 1)/\(paragraphs.count)...")
+            
+            let system: String = (style == .literal)
+            ? """
+              Translate as literally as possible.
+              KEEP EXACT sentence alignment (same number and order as the source).
+              Within a paragraph, NEVER insert newlines; separate sentences with a single space only.
+              """
+            : """
+              Translate naturally and idiomatically.
+              KEEP EXACT sentence alignment (same number and order as the source).
+              Within a paragraph, NEVER insert newlines; separate sentences with a single space only.
+              """
+            
+            let user = """
+            Target language: \(targetLang)
+            Translate the text below. Preserve sentence boundaries exactly.
+            
+            \(paragraph)
+            """
+            
+            let jsonSchema: [String: Any] = [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "translation",
+                    "description": "Translation with preserved sentence alignment",
+                    "strict": true,
+                    "schema": [
+                        "type": "object",
+                        "properties": [
+                            "translation": [
+                                "type": "string",
+                                "description": "The translated text"
+                            ]
+                        ],
+                        "required": ["translation"],
+                        "additionalProperties": false
+                    ]
+                ]
+            ]
+            
+            let body: [String: Any] = [
+                "model": "gpt-4o-mini",
+                "messages": [
+                    ["role": "system", "content": system],
+                    ["role": "user", "content": user]
+                ],
+                "response_format": jsonSchema
+            ]
+            
+            let raw = try await chatViaProxy(body, jobId: jobId, jobToken: jobToken)
+            guard let data = raw.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let translation = json["translation"] as? String else {
+                throw NSError(domain: "Generator", code: 6, userInfo: [NSLocalizedDescriptionKey: "Failed to parse translation JSON"])
+            }
+            
+            translatedParagraphs.append(translation.trimmingCharacters(in: .whitespacesAndNewlines))
+            
+            // Small delay to avoid rate limiting
+            try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+        }
+        
+        return translatedParagraphs.joined(separator: "\n\n")
+    }
+    
+    /// Divide texts into lessons at natural paragraph boundaries
+    private static func divideIntoLessons(originalText: String, translatedText: String, targetWordsPerLesson: Int) throws -> [(original: String, translated: String)] {
+        let originalParagraphs = originalText.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        let translatedParagraphs = translatedText.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        guard originalParagraphs.count == translatedParagraphs.count else {
+            throw NSError(domain: "Generator", code: 7, userInfo: [NSLocalizedDescriptionKey: "Paragraph count mismatch: original=\(originalParagraphs.count), translated=\(translatedParagraphs.count)"])
+        }
+        
+        guard !originalParagraphs.isEmpty else {
+            throw NSError(domain: "Generator", code: 8, userInfo: [NSLocalizedDescriptionKey: "No paragraphs found"])
+        }
+        
+        var lessons: [(original: String, translated: String)] = []
+        var currentOriginal: [String] = []
+        var currentTranslated: [String] = []
+        var currentWordCount = 0
+        
+        for i in 0..<originalParagraphs.count {
+            let origPara = originalParagraphs[i]
+            let transPara = translatedParagraphs[i]
+            let paraWords = wordCount(of: origPara)
+            
+            // If adding this paragraph would exceed target and we have content, save current lesson
+            if currentWordCount > 0 && currentWordCount + paraWords > Int(Double(targetWordsPerLesson) * 1.5) {
+                lessons.append((
+                    original: currentOriginal.joined(separator: "\n\n"),
+                    translated: currentTranslated.joined(separator: "\n\n")
+                ))
+                currentOriginal = []
+                currentTranslated = []
+                currentWordCount = 0
+            }
+            
+            // Add paragraph to current lesson
+            currentOriginal.append(origPara)
+            currentTranslated.append(transPara)
+            currentWordCount += paraWords
+        }
+        
+        // Add final lesson if there's content
+        if !currentOriginal.isEmpty {
+            lessons.append((
+                original: currentOriginal.joined(separator: "\n\n"),
+                translated: currentTranslated.joined(separator: "\n\n")
+            ))
+        }
+        
+        return lessons
     }
 
 }

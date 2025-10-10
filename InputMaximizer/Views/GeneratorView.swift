@@ -69,6 +69,7 @@ struct GeneratorView: View {
     @State private var showBuyCredits = false
     
     @EnvironmentObject private var lessonStore: LessonStore
+    @EnvironmentObject private var folderStore: FolderStore
     @EnvironmentObject private var generator: GeneratorService
     @Environment(\.dismiss) private var dismiss
 
@@ -165,6 +166,7 @@ struct GeneratorView: View {
     @State private var newlyCreatedLesson: Lesson?     // lesson to show in the toast
     @State private var showToast: Bool = false
     @State private var navTargetLesson: Lesson?        // drives navigationDestination
+    @State private var navTargetFolder: Folder?        // drives folder navigation
     @State private var toastHideWork: DispatchWorkItem?
     
     @FocusState private var promptIsFocused: Bool
@@ -173,6 +175,10 @@ struct GeneratorView: View {
     @State private var suggestionsFeed: [String] = []
     
     @State private var showPromptBrainstorm = false
+    
+    // Long-form generation
+    @State private var enableLongForm = false
+    @State private var longFormTotalWords = 1200
 
     private var hasSuggestions: Bool {
         !suggestionsFeed.isEmpty
@@ -639,6 +645,26 @@ struct GeneratorView: View {
             }
         }
     }
+    
+    @ViewBuilder private func longFormSection() -> some View {
+        Section {
+            Toggle("Long-form Generation", isOn: $enableLongForm)
+            
+            if enableLongForm {
+                Stepper("Total Words: \(longFormTotalWords)", value: $longFormTotalWords, in: 600...3000, step: 300)
+                
+                Text("This will create ~\(longFormTotalWords / 300) lessons in a folder")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                Text("All lessons will be created from a single coherent narrative.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Series Generation")
+        }
+    }
 
     @ViewBuilder private func speechSpeedSection() -> some View {
         Section("Speech Speed") {
@@ -686,8 +712,16 @@ struct GeneratorView: View {
                     topicPool: nil
                 )
                 req.translationStyle = translationStyle
+                
+                // Set length mode based on long-form toggle
+                if enableLongForm {
+                    let lessonsCount = longFormTotalWords / 300
+                    req.lengthMode = .longForm(totalWords: longFormTotalWords, lessonsCount: lessonsCount)
+                } else {
+                    req.lengthMode = .standard(words: lengthPreset.words)
+                }
 
-                generator.start(req, lessonStore: lessonStore)
+                generator.start(req, lessonStore: lessonStore, folderStore: folderStore)
             } label: {
                 HStack { if generator.isBusy { ProgressView() }
                     Text(generator.isBusy ? "Generating..." : "Generate Lesson")
@@ -701,46 +735,86 @@ struct GeneratorView: View {
                 .foregroundStyle(.secondary)
             
             if !generator.status.isEmpty {
-                // Try to resolve the last generated lesson
-                let lesson = lessonStore.lessons.first(where: { $0.id == generator.lastLessonID })
-                let statusText = (lesson != nil) ? "Lesson ready — tap to open" : generator.status
-
-                if let lesson {
-                    Button {
-                        navTargetLesson = lesson
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .imageScale(.small)
-                            Text(statusText)
-                            Image(systemName: "chevron.right")
-                                .font(.body)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.green) // optional: success hint
-                    .accessibilityLabel("Open last generated lesson")
-                } else {
-                    Text(statusText)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                }
+                generationStatusView()
             }
         }
     }
 
+    // MARK: - Generation Status Helpers
     
-    // MARK: - UI
-    var body: some View {
+    @ViewBuilder
+    private func generationStatusView() -> some View {
+        // Check if this is a folder ID (long-form generation)
+        if let lastID = generator.lastLessonID, lastID.hasPrefix("folder:") {
+            folderStatusView(lastID: lastID)
+        } else {
+            lessonStatusView()
+        }
+    }
+    
+    @ViewBuilder
+    private func folderStatusView(lastID: String) -> some View {
+        let folderID = String(lastID.dropFirst("folder:".count))
+        let folder = folderStore.folders.first(where: { $0.id.uuidString == folderID })
+        let statusText = (folder != nil) ? "Series ready — tap to open" : generator.status
         
-        // local alias so the body stays readable
-        let advanced = advancedExpandedBinding
+        if let folder {
+            Button {
+                navTargetFolder = folder
+            } label: {
+                statusButtonLabel(text: statusText)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.green)
+            .accessibilityLabel("Open generated series folder")
+        } else {
+            statusTextLabel(text: statusText)
+        }
+    }
+    
+    @ViewBuilder
+    private func lessonStatusView() -> some View {
+        let lesson = lessonStore.lessons.first(where: { $0.id == generator.lastLessonID })
+        let statusText = (lesson != nil) ? "Lesson ready — tap to open" : generator.status
         
-        Form {
-            
-            // --- Mode + Input (+ Suggestions) as a single row ---
-            Section {
+        if let lesson {
+            Button {
+                navTargetLesson = lesson
+            } label: {
+                statusButtonLabel(text: statusText)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.green)
+            .accessibilityLabel("Open last generated lesson")
+        } else {
+            statusTextLabel(text: statusText)
+        }
+    }
+    
+    @ViewBuilder
+    private func statusButtonLabel(text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill")
+                .imageScale(.small)
+            Text(text)
+            Image(systemName: "chevron.right")
+                .font(.body)
+                .foregroundStyle(.secondary)
+        }
+    }
+    
+    @ViewBuilder
+    private func statusTextLabel(text: String) -> some View {
+        Text(text)
+            .font(.body)
+            .foregroundStyle(.secondary)
+    }
+    
+    // MARK: - Form Sections
+    
+    @ViewBuilder
+    private func modeAndSuggestionsSection() -> some View {
+        Section {
                 VStack(spacing: 0) {
                     ModeCard(
                         mode: $mode,
@@ -798,87 +872,111 @@ struct GeneratorView: View {
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
-
-            // --- Advanced group as a single card ---
-            Section {
+    }
+    
+    @ViewBuilder
+    private var advancedCardContent: some View {
+        AdvancedItem(
+            title: "Segmentation",
+            infoAction: { showSegmentationInfo = true }
+        ) {
+            Picker("Segment by", selection: $segmentation) {
+                ForEach(Array(Segmentation.allCases), id: \.self) { s in
+                    Text(s.rawValue).tag(s)
+                }
+            }
+            .pickerStyle(.segmented)
+            .contentShape(Rectangle())
+            .padding(.horizontal, 2)
+            .accessibilityLabel("Segment by")
+        }
+        
+        AdvancedSpacer()
+        
+        AdvancedItem(
+            title: "Length",
+            trailing: "~\(lengthPreset.words) words"
+        ) {
+            Picker("", selection: $lengthPreset) {
+                ForEach(LengthPreset.allCases) { preset in
+                    Text(preset.label).tag(preset)
+                }
+            }
+            .pickerStyle(.segmented)
+            .contentShape(Rectangle())
+            .padding(.horizontal, 2)
+            .labelsHidden()
+        }
+        
+        AdvancedSpacer()
+        
+        AdvancedItem(title: "Long-form series") {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Enable multi-lesson generation", isOn: $enableLongForm)
+                
+                if enableLongForm {
+                    Divider()
+                    
+                    Stepper("Total: \(longFormTotalWords) words", value: $longFormTotalWords, in: 600...3000, step: 300)
+                    
+                    Text("Creates ~\(longFormTotalWords / 300) lessons from one coherent story")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        
+        AdvancedSpacer()
+        
+        AdvancedItem(title: "Speech speed") {
+            Picker("Speech speed", selection: $speechSpeed) {
+                Text("Regular").tag(SpeechSpeed.regular)
+                Text("Slow").tag(SpeechSpeed.slow)
+            }
+            .pickerStyle(.segmented)
+            .contentShape(Rectangle())
+            .padding(.horizontal, 2)
+            .labelsHidden()
+        }
+        
+        AdvancedSpacer()
+        
+        AdvancedItem(title: "Language level (CEFR)") {
+            Picker("Level", selection: $languageLevel) {
+                ForEach(Array(LanguageLevel.allCases), id: \.self) { level in
+                    Text(level.rawValue).tag(level)
+                }
+            }
+            .pickerStyle(.segmented)
+            .contentShape(Rectangle())
+            .padding(.horizontal, 2)
+            .labelsHidden()
+        }
+        
+        AdvancedSpacer()
+        
+        AdvancedItem(
+            title: "Translation style",
+            infoAction: { showTranslationStyleInfo = true }
+        ) {
+            Picker("Translation style", selection: $translationStyle) {
+                Text("Literal").tag(TranslationStyle.literal)
+                Text("Idiomatic").tag(TranslationStyle.idiomatic)
+            }
+            .pickerStyle(.segmented)
+            .contentShape(Rectangle())
+            .padding(.horizontal, 2)
+            .labelsHidden()
+        }
+    }
+    
+    @ViewBuilder
+    private func advancedOptionsSection() -> some View {
+        let advanced = advancedExpandedBinding
+        
+        Section {
                 AdvancedCard(expanded: advanced, title: "Advanced Options") {
-
-                    AdvancedItem(
-                        title: "Segmentation",
-                        infoAction: { showSegmentationInfo = true }
-                    ) {
-                        Picker("Segment by", selection: $segmentation) {
-                            ForEach(Array(Segmentation.allCases), id: \.self) { s in
-                                Text(s.rawValue).tag(s)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .contentShape(Rectangle())     // keeps taps easy
-                        .padding(.horizontal, 2)       // inside the segmented picker container
-                        .accessibilityLabel("Segment by")
-                    }
-
-
-                    AdvancedSpacer()
-
-                    AdvancedItem(
-                        title: "Length",
-                        trailing: "~\(lengthPreset.words) words"
-                    ) {
-                        Picker("", selection: $lengthPreset) {
-                            ForEach(LengthPreset.allCases) { preset in
-                                Text(preset.label).tag(preset)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .contentShape(Rectangle())     // keeps taps easy
-                        .padding(.horizontal, 2)       // inside the segmented picker container
-                        .labelsHidden()
-                    }
-
-                    AdvancedSpacer()
-
-                    AdvancedItem(title: "Speech speed") {
-                        Picker("Speech speed", selection: $speechSpeed) {
-                            Text("Regular").tag(SpeechSpeed.regular)
-                            Text("Slow").tag(SpeechSpeed.slow)
-                        }
-                        .pickerStyle(.segmented)
-                        .contentShape(Rectangle())     // keeps taps easy
-                        .padding(.horizontal, 2)       // inside the segmented picker container
-                        .labelsHidden()
-                    }
-
-                    AdvancedSpacer()
-
-                    AdvancedItem(title: "Language level (CEFR)") {
-                        Picker("Level", selection: $languageLevel) {
-                            ForEach(Array(LanguageLevel.allCases), id: \.self) { level in
-                                Text(level.rawValue).tag(level)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .contentShape(Rectangle())     // keeps taps easy
-                        .padding(.horizontal, 2)       // inside the segmented picker container
-                        .labelsHidden()
-                    }
-                    
-                    AdvancedSpacer()
-
-                    AdvancedItem(
-                        title: "Translation style",
-                        infoAction: { showTranslationStyleInfo = true } // NEW binding below
-                    ) {
-                        Picker("Translation style", selection: $translationStyle) {
-                            Text("Literal").tag(TranslationStyle.literal)
-                            Text("Idiomatic").tag(TranslationStyle.idiomatic)
-                        }
-                        .pickerStyle(.segmented)
-                        .contentShape(Rectangle())
-                        .padding(.horizontal, 2)
-                        .labelsHidden()
-                    }
-                    
+                    advancedCardContent
                 }
                 
                 .modifier(RegularWidthPopover(isPresented: $showSegmentationInfo) {
@@ -911,9 +1009,11 @@ struct GeneratorView: View {
             }
             .listRowInsets(EdgeInsets())               // removes the default insets
             .listRowBackground(Color.clear)            // removes the default grouped bg
-
-            
-            Section {
+    }
+    
+    @ViewBuilder
+    private func languagesSection() -> some View {
+        Section {
                 LanguageCard(
                     genLanguage: $genLanguage,
                     transLanguage: $transLanguage,
@@ -923,7 +1023,14 @@ struct GeneratorView: View {
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
-            
+    }
+    
+    // MARK: - Form Content
+    private var formContent: some View {
+        Form {
+            modeAndSuggestionsSection()
+            advancedOptionsSection()
+            languagesSection()
             actionSection()
         }
         .scrollContentBackground(.hidden)
@@ -1045,6 +1152,10 @@ struct GeneratorView: View {
         .navigationDestination(item: $navTargetLesson) { lesson in
             ContentView(selectedLesson: lesson, lessons: lessonStore.lessons)
         }
+        // Destination for folder navigation (long-form series)
+        .navigationDestination(item: $navTargetFolder) { folder in
+            FolderDetailView(folder: folder)
+        }
         // Overlay toast banner at top of GeneratorView
         .overlay(alignment: .top) {
             if showToast, let lesson = newlyCreatedLesson {
@@ -1118,9 +1229,11 @@ struct GeneratorView: View {
         .onChange(of: generator.lastLessonID, initial: false) { _, _ in
             Task { await refreshServerBalance() }   // calls @MainActor func
         }
-
-
-
+    }
+    
+    // MARK: - Body
+    var body: some View {
+        formContent
     }
 }
 
