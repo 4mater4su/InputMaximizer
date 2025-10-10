@@ -1771,6 +1771,16 @@ private extension GeneratorService {
                 jobToken: jobToken
             )
             
+            // 2.5. Generate title
+            await progress("Creating title...")
+            let seriesTitle = try await generateSeriesTitle(
+                prompt: userInput,
+                outline: outline,
+                targetLang: req.genLanguage,
+                jobId: jobId,
+                jobToken: jobToken
+            )
+            
             // 3. Generate complete long-form text
             let completeOriginal = try await generateLongFormText(
                 prompt: userInput,
@@ -1809,8 +1819,8 @@ private extension GeneratorService {
             for (index, lessonPair) in lessonPairs.enumerated() {
                 await progress("Generating lesson \(index + 1)/\(lessonPairs.count)...")
                 
-                // Generate title
-                let lessonTitle = "\(userInput.prefix(30)) - Part \(index + 1)"
+                // Generate title with part number
+                let lessonTitle = "Part \(index + 1): \(seriesTitle)"
                 // Use milliseconds + index to ensure uniqueness even when generated rapidly
                 let timestamp = Int(Date().timeIntervalSince1970 * 1000) + index
                 let lessonID = slugify(lessonTitle) + "_\(timestamp)"
@@ -1896,14 +1906,13 @@ private extension GeneratorService {
             }
             
             // 7. Create folder for series using FolderStore
-            let folderName = "\(userInput.prefix(30))_\(Int(Date().timeIntervalSince1970))"
             var folderID: String = ""
             
             await MainActor.run {
                 if let store = folderStore {
                     let newFolder = Folder(
                         id: UUID(),
-                        name: folderName,
+                        name: seriesTitle,
                         lessonIDs: lessonIDs
                     )
                     store.folders.append(newFolder)
@@ -1995,6 +2004,66 @@ private extension GeneratorService {
         ]
         
         return try await chatViaProxy(body, jobId: jobId, jobToken: jobToken)
+    }
+    
+    /// Generate a short, catchy title for the series
+    private static func generateSeriesTitle(prompt: String, outline: String, targetLang: String, jobId: String, jobToken: String) async throws -> String {
+        let system = """
+        You are a creative title writer. Generate short, compelling titles in English.
+        Keep titles concise (2-4 words maximum) and memorable.
+        """
+        
+        let user = """
+        User's request: \(prompt)
+        
+        Story outline:
+        \(outline)
+        
+        Create a short, catchy title in English for this story/series.
+        
+        Requirements:
+        - Must be 2-4 words maximum
+        - In English (not in \(targetLang))
+        - Memorable and descriptive
+        - No subtitle or punctuation
+        - Just return the title, nothing else
+        
+        Examples of good titles:
+        - "The Lost Key"
+        - "Midnight Train"
+        - "Forgotten Dreams"
+        - "Ocean's Secret"
+        """
+        
+        let body: [String: Any] = [
+            "model": "gpt-5-nano",
+            "messages": [
+                ["role": "system", "content": system],
+                ["role": "user", "content": user]
+            ]
+        ]
+        
+        let rawTitle = try await chatViaProxy(body, jobId: jobId, jobToken: jobToken)
+        
+        // Clean up the title: remove quotes, extra whitespace, punctuation
+        let cleaned = rawTitle
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\"", with: "")
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: ".", with: "")
+            .replacingOccurrences(of: "!", with: "")
+            .replacingOccurrences(of: "?", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Limit to 25 characters to prevent overly long titles
+        if cleaned.count > 25 {
+            if let lastSpace = cleaned.prefix(25).lastIndex(of: " ") {
+                return String(cleaned[..<lastSpace])
+            }
+            return String(cleaned.prefix(25))
+        }
+        
+        return cleaned
     }
     
     /// Generate complete long-form text iteratively, guided by outline
