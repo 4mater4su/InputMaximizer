@@ -66,6 +66,12 @@ private enum FontComfortMode: Int {
     mutating func toggle() { self = (self == .standard) ? .comfy : .standard }
 }
 
+private enum FontContrastMode: Int {
+    case high = 0
+    case low = 1
+    mutating func toggle() { self = (self == .high) ? .low : .high }
+}
+
 private enum TextDisplayMode: Int {
     case both = 0
     case targetOnly = 1
@@ -225,6 +231,12 @@ struct ContentView: View {
     private var fontComfortMode: FontComfortMode {
         get { FontComfortMode(rawValue: fontComfortModeRaw) ?? .standard }
         set { fontComfortModeRaw = newValue.rawValue }
+    }
+    
+    @AppStorage("fontContrastMode") private var fontContrastModeRaw: Int = FontContrastMode.high.rawValue
+    private var fontContrastMode: FontContrastMode {
+        get { FontContrastMode(rawValue: fontContrastModeRaw) ?? .high }
+        set { fontContrastModeRaw = newValue.rawValue }
     }
     
     @AppStorage("textDisplayMode") private var textDisplayModeRaw: Int = TextDisplayMode.both.rawValue
@@ -989,6 +1001,7 @@ struct ContentView: View {
                         mostVisibleParagraph = paragraphIndex
                     },
                     fontComfortMode: fontComfortMode,
+                    fontContrastMode: fontContrastMode,
                     isTargetChinese: isTargetChinese,
                     isTranslationChinese: isTranslationChinese,
                     
@@ -1029,6 +1042,7 @@ struct ContentView: View {
                         } label: {
                             Image(systemName: audioManager.isPlaying ? "pause.fill" : "play.fill")
                                 .imageScale(.large)
+                                .foregroundStyle(fontContrastMode == .low ? .secondary : .primary)
                         }
                         .buttonStyle(MinimalIconButtonStyle())
                         .accessibilityLabel(audioManager.isPlayingPT ? "Pause" : "Play")
@@ -1040,6 +1054,7 @@ struct ContentView: View {
                                 // Dual mode → back-and-forth icon only
                                 Image(systemName: "arrow.counterclockwise")
                                     .imageScale(.large)
+                                    .foregroundStyle(fontContrastMode == .low ? .secondary : .primary)
                             } else {
                                 // Single mode → pill with opposite language short code
                                 Text(oppositeLangShort)
@@ -1048,7 +1063,7 @@ struct ContentView: View {
                                     .foregroundColor(.black)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
-                                    .background(Color.white)
+                                    .background(fontContrastMode == .low ? Color.secondary : Color.white)
                                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                             }
                         }
@@ -1193,6 +1208,7 @@ struct ContentView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 ToolbarChips(
                     fontComfortModeRaw: $fontComfortModeRaw,
+                    fontContrastModeRaw: $fontContrastModeRaw,
                     storedDelay: $storedDelay,
                     textDisplayModeRaw: $textDisplayModeRaw,
                     delayPresets: delayPresets,
@@ -1273,6 +1289,7 @@ struct ContentView: View {
 private struct ToolbarChips: View {
     // bindings & values from ContentView
     @Binding var fontComfortModeRaw: Int
+    @Binding var fontContrastModeRaw: Int
     @Binding var storedDelay: Double
     @Binding var textDisplayModeRaw: Int
     let delayPresets: [Double]
@@ -1329,6 +1346,12 @@ private struct ToolbarChips: View {
                     Button(current == .standard ? "Enable BIG text" : "Disable BIG text") {
                         var m = current; m.toggle(); fontComfortModeRaw = m.rawValue
                     }
+                    
+                    // CONTRAST — simple button
+                    let contrast = FontContrastMode(rawValue: fontContrastModeRaw) ?? .high
+                    Button(contrast == .high ? "Enable low contrast" : "Disable low contrast") {
+                        var c = contrast; c.toggle(); fontContrastModeRaw = c.rawValue
+                    }
 
                     // PLAYBACK PAUSE — submenu
                     Menu {
@@ -1366,6 +1389,12 @@ private struct ToolbarChips: View {
                 let current = FontComfortMode(rawValue: fontComfortModeRaw) ?? .standard
                 Button(current == .standard ? "Enable Comfy text" : "Disable Comfy text") {
                     var m = current; m.toggle(); fontComfortModeRaw = m.rawValue
+                }
+                
+                // CONTRAST — simple button
+                let contrast = FontContrastMode(rawValue: fontContrastModeRaw) ?? .high
+                Button(contrast == .high ? "Enable low contrast" : "Disable low contrast") {
+                    var c = contrast; c.toggle(); fontContrastModeRaw = c.rawValue
                 }
 
                 // PLAYBACK PAUSE — submenu
@@ -1505,6 +1534,7 @@ private struct SegmentRow: View {
     let rowID: String
     let onTap: () -> Void
     let fontComfortMode: FontComfortMode
+    let fontContrastMode: FontContrastMode
     let isTargetChinese: Bool
     let isTranslationChinese: Bool
 
@@ -1560,7 +1590,7 @@ private struct SegmentRow: View {
 
                     Text(segment.pt_text)
                         .font(targetFont.weight(primaryWeight))
-                        .foregroundColor(.primary)
+                        .foregroundColor(fontContrastMode == .low ? .secondary : .primary)
                         .lineSpacing(isSingleLanguage ? (comfy ? 8 : 6) : 5)
                 }
 
@@ -1581,7 +1611,9 @@ private struct SegmentRow: View {
                             ? translationFont.weight(primaryWeight)      // translation-only → bump if zh
                             : secondaryFont.weight(secondaryWeight)      // dual mode → secondary style
                         )
-                        .foregroundStyle(isPrimaryTranslation ? .primary : .secondary)
+                        .foregroundStyle(isPrimaryTranslation 
+                                        ? (fontContrastMode == .low ? .secondary : .primary)
+                                        : .secondary)
                         .lineSpacing(isPrimaryTranslation ? (comfy ? 8 : 6) : 5)
                 }
             }
@@ -1618,6 +1650,7 @@ private struct ParagraphBox: View {
     let playingSegmentID: Int?
     let onTap: (DisplaySegment) -> Void
     let fontComfortMode: FontComfortMode
+    let fontContrastMode: FontContrastMode
     let isTargetChinese: Bool
     let isTranslationChinese: Bool
     
@@ -1636,6 +1669,7 @@ private struct ParagraphBox: View {
                     rowID: "\(folderName)#\(seg.originalID)",
                     onTap: { onTap(seg) },
                     fontComfortMode: fontComfortMode,
+                    fontContrastMode: fontContrastMode,
                     isTargetChinese: isTargetChinese,
                     isTranslationChinese: isTranslationChinese
                 )
@@ -1973,6 +2007,7 @@ private struct TranscriptList: View {
     let onTap: (DisplaySegment) -> Void
     let onParagraphVisible: (Int) -> Void
     let fontComfortMode: FontComfortMode
+    let fontContrastMode: FontContrastMode
     let isTargetChinese: Bool
     let isTranslationChinese: Bool
     let onShowKeywords: () -> Void
@@ -1983,6 +2018,7 @@ private struct TranscriptList: View {
                 if let headerTitle {
                     Text(headerTitle)
                         .font(.largeTitle.bold())
+                        .foregroundColor(fontContrastMode == .low ? .secondary : .primary)
                         .padding(.horizontal)
                         .padding(.top, 6)
                 }
@@ -1995,6 +2031,7 @@ private struct TranscriptList: View {
                         playingSegmentID: playingSegmentID,
                         onTap: onTap,
                         fontComfortMode: fontComfortMode,
+                        fontContrastMode: fontContrastMode,
                         isTargetChinese: isTargetChinese,
                         isTranslationChinese: isTranslationChinese
                     )
