@@ -1104,11 +1104,11 @@ struct LessonSelectionView: View {
                     .environmentObject(folderStore)
             }
             .navigationDestination(item: $selectedLesson) { lesson in
-                ContentView(selectedLesson: lesson, lessons: lessonsList(containing: lesson))
+                ContentView(selectedLesson: lesson, lessons: lessonsList(containing: lesson), isViewingAllLessons: true)
                     .environmentObject(audioManager)
             }
             .navigationDestination(item: $resumeLesson) { lesson in
-                ContentView(selectedLesson: lesson, lessons: lessonsList(containing: lesson))
+                ContentView(selectedLesson: lesson, lessons: lessonsList(containing: lesson), isViewingAllLessons: true)
                     .environmentObject(audioManager)
             }
             .sheet(isPresented: $showingCreateFolder) { createFolderSheet }

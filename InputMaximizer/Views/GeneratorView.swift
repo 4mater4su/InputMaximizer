@@ -1186,7 +1186,7 @@ struct GeneratorView: View {
             }
             // Destination for programmatic navigation from toast tap
             .navigationDestination(item: $navTargetLesson) { lesson in
-                ContentView(selectedLesson: lesson, lessons: lessonStore.lessons)
+                ContentView(selectedLesson: lesson, lessons: lessonStore.lessons, isViewingAllLessons: true)
             }
             // Destination for folder navigation (long-form series)
             .navigationDestination(item: $navTargetFolder) { folder in

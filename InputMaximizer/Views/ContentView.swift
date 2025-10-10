@@ -209,6 +209,9 @@ struct ContentView: View {
     @State private var lessons: [Lesson]
     @State private var currentLessonIndex: Int
     let selectedLesson: Lesson
+    
+    // Track if we're viewing all lessons or just a folder subset
+    private let isViewingAllLessons: Bool
 
     private var isTargetChinese: Bool {
         lessonLangs.targetCode.lowercased().hasPrefix("zh")
@@ -242,11 +245,12 @@ struct ContentView: View {
     private var shouldExplode: Bool { false }
     
     // MARK: - Init
-    init(selectedLesson: Lesson, lessons: [Lesson]) {
+    init(selectedLesson: Lesson, lessons: [Lesson], isViewingAllLessons: Bool = false) {
         self.selectedLesson = selectedLesson
         _lessons = State(initialValue: lessons)
         _currentLessonIndex = State(initialValue: lessons.firstIndex(of: selectedLesson) ?? 0)
         _lessonLangs = State(initialValue: LessonLanguageResolver.resolve(for: selectedLesson))
+        self.isViewingAllLessons = isViewingAllLessons
     }
 
     // MARK: - Keywords loader
@@ -1096,8 +1100,24 @@ struct ContentView: View {
             }
         }
         .onChange(of: store.lessons, initial: false) { _, newLessons in
+            // Only sync if we're viewing all lessons, not a folder subset
+            guard isViewingAllLessons else { return }
+            
             // Sync local lessons array with store when it changes
-            lessons = newLessons
+            // If we're currently viewing/playing a lesson, find its new index
+            if !lessons.isEmpty && currentLessonIndex < lessons.count {
+                let currentLesson = lessons[currentLessonIndex]
+                lessons = newLessons
+                // Find the current lesson's new index to maintain continuity
+                if let newIndex = newLessons.firstIndex(where: { $0.id == currentLesson.id }) {
+                    currentLessonIndex = newIndex
+                } else {
+                    // Lesson no longer exists, clamp index
+                    currentLessonIndex = min(currentLessonIndex, max(0, newLessons.count - 1))
+                }
+            } else {
+                lessons = newLessons
+            }
         }
         
         .onChange(of: generator.isBusy, initial: false) { _, isBusy in
