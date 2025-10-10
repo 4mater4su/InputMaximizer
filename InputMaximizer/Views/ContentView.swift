@@ -188,6 +188,7 @@ struct ContentView: View {
     @State private var showKeywords = false
     @State private var loadedKeywordPairs: [KeywordPair] = []
     @State private var mostVisibleParagraph: Int = 0
+    @State private var keywordExtractionError: String? = nil
     
     // Check if keywords are being extracted for THIS lesson
     private var isExtractingKeywords: Bool {
@@ -380,6 +381,7 @@ struct ContentView: View {
         Task {
             await MainActor.run {
                 generator.extractingKeywordsForLesson = lessonId
+                keywordExtractionError = nil // Clear any previous error
             }
             
             defer {
@@ -484,7 +486,9 @@ struct ContentView: View {
                 
             } catch {
                 await MainActor.run {
-                    showToast(message: "Extraction failed: \(error.localizedDescription)", success: false)
+                    let errorMessage = error.localizedDescription
+                    keywordExtractionError = errorMessage
+                    showToast(message: "Extraction failed: \(errorMessage)", success: false)
                 }
             }
         }
@@ -1274,6 +1278,7 @@ struct ContentView: View {
                     lesson: currentLesson,
                     isExtracting: isExtractingKeywords,
                     isAnyExtracting: generator.extractingKeywordsForLesson != nil,
+                    extractionError: keywordExtractionError,
                     onExtract: {
                         extractKeywordsManually()
                     },
@@ -1707,6 +1712,7 @@ private struct KeywordsView: View {
     let lesson: Lesson         // the current lesson for extraction
     let isExtracting: Bool     // whether extraction is currently running for THIS lesson
     let isAnyExtracting: Bool  // whether ANY extraction is currently running
+    let extractionError: String?  // error message if extraction failed
     let onExtract: () -> Void  // callback to trigger manual extraction
     let onReload: () -> Void   // callback to reload keywords after extraction
     @Environment(\.dismiss) private var dismiss
@@ -1845,14 +1851,26 @@ private struct KeywordsView: View {
     private var extractButton: some View {
         VStack(spacing: 16) {
             VStack(spacing: 8) {
-                Image(systemName: "sparkles")
+                Image(systemName: extractionError != nil ? "exclamationmark.triangle" : "sparkles")
                     .font(.system(size: 40))
-                    .foregroundStyle(isAnyExtracting ? .gray : .yellow)
+                    .foregroundStyle(extractionError != nil ? .red : (isAnyExtracting ? .gray : .yellow))
                 
-                Text("No Keywords Available")
+                Text(extractionError != nil ? "Extraction Failed" : "No Keywords Available")
                     .font(.headline)
                 
-                if isAnyExtracting {
+                if let error = extractionError {
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                    
+                    Text("Check your network connection and try again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                } else if isAnyExtracting {
                     Text("Another keyword extraction is in progress. Please wait until it completes.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
