@@ -206,7 +206,7 @@ struct ContentView: View {
     @State private var showDelaySheet = false
     private let delayPresets: [Double] = [0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
     
-    let lessons: [Lesson]
+    @State private var lessons: [Lesson]
     @State private var currentLessonIndex: Int
     let selectedLesson: Lesson
 
@@ -244,7 +244,7 @@ struct ContentView: View {
     // MARK: - Init
     init(selectedLesson: Lesson, lessons: [Lesson]) {
         self.selectedLesson = selectedLesson
-        self.lessons = lessons
+        _lessons = State(initialValue: lessons)
         _currentLessonIndex = State(initialValue: lessons.firstIndex(of: selectedLesson) ?? 0)
         _lessonLangs = State(initialValue: LessonLanguageResolver.resolve(for: selectedLesson))
     }
@@ -579,7 +579,18 @@ struct ContentView: View {
 
     
     // MARK: - Derived
-    private var currentLesson: Lesson { lessons[currentLessonIndex] }
+    private var currentLesson: Lesson {
+        // Bounds check to prevent crashes
+        guard !lessons.isEmpty else { return selectedLesson }
+        let safeIndex = min(max(0, currentLessonIndex), lessons.count - 1)
+        if safeIndex != currentLessonIndex {
+            // Fix the index if it's out of bounds
+            DispatchQueue.main.async {
+                currentLessonIndex = safeIndex
+            }
+        }
+        return lessons[safeIndex]
+    }
     
     // Update most visible paragraph based on scroll position
     private func updateMostVisibleParagraph(offset: CGFloat) {
@@ -1084,6 +1095,11 @@ struct ContentView: View {
                 }
             }
         }
+        .onChange(of: store.lessons, initial: false) { _, newLessons in
+            // Sync local lessons array with store when it changes
+            lessons = newLessons
+        }
+        
         .onChange(of: generator.isBusy, initial: false) { _, isBusy in
             guard !isBusy else { return }
             let status = generator.status.lowercased()
