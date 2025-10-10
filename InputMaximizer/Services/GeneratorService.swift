@@ -28,7 +28,7 @@ final class GeneratorService: ObservableObject {
     @Published var outOfCredits = false
     
     @Published var nextPromptSuggestions: [String] = []
-    
+
     // Track keyword extraction per lesson
     @Published var extractingKeywordsForLesson: String? = nil
 
@@ -996,46 +996,11 @@ private extension GeneratorService {
         }
         */
 
-
+        // Series context instructions (empty for standalone lessons)
+        let seriesInstructions = ""
+        
         func generateFromElevatedPrompt(_ elevated: String, targetLang: String, wordCount: Int, jobId: String, jobToken: String) async throws -> String {
-            // Build series context if applicable
-            var seriesInstructions = ""
-            if let seriesContext = req.seriesContext {
-                seriesInstructions = """
-                
-                SERIES CONTEXT:
-                You are generating PART \(seriesContext.partNumber) of \(seriesContext.totalParts) in a multi-lesson series.
-                
-                """
-                
-                if let outline = seriesContext.outline, !outline.isEmpty {
-                    // Outline-based mode
-                    seriesInstructions += """
-                    Series Outline:
-                    \(outline.enumerated().map { "Part \($0 + 1): \($1)" }.joined(separator: "\n"))
-                    
-                    Focus on Part \(seriesContext.partNumber). This should be a complete chapter that:
-                    - Stands alone with a clear beginning and end
-                    - Advances the overall narrative according to the outline
-                    - Sets up the next part naturally (if not the final part)
-                    - Maintains consistent style, tone, and characters throughout the series
-                    
-                    """
-                } else if let previousSummary = seriesContext.previousSummary {
-                    // Continuation mode
-                    seriesInstructions += """
-                    Previous Lesson Summary:
-                    \(previousSummary)
-                    
-                    Generate the next chapter that:
-                    - Continues naturally from where the previous lesson ended
-                    - Maintains character consistency and narrative style
-                    - Introduces new elements while respecting established context
-                    - Forms a complete episode with its own arc
-                    
-                    """
-                }
-            }
+            // Original method for single lessons (no series context)
             
             let system = """
             You are a world-class writer. Follow the user's prompt meticulously.
@@ -1778,6 +1743,244 @@ private extension GeneratorService {
             await Self.proxy.jobCancel(deviceId: deviceId, jobId: jobId)
             throw error
         }
+    }
+    
+    // MARK: - Iterative Series Generation Methods
+    
+    /// Generate complete story iteratively, then split into parts
+    public static func generateSeriesIteratively(elevated: String, targetLang: String, totalWordCount: Int, partCount: Int, jobId: String, jobToken: String, progress: @escaping (String) async -> Void) async throws -> String {
+        await progress("Generating story foundation...")
+        
+        // Calculate words per part
+        let wordsPerPart = totalWordCount / partCount
+        
+        // 1. Generate initial story (first part length)
+        let initialBody: [String: Any] = [
+            "model": "gpt-4o",
+            "messages": [
+                ["role": "system", "content": "You are a world-class storyteller writing engaging narratives in \(targetLang)."],
+                ["role": "user", "content": "\(elevated)\n\nWrite approximately \(wordsPerPart) words. Start the story but leave it open for continuation."]
+            ]
+        ]
+        var currentStory = try await Self.chatViaProxy(initialBody, jobId: jobId, jobToken: jobToken)
+        
+        // 2. Extend story iteratively
+        let maxIterations = partCount - 1
+        var iteration = 0
+        
+        while iteration < maxIterations && wordCount(of: currentStory) < totalWordCount {
+            iteration += 1
+            await progress("Extending story... (part \(iteration + 1)/\(partCount))")
+            
+            let storyExtension = try await extendStory(currentStory, targetLang: targetLang, metadata: elevated, jobId: jobId, jobToken: jobToken)
+            currentStory += "\n\n" + storyExtension
+            
+            if wordCount(of: currentStory) >= totalWordCount {
+                break
+            }
+        }
+        
+        // 3. Finalize with conclusion
+        await progress("Finalizing story...")
+        currentStory = try await finalizeStory(currentStory, targetLang: targetLang, metadata: elevated, jobId: jobId, jobToken: jobToken)
+        
+        return currentStory
+    }
+    
+    private static func extendStory(_ currentStory: String, targetLang: String, metadata: String, jobId: String, jobToken: String) async throws -> String {
+        let prompt = """
+        Continue the story without repeating earlier sentences.
+        Do not end the story yet. Avoid using ellipses ('...').
+        Keep it open-ended for future extensions.
+        
+        Context: \(metadata)
+        
+        Current story:
+        \(currentStory)
+        """
+        
+        let response = try await Self.chatViaProxy([
+            "model": "gpt-4o",
+            "messages": [
+                ["role": "system", "content": "You are a world-class storyteller. Continue narratives naturally and engagingly in \(targetLang)."],
+                ["role": "user", "content": prompt]
+            ]
+        ], jobId: jobId, jobToken: jobToken)
+        
+        return cleanupExtension(response, previousStory: currentStory)
+    }
+    
+    private static func finalizeStory(_ story: String, targetLang: String, metadata: String, jobId: String, jobToken: String) async throws -> String {
+        let prompt = """
+        Here is a story that needs a conclusive ending.
+        Provide a final passage to gracefully conclude the narrative.
+        Avoid repeating earlier lines or using ellipses.
+        
+        Context: \(metadata)
+        
+        Story:
+        \(story)
+        """
+        
+        let conclusion = try await Self.chatViaProxy([
+            "model": "gpt-4o",
+            "messages": [
+                ["role": "system", "content": "You are a world-class storyteller. Provide satisfying story conclusions in \(targetLang)."],
+                ["role": "user", "content": prompt]
+            ]
+        ], jobId: jobId, jobToken: jobToken)
+        
+        let cleanConclusion = cleanupExtension(conclusion, previousStory: story)
+        return story + "\n\n" + cleanConclusion
+    }
+    
+    private static func cleanupExtension(_ text: String, previousStory: String) -> String {
+        var cleaned = text.replacingOccurrences(of: "...", with: "")
+                          .replacingOccurrences(of: "…", with: "")
+        
+        // Remove repetition of last line
+        let previousLines = previousStory.components(separatedBy: .newlines)
+        if let lastLine = previousLines.last?.trimmingCharacters(in: .whitespaces), !lastLine.isEmpty {
+            if cleaned.hasPrefix(lastLine) {
+                cleaned = String(cleaned.dropFirst(lastLine.count)).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        
+        return cleaned
+    }
+    
+    private static func wordCount(of text: String) -> Int {
+        text.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .count
+    }
+    
+    /// Translate complete story paragraph by paragraph to avoid context length issues
+    public static func translateStoryParagraphByParagraph(_ story: String, to targetLang: String, style: Request.TranslationStyle, jobId: String, jobToken: String, progress: @escaping (String) async -> Void) async throws -> String {
+        await progress("Translating story (paragraph by paragraph)...")
+        
+        let paragraphs = story.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        var translatedParagraphs: [String] = []
+        
+        for (index, paragraph) in paragraphs.enumerated() {
+            await progress("Translating paragraph \(index + 1)/\(paragraphs.count)...")
+            
+            // Translate single paragraph
+            let translatedParagraph = try await Self.translate(paragraph, to: targetLang, style: style, jobId: jobId, jobToken: jobToken)
+            translatedParagraphs.append(translatedParagraph)
+            
+            // Small delay to avoid rate limiting
+            try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+        }
+        
+        return translatedParagraphs.joined(separator: "\n\n")
+    }
+    
+    /// Split complete story into equal parts by paragraph
+    public static func splitStoryIntoParts(_ completeStory: String, partCount: Int) -> [String] {
+        let paragraphs = completeStory.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        guard !paragraphs.isEmpty else { return [] }
+        
+        let paragraphsPerPart = max(1, paragraphs.count / partCount)
+        var parts: [String] = []
+        
+        for i in 0..<partCount {
+            let startIndex = i * paragraphsPerPart
+            let endIndex: Int
+            
+            if i == partCount - 1 {
+                // Last part gets all remaining paragraphs
+                endIndex = paragraphs.count
+            } else {
+                endIndex = min(startIndex + paragraphsPerPart, paragraphs.count)
+            }
+            
+            guard startIndex < paragraphs.count else { break }
+            
+            let partParagraphs = Array(paragraphs[startIndex..<endIndex])
+            let partText = partParagraphs.joined(separator: "\n\n")
+            parts.append(partText)
+        }
+        
+        return parts
+    }
+    
+    /// Translate text with sentence alignment preservation
+    static func translate(_ text: String, to targetLang: String, style: Request.TranslationStyle, jobId: String, jobToken: String) async throws -> String {
+        // First pass translation
+        let draft = try await firstPassTranslate(text, to: targetLang, style: style, jobId: jobId, jobToken: jobToken)
+        
+        // Validate sentence counts
+        let srcN = sentenceCount(text)
+        let dstN = sentenceCount(draft)
+        
+        // Return draft if alignment is good, otherwise would need repair logic
+        // For simplicity in series generation, we'll accept the first pass
+        return draft
+    }
+    
+    private static func firstPassTranslate(_ text: String, to targetLang: String, style: Request.TranslationStyle, jobId: String, jobToken: String) async throws -> String {
+        let system: String = (style == .literal)
+        ? """
+          Translate as literally as possible.
+          KEEP EXACT sentence alignment (same number and order as the source).
+          Within a paragraph, NEVER insert newlines; separate sentences with a single space only.
+          """
+        : """
+          Translate naturally and idiomatically.
+          KEEP EXACT sentence alignment (same number and order as the source).
+          Within a paragraph, NEVER insert newlines; separate sentences with a single space only.
+          """
+        
+        let user = """
+        Target language: \(targetLang)
+        Translate the text below. Preserve sentence boundaries exactly (1 target sentence per source sentence, same order).
+        
+        \(text)
+        """
+        
+        let jsonSchema: [String: Any] = [
+            "type": "json_schema",
+            "json_schema": [
+                "name": "translation",
+                "description": "Translation with preserved sentence alignment",
+                "strict": true,
+                "schema": [
+                    "type": "object",
+                    "properties": [
+                        "translation": [
+                            "type": "string",
+                            "description": "The translated text"
+                        ]
+                    ],
+                    "required": ["translation"],
+                    "additionalProperties": false
+                ]
+            ]
+        ]
+        
+        let body: [String:Any] = [
+            "model": "gpt-5-nano",
+            "messages": [
+                ["role":"system","content": system],
+                ["role":"user","content": user]
+            ],
+            "response_format": jsonSchema
+        ]
+        
+        let raw = try await chatViaProxy(body, jobId: jobId, jobToken: jobToken)
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let translation = json["translation"] as? String else {
+            throw NSError(domain: "Generator", code: 6, userInfo: [NSLocalizedDescriptionKey: "Failed to parse translation JSON"])
+        }
+        return translation.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
 }

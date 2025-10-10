@@ -63,6 +63,389 @@ final class GenerationQueue: ObservableObject {
         }
     }
     
+    /// NEW: Generate complete series iteratively (all at once)
+    func processSeriesIteratively(items: [QueueItem]) async {
+        guard let firstItem = items.first else { return }
+        
+        await MainActor.run {
+            isProcessing = true
+        }
+        
+        do {
+            // Start job for the entire series
+            let jobResponse = try await GeneratorService.proxy.jobStart(
+                deviceId: DeviceID.current,
+                amount: firstItem.totalParts
+            )
+            
+            let totalWordCount = firstItem.request.lengthWords * firstItem.totalParts
+            
+            // Mark all items as generating
+            for item in items {
+                await updateItemStatus(item.id, .generating)
+            }
+            
+            // 1. Generate complete story iteratively
+            let completeStory = try await GeneratorService.generateSeriesIteratively(
+                elevated: firstItem.request.userPrompt,
+                targetLang: firstItem.request.genLanguage,
+                totalWordCount: totalWordCount,
+                partCount: firstItem.totalParts,
+                jobId: jobResponse.jobId,
+                jobToken: jobResponse.jobToken,
+                progress: { status in
+                    await MainActor.run {
+                        self.generator.status = status
+                    }
+                }
+            )
+            
+            // 2. Translate complete story (paragraph by paragraph to avoid context length issues)
+            let translatedStory = try await GeneratorService.translateStoryParagraphByParagraph(
+                completeStory,
+                to: firstItem.request.transLanguage,
+                style: firstItem.request.translationStyle,
+                jobId: jobResponse.jobId,
+                jobToken: jobResponse.jobToken,
+                progress: { status in
+                    await MainActor.run {
+                        self.generator.status = status
+                    }
+                }
+            )
+            
+            // 3. Split both stories into parts
+            let originalParts = GeneratorService.splitStoryIntoParts(completeStory, partCount: firstItem.totalParts)
+            let translatedParts = GeneratorService.splitStoryIntoParts(translatedStory, partCount: firstItem.totalParts)
+            
+            guard originalParts.count == translatedParts.count else {
+                throw NSError(domain: "GenerationQueue", code: 5,
+                            userInfo: [NSLocalizedDescriptionKey: "Failed to split story into parts"])
+            }
+            
+            // Create or get series folder
+            var seriesFolderId: String?
+            await MainActor.run {
+                if let existingFolder = folderStore.folders.first(where: { $0.seriesId == firstItem.seriesId }) {
+                    seriesFolderId = existingFolder.id.uuidString
+                }
+            }
+            
+            // 4. Process each part: segment, generate TTS, save
+            for (index, item) in items.enumerated() {
+                guard index < originalParts.count && index < translatedParts.count else { break }
+                
+                await updateItemStatus(item.id, .generating)
+                await MainActor.run {
+                    generator.status = "Processing part \(index + 1)/\(items.count): Segmentation..."
+                }
+                
+                let originalText = originalParts[index]
+                let translatedText = translatedParts[index]
+                
+                // Extract title from first paragraph or generate from prompt
+                let title = if index == 0 {
+                    "Part 1: \(firstItem.request.userPrompt.prefix(30))..."
+                } else {
+                    "Part \(index + 1)"
+                }
+                
+                // Segment the part
+                let segments = try await segmentPart(
+                    originalText: originalText,
+                    translatedText: translatedText,
+                    segmentation: firstItem.request.segmentation,
+                    jobId: jobResponse.jobId,
+                    jobToken: jobResponse.jobToken
+                )
+                
+                // Generate TTS for all segments
+                await MainActor.run {
+                    generator.status = "Processing part \(index + 1)/\(items.count): Generating audio..."
+                }
+                
+                let audioFiles = try await generateAudioForSegments(
+                    segments: segments,
+                    targetLang: firstItem.request.genLanguage,
+                    transLang: firstItem.request.transLanguage,
+                    speechSpeed: firstItem.request.speechSpeed,
+                    jobId: jobResponse.jobId,
+                    jobToken: jobResponse.jobToken
+                )
+                
+                // Save lesson
+                let lessonId = try await saveLesson(
+                    title: title,
+                    segments: segments,
+                    audioFiles: audioFiles,
+                    targetLang: firstItem.request.genLanguage,
+                    transLang: firstItem.request.transLanguage,
+                    partNumber: index + 1,
+                    totalParts: items.count
+                )
+                
+                // Update item status
+                await updateItemStatus(item.id, .completed, lessonId: lessonId)
+                
+                // Add to folder (create if first part)
+                await MainActor.run {
+                    if let folderId = seriesFolderId,
+                       let folderIndex = folderStore.folders.firstIndex(where: { $0.id.uuidString == folderId }) {
+                        // Add to existing folder
+                        if !folderStore.folders[folderIndex].lessonIDs.contains(lessonId) {
+                            folderStore.folders[folderIndex].lessonIDs.append(lessonId)
+                        }
+                    } else if index == 0 {
+                        // Create new folder for series
+                        let folder = Folder(
+                            id: UUID(),
+                            name: item.folderName,
+                            lessonIDs: [lessonId],
+                            seriesId: firstItem.seriesId,
+                            createdAt: Date()
+                        )
+                        folderStore.folders.append(folder)
+                        seriesFolderId = folder.id.uuidString
+                    }
+                    
+                    // Update series metadata
+                    seriesStore.addLesson(seriesId: firstItem.seriesId, lessonId: lessonId)
+                }
+            }
+            
+            // Commit job (deduct credits)
+            try await GeneratorService.proxy.jobCommit(
+                deviceId: DeviceID.current,
+                jobId: jobResponse.jobId
+            )
+            
+            await MainActor.run {
+                isProcessing = false
+                currentItem = nil
+            }
+            
+        } catch {
+            // Cancel job on error (refund credits)
+            // Note: job will auto-cancel if not committed
+            
+            for item in items {
+                await updateItemStatus(item.id, .failed, error: error.localizedDescription)
+            }
+            await MainActor.run {
+                isProcessing = false
+                currentItem = nil
+            }
+        }
+    }
+    
+    /// Segment a story part into sentences/paragraphs
+    private func segmentPart(
+        originalText: String,
+        translatedText: String,
+        segmentation: GeneratorService.Request.Segmentation,
+        jobId: String,
+        jobToken: String
+    ) async throws -> [SegmentData] {
+        // Split by paragraphs
+        let originalParagraphs = originalText.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        let translatedParagraphs = translatedText.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        guard originalParagraphs.count == translatedParagraphs.count else {
+            throw NSError(domain: "GenerationQueue", code: 6,
+                        userInfo: [NSLocalizedDescriptionKey: "Paragraph count mismatch"])
+        }
+        
+        var segments: [SegmentData] = []
+        var segmentId = 0
+        
+        for (paragraphIndex, (originalPara, translatedPara)) in zip(originalParagraphs, translatedParagraphs).enumerated() {
+            // Split into sentences if needed
+            if segmentation == .sentences {
+                let originalSentences = splitIntoSentences(originalPara)
+                let translatedSentences = splitIntoSentences(translatedPara)
+                
+                // Match sentences (may not be 1:1, use best effort)
+                for (sentIndex, (origSent, transSent)) in zip(originalSentences, translatedSentences).enumerated() {
+                    segments.append(SegmentData(
+                        id: segmentId,
+                        originalText: origSent,
+                        translatedText: transSent,
+                        paragraph: paragraphIndex
+                    ))
+                    segmentId += 1
+                }
+            } else {
+                // Paragraph mode
+                segments.append(SegmentData(
+                    id: segmentId,
+                    originalText: originalPara,
+                    translatedText: translatedPara,
+                    paragraph: paragraphIndex
+                ))
+                segmentId += 1
+            }
+        }
+        
+        return segments
+    }
+    
+    /// Simple sentence splitter
+    private func splitIntoSentences(_ text: String) -> [String] {
+        // Split on sentence-ending punctuation followed by space
+        let pattern = #"[.!?]+\s+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return [text]
+        }
+        
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        
+        var sentences: [String] = []
+        var lastEnd = 0
+        
+        for match in matches {
+            let sentenceRange = NSRange(location: lastEnd, length: match.range.location - lastEnd)
+            if let range = Range(sentenceRange, in: text) {
+                let sentence = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !sentence.isEmpty {
+                    sentences.append(sentence)
+                }
+            }
+            lastEnd = match.range.location + match.range.length
+        }
+        
+        // Add remaining text
+        if lastEnd < nsText.length {
+            let remainingRange = NSRange(location: lastEnd, length: nsText.length - lastEnd)
+            if let range = Range(remainingRange, in: text) {
+                let sentence = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !sentence.isEmpty {
+                    sentences.append(sentence)
+                }
+            }
+        }
+        
+        return sentences.isEmpty ? [text] : sentences
+    }
+    
+    /// Generate TTS audio for all segments
+    private func generateAudioForSegments(
+        segments: [SegmentData],
+        targetLang: String,
+        transLang: String,
+        speechSpeed: GeneratorService.Request.SpeechSpeed,
+        jobId: String,
+        jobToken: String
+    ) async throws -> [(Data, Data)] { // Returns [(targetAudioData, transAudioData)]
+        var audioFiles: [(Data, Data)] = []
+        
+        for (index, segment) in segments.enumerated() {
+            await MainActor.run {
+                generator.status = "Generating audio \(index + 1)/\(segments.count)..."
+            }
+            
+            // Generate target language audio
+            let targetAudio = try await ProxyClient(baseURL: URL(string: "https://inputmax-proxy.robing43.workers.dev")!)
+                .ttsBackground(
+                    deviceId: DeviceID.current,
+                    jobId: jobId,
+                    jobToken: jobToken,
+                    text: segment.originalText,
+                    language: targetLang,
+                    speed: speechSpeed.rawValue
+                )
+            
+            // Generate translation language audio
+            let transAudio = try await ProxyClient(baseURL: URL(string: "https://inputmax-proxy.robing43.workers.dev")!)
+                .ttsBackground(
+                    deviceId: DeviceID.current,
+                    jobId: jobId,
+                    jobToken: jobToken,
+                    text: segment.translatedText,
+                    language: transLang,
+                    speed: speechSpeed.rawValue
+                )
+            
+            // Audio data will be saved by caller
+            audioFiles.append((targetAudio, transAudio))
+        }
+        
+        return audioFiles
+    }
+    
+    /// Save lesson to disk
+    private func saveLesson(
+        title: String,
+        segments: [SegmentData],
+        audioFiles: [(Data, Data)],
+        targetLang: String,
+        transLang: String,
+        partNumber: Int,
+        totalParts: Int
+    ) async throws -> String {
+        let lessonId = UUID().uuidString
+        let folderName = lessonId
+        
+        // Create lesson directory
+        let lessonDir = FileManager.docsLessonsDir.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: lessonDir, withIntermediateDirectories: true)
+        
+        // Save audio files
+        var segmentsToSave: [Segment] = []
+        for (index, segment) in segments.enumerated() {
+            let targetFile = "target_\(index).mp3"
+            let transFile = "trans_\(index).mp3"
+            
+            // Save audio data
+            let targetURL = lessonDir.appendingPathComponent(targetFile)
+            let transURL = lessonDir.appendingPathComponent(transFile)
+            try audioFiles[index].0.write(to: targetURL)
+            try audioFiles[index].1.write(to: transURL)
+            
+            segmentsToSave.append(Segment(
+                id: segment.id,
+                pt_text: segment.originalText,
+                en_text: segment.translatedText,
+                pt_file: targetFile,
+                en_file: transFile,
+                paragraph: segment.paragraph
+            ))
+        }
+        
+        // Save segments JSON
+        let segmentsData = try JSONEncoder().encode(segmentsToSave)
+        let segmentsURL = lessonDir.appendingPathComponent("segments_\(folderName).json")
+        try segmentsData.write(to: segmentsURL)
+        
+        // Create and save lesson
+        await MainActor.run {
+            let lesson = Lesson(
+                id: lessonId,
+                title: title,
+                folderName: folderName,
+                targetLanguage: targetLang,
+                translationLanguage: transLang
+            )
+            lessonStore.lessons.append(lesson)
+            // Note: LessonStore uses @Published array which auto-persists via didSet
+        }
+        
+        return lessonId
+    }
+    
+    /// Helper struct for segment data during processing
+    private struct SegmentData {
+        let id: Int
+        let originalText: String
+        let translatedText: String
+        let paragraph: Int
+    }
+    
     /// Process the next pending item in queue
     func processNext() async {
         // Find next pending item
