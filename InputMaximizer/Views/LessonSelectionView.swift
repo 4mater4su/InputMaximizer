@@ -12,10 +12,22 @@ import Foundation
 
 @MainActor
 final class LessonStore: ObservableObject {
-    @Published var lessons: [Lesson] = []
+    @Published var lessons: [Lesson] = [] {
+        didSet {
+            // Auto-save whenever lessons array changes (but skip during initial load)
+            if isLoaded {
+                try? saveListToDisk()
+            }
+        }
+    }
+    
+    private var isLoaded = false
+    
     init() { load() }
 
     func load() {
+        isLoaded = false // Prevent didSet from saving during load
+        
         FileManager.ensureLessonsDir()
         let docsURL = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
 
@@ -49,7 +61,7 @@ final class LessonStore: ObservableObject {
         // 4) Publish
         lessons = merged
 
-        // 5) Persist merged manifest to Documents so it “sticks” on existing installs
+        // 5) Persist merged manifest to Documents so it "sticks" on existing installs
         if merged != docList {
             do {
                 try FileManager.default.createDirectory(at: FileManager.docsLessonsDir, withIntermediateDirectories: true)
@@ -59,6 +71,8 @@ final class LessonStore: ObservableObject {
                 print("Failed to persist merged lessons.json: \(error)")
             }
         }
+        
+        isLoaded = true // Enable auto-save after initial load
     }
 }
 
@@ -72,6 +86,7 @@ extension LessonStore {
         try FileManager.default.createDirectory(at: FileManager.docsLessonsDir, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(lessons)
         try data.write(to: docsLessonsJSONURL, options: .atomic)
+        print("💾 Saved \(lessons.count) lessons to disk")
     }
 
     /// Can we delete this lesson from device? (Only if its folder exists in Documents.)
@@ -113,7 +128,16 @@ struct Folder: Identifiable, Codable, Hashable {
 
 @MainActor
 final class FolderStore: ObservableObject {
-    @Published var folders: [Folder] = [] { didSet { save() } }
+    @Published var folders: [Folder] = [] {
+        didSet {
+            // Only save if already loaded to avoid unnecessary saves during init
+            if isLoaded {
+                save()
+            }
+        }
+    }
+    
+    private var isLoaded = false
 
     private var fileURL: URL {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
@@ -123,12 +147,16 @@ final class FolderStore: ObservableObject {
     init() { load() }
 
     func load() {
+        isLoaded = false // Prevent didSet from saving during load
+        
         do {
             let data = try Data(contentsOf: fileURL)
             folders = try JSONDecoder().decode([Folder].self, from: data)
         } catch {
             folders = []
         }
+        
+        isLoaded = true // Enable auto-save after initial load
     }
 
     private func save() {

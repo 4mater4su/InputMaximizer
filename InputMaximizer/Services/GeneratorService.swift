@@ -130,8 +130,7 @@ final class GeneratorService: ObservableObject {
                 self.lastLessonID = lessonID
                 self.status = "Done. Open the lesson list and select."
                 self.isBusy = false
-                lessonStore.load()
-                folderStore?.load()
+                // No need to reload stores - lessons/folders are already added and auto-saved via didSet
 
                 // NEW: reveal the already-precomputed suggestions without waiting
                 self.nextPromptSuggestions = self.nextPromptSuggestionsBuffer
@@ -1662,8 +1661,8 @@ private extension GeneratorService {
 
                 rows.append(.init(
                     id: i+1,
-                    pt_text: segsPrimary[i],
-                    en_text: segsSecondary[i],
+                    pt_text: ptSegs[i],    // Use ptSegs to match audio
+                    en_text: enSegs[i],    // Use enSegs to match audio
                     pt_file: ptFile,
                     en_file: enFile,
                     paragraph: segmentParagraphIndex[i]
@@ -1695,40 +1694,23 @@ private extension GeneratorService {
             try save(metaData, to: metaURL)
 
             
-            
-            // update lessons.json in Documents
-            // Replace the Manifest struct in runGeneration with:
-            struct Manifest: Codable {
-                var id: String
-                var title: String
-                var folderName: String
-                var targetLanguage: String?
-                var translationLanguage: String?
-                var targetLangCode: String?
-                var translationLangCode: String?
+            // Add lesson to the store (UI will update via @Published)
+            await MainActor.run {
+                let newLesson = Lesson(
+                    id: lessonID,
+                    title: generatedTitle,
+                    folderName: lessonID,
+                    targetLanguage: req.genLanguage,
+                    translationLanguage: req.transLanguage,
+                    targetLangCode: LessonLanguageResolver.languageCode(for: req.genLanguage),
+                    translationLangCode: LessonLanguageResolver.languageCode(for: req.transLanguage)
+                )
+                // Remove any existing lesson with same ID, then add
+                lessonStore.lessons.removeAll { $0.id == lessonID }
+                lessonStore.lessons.append(newLesson)
+                print("✅ Added lesson to store: \(newLesson.id), title: \(newLesson.title)")
+                print("   Total lessons in store: \(lessonStore.lessons.count)")
             }
-            
-            
-            let manifestURL = FileManager.docsLessonsDir.appendingPathComponent("lessons.json")
-            var list: [Manifest] = []
-            if let d = try? Data(contentsOf: manifestURL) {
-                list = (try? JSONDecoder().decode([Manifest].self, from: d)) ?? []
-                list.removeAll { $0.id == lessonID }
-            }
-            let title = generatedTitle
-            
-            list.append(.init(
-                id: lessonID,
-                title: title,
-                folderName: lessonID,
-                targetLanguage: req.genLanguage,
-                translationLanguage: req.transLanguage,
-                targetLangCode: LessonLanguageResolver.languageCode(for: req.genLanguage),
-                translationLangCode: LessonLanguageResolver.languageCode(for: req.transLanguage)
-            ))
-            
-            let out = try JSONEncoder().encode(list)
-            try save(out, to: manifestURL)
 
             
             // ---- Commit the credit hold only after success ----
@@ -1829,7 +1811,9 @@ private extension GeneratorService {
                 
                 // Generate title
                 let lessonTitle = "\(userInput.prefix(30)) - Part \(index + 1)"
-                let lessonID = slugify(lessonTitle) + "_\(Int(Date().timeIntervalSince1970))"
+                // Use milliseconds + index to ensure uniqueness even when generated rapidly
+                let timestamp = Int(Date().timeIntervalSince1970 * 1000) + index
+                let lessonID = slugify(lessonTitle) + "_\(timestamp)"
                 let lessonDir = baseRoot.appendingPathComponent(lessonID, isDirectory: true)
                 try FileManager.default.createDirectory(at: lessonDir, withIntermediateDirectories: true)
                 
@@ -1847,9 +1831,14 @@ private extension GeneratorService {
                 await progress("Generating audio for lesson \(index + 1)...")
                 var savedSegments: [Segment] = []
                 
+                // Get language slugs for unique filenames
+                let srcSlug = Self.languageSlug(req.genLanguage)
+                let dstSlug = Self.languageSlug(req.transLanguage)
+                
                 for (segIndex, segment) in segments.enumerated() {
-                    let targetFile = "target_\(segIndex).mp3"
-                    let transFile = "trans_\(segIndex).mp3"
+                    // Use lessonID in filename to make it unique across all lessons
+                    let targetFile = "\(srcSlug)_\(lessonID)_\(segIndex + 1).mp3"
+                    let transFile = "\(dstSlug)_\(lessonID)_\(segIndex + 1).mp3"
                     
                     // Generate TTS
                     let targetAudio = try await ttsViaProxy(
@@ -1875,7 +1864,7 @@ private extension GeneratorService {
                     try transAudio.write(to: transURL)
                     
                     savedSegments.append(Segment(
-                        id: segIndex,
+                        id: segIndex + 1,  // Match the 1-based indexing used in filename
                         pt_text: segment.original,
                         en_text: segment.translated,
                         pt_file: targetFile,

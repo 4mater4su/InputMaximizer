@@ -1053,7 +1053,8 @@ struct GeneratorView: View {
         actionSection()
     }
     
-    private var formContent: some View {
+    // Break up the complex view hierarchy into smaller pieces
+    private var formWithBasicStyling: some View {
         Form {
             formBody
         }
@@ -1067,192 +1068,198 @@ struct GeneratorView: View {
             }
         )
         .scrollDismissesKeyboard(.immediately)
-
-        // Remove this block OR replace with:
-        .onChange(of: mode, initial: false) { _, _ in
-            // keep keyboard hidden until user taps
-            promptIsFocused = false
-        }
-        .onAppear {
-            print("DeviceID.current = \(DeviceID.current)")
-            // hydrate from persistence (or seed defaults)
-            let loadedTable = loadTable(from: styleTableJSON, fallback: styleTable)
-            let loadedRow = loadRow(from: interestRowJSON, fallback: interestRow)
-            styleTable = loadedTable
-            interestRow = loadedRow
-            if styleTableJSON.isEmpty { styleTableJSON = saveTable(styleTable) }
-            if interestRowJSON.isEmpty { interestRowJSON = saveRow(interestRow) }
-            
-            // Snapshot current lesson IDs so we can detect new ones later
-            knownLessonIDs = Set(lessonStore.lessons.map { $0.id })
-            
-            // Load generator settings
-            loadGeneratorSettings()
-            promptIsFocused = false   // ensure keyboard is hidden on open
-        }
-        // Persist generator settings — keep one-liners
-        .onChange(of: mode, initial: false)            { _, _ in saveGeneratorSettings() }
-        .onChange(of: segmentation, initial: false)    { _, _ in saveGeneratorSettings() }
-        .onChange(of: lengthPreset, initial: false)    { _, _ in saveGeneratorSettings() }
-        .onChange(of: genLanguage, initial: false)     { _, _ in saveGeneratorSettings() }
-        .onChange(of: transLanguage, initial: false)   { _, _ in saveGeneratorSettings() }
-        .onChange(of: languageLevel, initial: false)   { _, _ in saveGeneratorSettings() }
-        .onChange(of: speechSpeed, initial: false)     { _, _ in saveGeneratorSettings() }
-        .onChange(of: translationStyle, initial: false) { _, _ in saveGeneratorSettings() }
-
-        // Persist aspect table & interests
-        .onChange(of: styleTable, initial: false) { _, newValue in
-            styleTableJSON = saveTable(newValue)
-        }
-        .onChange(of: interestRow, initial: false) { _, newValue in
-            interestRowJSON = saveRow(newValue)
-        }
-
-        // Detect newly added lessons to show the toast
-        .onChange(of: lessonStore.lessons, initial: false) { _, newLessons in
-            let added = newLessons.filter { !knownLessonIDs.contains($0.id) }
-            if let lesson = added.last {
-                newlyCreatedLesson = lesson
-                toastHideWork?.cancel()
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
-                    showToast = true
-                }
-                let work = DispatchWorkItem {
-                    withAnimation(.easeInOut) { showToast = false }
-                }
-                toastHideWork = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
+    }
+    
+    private var formWithLifecycleHandlers: some View {
+        formWithBasicStyling
+            .onChange(of: mode, initial: false) { _, _ in
+                // keep keyboard hidden until user taps
+                promptIsFocused = false
             }
-            knownLessonIDs = Set(newLessons.map { $0.id })
-        }
-        
-        // React to out-of-credits latch
-        .onChange(of: generator.outOfCredits, initial: false) { _, needs in
-            if needs {
-                showBuyCredits = true
-                generator.outOfCredits = false
+            .onAppear {
+                print("DeviceID.current = \(DeviceID.current)")
+                // hydrate from persistence (or seed defaults)
+                let loadedTable = loadTable(from: styleTableJSON, fallback: styleTable)
+                let loadedRow = loadRow(from: interestRowJSON, fallback: interestRow)
+                styleTable = loadedTable
+                interestRow = loadedRow
+                if styleTableJSON.isEmpty { styleTableJSON = saveTable(styleTable) }
+                if interestRowJSON.isEmpty { interestRowJSON = saveRow(interestRow) }
+                
+                // Snapshot current lesson IDs so we can detect new ones later
+                knownLessonIDs = Set(lessonStore.lessons.map { $0.id })
+                
+                // Load generator settings
+                loadGeneratorSettings()
+                promptIsFocused = false   // ensure keyboard is hidden on open
             }
-        }
-
-        .navigationTitle("Generator")
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showPromptBrainstorm = true
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("AI")
-                            .font(.system(size: 14, weight: .semibold))
+            // Persist generator settings — keep one-liners
+            .onChange(of: mode, initial: false)            { _, _ in saveGeneratorSettings() }
+            .onChange(of: segmentation, initial: false)    { _, _ in saveGeneratorSettings() }
+            .onChange(of: lengthPreset, initial: false)    { _, _ in saveGeneratorSettings() }
+            .onChange(of: genLanguage, initial: false)     { _, _ in saveGeneratorSettings() }
+            .onChange(of: transLanguage, initial: false)   { _, _ in saveGeneratorSettings() }
+            .onChange(of: languageLevel, initial: false)   { _, _ in saveGeneratorSettings() }
+            .onChange(of: speechSpeed, initial: false)     { _, _ in saveGeneratorSettings() }
+            .onChange(of: translationStyle, initial: false) { _, _ in saveGeneratorSettings() }
+    }
+    
+    private var formWithPersistence: some View {
+        formWithLifecycleHandlers
+            // Persist aspect table & interests
+            .onChange(of: styleTable, initial: false) { _, newValue in
+                styleTableJSON = saveTable(newValue)
+            }
+            .onChange(of: interestRow, initial: false) { _, newValue in
+                interestRowJSON = saveRow(newValue)
+            }
+            // Detect newly added lessons to show the toast
+            .onChange(of: lessonStore.lessons, initial: false) { _, newLessons in
+                let added = newLessons.filter { !knownLessonIDs.contains($0.id) }
+                if let lesson = added.last {
+                    newlyCreatedLesson = lesson
+                    toastHideWork?.cancel()
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+                        showToast = true
                     }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        LinearGradient(
-                            colors: [Color.blue, Color(red: 0.0, green: 0.4, blue: 0.7), Color(red: 0.0, green: 0.2, blue: 0.5)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                        .clipShape(Capsule())
-                    )
-                    .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 1))
-                    .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 4)
-                }
-                .accessibilityLabel("Brainstorm prompt ideas with AI")
-            }
-        }
-        .listStyle(.insetGrouped)
-        .environment(\.generatorAdvancedExpanded, advancedExpandedBinding)
-        .sheet(isPresented: $showConfigurator) {
-            AspectConfiguratorView(styleTable: $styleTable, interestRow: $interestRow)
-                .onDisappear {
-                    styleTableJSON = saveTable(styleTable)
-                    interestRowJSON = saveRow(interestRow)
-                }
-        }
-        // Destination for programmatic navigation from toast tap
-        .navigationDestination(item: $navTargetLesson) { lesson in
-            ContentView(selectedLesson: lesson, lessons: lessonStore.lessons)
-        }
-        // Destination for folder navigation (long-form series)
-        .navigationDestination(item: $navTargetFolder) { folder in
-            FolderDetailView(folder: folder)
-        }
-        // Overlay toast banner at top of GeneratorView
-        .overlay(alignment: .top) {
-            if showToast, let lesson = newlyCreatedLesson {
-                ToastBanner(
-                    message: "New lesson ready: \(lesson.title)",
-                    isSuccess: true,
-                    onTap: {
-                        // Hide toast and navigate
-                        toastHideWork?.cancel()
+                    let work = DispatchWorkItem {
                         withAnimation(.easeInOut) { showToast = false }
-                        navTargetLesson = lesson
+                    }
+                    toastHideWork = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
+                }
+                knownLessonIDs = Set(newLessons.map { $0.id })
+            }
+            // React to out-of-credits latch
+            .onChange(of: generator.outOfCredits, initial: false) { _, needs in
+                if needs {
+                    showBuyCredits = true
+                    generator.outOfCredits = false
+                }
+            }
+    }
+    
+    private var formWithNavigation: some View {
+        formWithPersistence
+            .navigationTitle("Generator")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showPromptBrainstorm = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text("AI")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.blue, Color(red: 0.0, green: 0.4, blue: 0.7), Color(red: 0.0, green: 0.2, blue: 0.5)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                            .clipShape(Capsule())
+                        )
+                        .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 1))
+                        .shadow(color: .blue.opacity(0.4), radius: 8, x: 0, y: 4)
+                    }
+                    .accessibilityLabel("Brainstorm prompt ideas with AI")
+                }
+            }
+            .listStyle(.insetGrouped)
+            .environment(\.generatorAdvancedExpanded, advancedExpandedBinding)
+    }
+    
+    private var formWithSheets: some View {
+        formWithNavigation
+            .sheet(isPresented: $showConfigurator) {
+                AspectConfiguratorView(styleTable: $styleTable, interestRow: $interestRow)
+                    .onDisappear {
+                        styleTableJSON = saveTable(styleTable)
+                        interestRowJSON = saveRow(interestRow)
+                    }
+            }
+            // Destination for programmatic navigation from toast tap
+            .navigationDestination(item: $navTargetLesson) { lesson in
+                ContentView(selectedLesson: lesson, lessons: lessonStore.lessons)
+            }
+            // Destination for folder navigation (long-form series)
+            .navigationDestination(item: $navTargetFolder) { folder in
+                FolderDetailView(folder: folder, lessons: lessonStore.lessons)
+            }
+            .sheet(isPresented: $showBuyCredits, onDismiss: {
+                Task { await refreshServerBalance() }   // calls @MainActor func
+            }) {
+                NavigationStack {
+                    BuyCreditsView(presentation: .modal)
+                        .environmentObject(purchases)
+                }
+            }
+            .sheet(isPresented: $showPromptBrainstorm) {
+                PromptBrainstormView(
+                    onSelectPrompt: { finalPrompt in
+                        mode = .prompt
+                        userPrompt = finalPrompt
+                        showPromptBrainstorm = false
                     }
                 )
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .padding(.top, 6)
+                .environmentObject(generator)
             }
-        }
-        .task {
-            await refreshServerBalance()   // main-actor isolated; safe UI mutation
-        }
-        
-        .onAppear {
-            // Seed once when the view shows (main-thread context here)
-            suggestionsFeed = generator.nextPromptSuggestions
-        }
-
-        .onReceive(
-            generator.$nextPromptSuggestions
-                .receive(on: RunLoop.main)   // ensure updates arrive on main
-        ) { newValue in
-            let hadSuggestions = !suggestionsFeed.isEmpty
-            suggestionsFeed = newValue
-            
-            // Auto-expand when suggestions are first generated
-            if !hadSuggestions && !newValue.isEmpty {
-                suggestionsExpanded = true
-            }
-        }
-
-
-        .onReceive(
-            NotificationCenter.default
-                .publisher(for: .didPurchaseCredits)
-                .receive(on: RunLoop.main)                 // <- ensure delivery on main
-        ) { _ in
-            Task { await refreshServerBalance() }         // <- main-actor func, safe
-        }
-
-
-        .sheet(isPresented: $showBuyCredits, onDismiss: {
-            Task { await refreshServerBalance() }   // calls @MainActor func
-        }) {
-            NavigationStack {
-                BuyCreditsView(presentation: .modal)
-                    .environmentObject(purchases)
-            }
-        }
-        
-        .sheet(isPresented: $showPromptBrainstorm) {
-            PromptBrainstormView(
-                onSelectPrompt: { finalPrompt in
-                    mode = .prompt
-                    userPrompt = finalPrompt
-                    showPromptBrainstorm = false
+    }
+    
+    private var formContent: some View {
+        formWithSheets
+            // Overlay toast banner at top of GeneratorView
+            .overlay(alignment: .top) {
+                if showToast, let lesson = newlyCreatedLesson {
+                    ToastBanner(
+                        message: "New lesson ready: \(lesson.title)",
+                        isSuccess: true,
+                        onTap: {
+                            // Hide toast and navigate
+                            toastHideWork?.cancel()
+                            withAnimation(.easeInOut) { showToast = false }
+                            navTargetLesson = lesson
+                        }
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.top, 6)
                 }
-            )
-            .environmentObject(generator)
-        }
-
-        // Refresh balance after a successful generation
-        .onChange(of: generator.lastLessonID, initial: false) { _, _ in
-            Task { await refreshServerBalance() }   // calls @MainActor func
-        }
+            }
+            .task {
+                await refreshServerBalance()   // main-actor isolated; safe UI mutation
+            }
+            .onAppear {
+                // Seed once when the view shows (main-thread context here)
+                suggestionsFeed = generator.nextPromptSuggestions
+            }
+            .onReceive(
+                generator.$nextPromptSuggestions
+                    .receive(on: RunLoop.main)   // ensure updates arrive on main
+            ) { newValue in
+                let hadSuggestions = !suggestionsFeed.isEmpty
+                suggestionsFeed = newValue
+                
+                // Auto-expand when suggestions are first generated
+                if !hadSuggestions && !newValue.isEmpty {
+                    suggestionsExpanded = true
+                }
+            }
+            .onReceive(
+                NotificationCenter.default
+                    .publisher(for: .didPurchaseCredits)
+                    .receive(on: RunLoop.main)                 // <- ensure delivery on main
+            ) { _ in
+                Task { await refreshServerBalance() }         // <- main-actor func, safe
+            }
+            // Refresh balance after a successful generation
+            .onChange(of: generator.lastLessonID, initial: false) { _, _ in
+                Task { await refreshServerBalance() }   // calls @MainActor func
+            }
     }
     
     // MARK: - Body
