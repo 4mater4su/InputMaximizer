@@ -715,7 +715,8 @@ struct GeneratorView: View {
                 
                 // Set length mode based on long-form toggle
                 if enableLongForm {
-                    let lessonsCount = longFormTotalWords / 300
+                    // Calculate lessons: same text divided into N+1 lessons (min 2, max 10)
+                    let lessonsCount = min(max((longFormTotalWords / 300) + 1, 2), 10)
                     req.lengthMode = .longForm(totalWords: longFormTotalWords, lessonsCount: lessonsCount)
                 } else {
                     req.lengthMode = .standard(words: lengthPreset.words)

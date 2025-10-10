@@ -2017,7 +2017,12 @@ private extension GeneratorService {
         
         Write the opening of this narrative (approximately 300 words).
         Begin the story but leave it open for continuation.
-        Write only in \(targetLang).
+        
+        IMPORTANT:
+        - Write only in \(targetLang)
+        - Do NOT include any headings, titles, or lesson numbers (like "Lección 1:", "Part 1:", etc.)
+        - Start directly with the narrative text
+        - Use only paragraphs separated by blank lines
         """
         
         let openingBody: [String: Any] = [
@@ -2053,9 +2058,14 @@ private extension GeneratorService {
             \(completeText)
             
             Continue this narrative naturally. Add approximately 300 words.
-            Do NOT repeat earlier sentences. Avoid ellipses ('...').
-            Keep the story flowing and maintain continuity with the outline.
-            Write only in \(targetLang).
+            
+            IMPORTANT:
+            - Do NOT repeat earlier sentences
+            - Avoid ellipses ('...')
+            - Do NOT include any headings, titles, or lesson numbers
+            - Keep the story flowing and maintain continuity with the outline
+            - Write only in \(targetLang)
+            - Use only paragraphs separated by blank lines
             """
             
             let extensionBody: [String: Any] = [
@@ -2092,8 +2102,12 @@ private extension GeneratorService {
         \(completeText)
         
         Provide a conclusive ending (approximately 150-200 words) that wraps up the narrative.
-        Avoid repeating earlier lines or using ellipses.
-        Write only in \(targetLang).
+        
+        IMPORTANT:
+        - Avoid repeating earlier lines or using ellipses
+        - Do NOT include any headings, titles, or lesson numbers
+        - Write only in \(targetLang)
+        - Use only paragraphs separated by blank lines
         """
         
         let conclusionBody: [String: Any] = [
@@ -2215,11 +2229,29 @@ private extension GeneratorService {
     
     /// Divide texts into lessons at natural paragraph boundaries
     private static func divideIntoLessons(originalText: String, translatedText: String, targetWordsPerLesson: Int) throws -> [(original: String, translated: String)] {
-        let originalParagraphs = originalText.components(separatedBy: "\n\n")
+        // Clean up any headings that might have been added
+        func removeHeadings(_ text: String) -> String {
+            let lines = text.components(separatedBy: "\n")
+            let filtered = lines.filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Skip lines that look like headings (start with **, contain "Lección", "Part", etc.)
+                if trimmed.hasPrefix("**") || trimmed.contains("Lección") || trimmed.contains("Part ") || 
+                   trimmed.contains("Capítulo") || trimmed.contains("Chapter") {
+                    return false
+                }
+                return true
+            }
+            return filtered.joined(separator: "\n")
+        }
+        
+        let cleanedOriginal = removeHeadings(originalText)
+        let cleanedTranslated = removeHeadings(translatedText)
+        
+        let originalParagraphs = cleanedOriginal.components(separatedBy: "\n\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         
-        let translatedParagraphs = translatedText.components(separatedBy: "\n\n")
+        let translatedParagraphs = cleanedTranslated.components(separatedBy: "\n\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         
@@ -2231,39 +2263,39 @@ private extension GeneratorService {
             throw NSError(domain: "Generator", code: 8, userInfo: [NSLocalizedDescriptionKey: "No paragraphs found"])
         }
         
-        var lessons: [(original: String, translated: String)] = []
-        var currentOriginal: [String] = []
-        var currentTranslated: [String] = []
-        var currentWordCount = 0
+        // Calculate total words and optimal lessons count
+        let totalWords = originalParagraphs.reduce(0) { $0 + wordCount(of: $1) }
+        let idealLessonsCount = max(1, (totalWords + targetWordsPerLesson / 2) / targetWordsPerLesson)
+        let paragraphsPerLesson = max(1, originalParagraphs.count / idealLessonsCount)
         
-        for i in 0..<originalParagraphs.count {
-            let origPara = originalParagraphs[i]
-            let transPara = translatedParagraphs[i]
-            let paraWords = wordCount(of: origPara)
+        // Distribute paragraphs evenly
+        var lessons: [(original: String, translated: String)] = []
+        var currentIndex = 0
+        
+        for lessonNum in 0..<idealLessonsCount {
+            var lessonOriginal: [String] = []
+            var lessonTranslated: [String] = []
             
-            // If adding this paragraph would exceed target and we have content, save current lesson
-            if currentWordCount > 0 && currentWordCount + paraWords > Int(Double(targetWordsPerLesson) * 1.5) {
-                lessons.append((
-                    original: currentOriginal.joined(separator: "\n\n"),
-                    translated: currentTranslated.joined(separator: "\n\n")
-                ))
-                currentOriginal = []
-                currentTranslated = []
-                currentWordCount = 0
+            // Calculate how many paragraphs for this lesson
+            let remainingLessons = idealLessonsCount - lessonNum
+            let remainingParagraphs = originalParagraphs.count - currentIndex
+            let parasForThisLesson = (remainingParagraphs + remainingLessons - 1) / remainingLessons
+            
+            // Add paragraphs to this lesson
+            for _ in 0..<parasForThisLesson {
+                if currentIndex < originalParagraphs.count {
+                    lessonOriginal.append(originalParagraphs[currentIndex])
+                    lessonTranslated.append(translatedParagraphs[currentIndex])
+                    currentIndex += 1
+                }
             }
             
-            // Add paragraph to current lesson
-            currentOriginal.append(origPara)
-            currentTranslated.append(transPara)
-            currentWordCount += paraWords
-        }
-        
-        // Add final lesson if there's content
-        if !currentOriginal.isEmpty {
-            lessons.append((
-                original: currentOriginal.joined(separator: "\n\n"),
-                translated: currentTranslated.joined(separator: "\n\n")
-            ))
+            if !lessonOriginal.isEmpty {
+                lessons.append((
+                    original: lessonOriginal.joined(separator: "\n\n"),
+                    translated: lessonTranslated.joined(separator: "\n\n")
+                ))
+            }
         }
         
         return lessons
