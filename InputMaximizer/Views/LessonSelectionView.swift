@@ -118,11 +118,26 @@ struct Folder: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     var lessonIDs: [String]
-
-    init(id: UUID = UUID(), name: String, lessonIDs: [String]) {
+    var isSeries: Bool
+    
+    init(id: UUID = UUID(), name: String, lessonIDs: [String], isSeries: Bool = false) {
         self.id = id
         self.name = name
         self.lessonIDs = lessonIDs
+        self.isSeries = isSeries
+    }
+    
+    // Custom decoding for backwards compatibility
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        lessonIDs = try container.decode([String].self, forKey: .lessonIDs)
+        isSeries = try container.decodeIfPresent(Bool.self, forKey: .isSeries) ?? false
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case id, name, lessonIDs, isSeries
     }
 }
 
@@ -170,9 +185,9 @@ final class FolderStore: ObservableObject {
 
     // MARK: - CRUD
 
-    func addFolder(named name: String, lessonIDs: [String]) {
+    func addFolder(named name: String, lessonIDs: [String], isSeries: Bool = false) {
         let unique = uniqueName(from: name)
-        folders.append(Folder(name: unique, lessonIDs: lessonIDs))
+        folders.append(Folder(name: unique, lessonIDs: lessonIDs, isSeries: isSeries))
     }
 
     func remove(_ folder: Folder) { folders.removeAll { $0.id == folder.id } }
@@ -193,6 +208,11 @@ final class FolderStore: ObservableObject {
     func setLessonIDs(id: UUID, to lessonIDs: [String]) {
         guard let idx = index(of: id) else { return }
         folders[idx].lessonIDs = lessonIDs
+    }
+    
+    func toggleSeriesStatus(id: UUID) {
+        guard let idx = index(of: id) else { return }
+        folders[idx].isSeries.toggle()
     }
 
     // MARK: - Helpers
@@ -420,6 +440,14 @@ struct FolderDetailView: View {
         .toolbarBackground(Color.appBackground, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Button {
+                    folderStore.toggleSeriesStatus(id: currentFolder.id)
+                } label: {
+                    Image(systemName: currentFolder.isSeries ? "text.book.closed.fill" : "folder.fill")
+                        .foregroundColor(currentFolder.isSeries ? .blue : .secondary)
+                }
+                .accessibilityLabel(currentFolder.isSeries ? "Mark as regular folder" : "Mark as series")
+                
                 Button {
                     selectedLessonIDs = Set(currentFolder.lessonIDs)
                     showMembersSheet = true
@@ -917,8 +945,9 @@ struct LessonSelectionView: View {
                                     ForEach(filteredFolders, id: \.folder.id) { item in
                                         NavigationLink(value: item.folder) {
                                         VStack(alignment: .leading, spacing: 8) {
-                                            Image(systemName: "folder.fill")
+                                            Image(systemName: item.folder.isSeries ? "text.book.closed.fill" : "folder.fill")
                                                 .font(.system(size: 28))
+                                                .foregroundColor(item.folder.isSeries ? .blue : .secondary)
                                                 Text(item.folder.name)
                                                 .font(.headline)
                                                 .lineLimit(1)
@@ -1509,8 +1538,8 @@ private struct AddToFolderSheet: View {
                                 moveToFolder(folder.id)
                             } label: {
                                 HStack {
-                                    Image(systemName: "folder.fill")
-                                        .foregroundColor(.secondary)
+                                    Image(systemName: folder.isSeries ? "text.book.closed.fill" : "folder.fill")
+                                        .foregroundColor(folder.isSeries ? .blue : .secondary)
                                     Text(folder.name)
                                         .foregroundColor(.primary)
                                     Spacer()

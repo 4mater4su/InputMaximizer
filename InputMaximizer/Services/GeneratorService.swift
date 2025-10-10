@@ -1913,7 +1913,8 @@ private extension GeneratorService {
                     let newFolder = Folder(
                         id: UUID(),
                         name: seriesTitle,
-                        lessonIDs: lessonIDs
+                        lessonIDs: lessonIDs,
+                        isSeries: true
                     )
                     store.folders.append(newFolder)
                     folderID = newFolder.id.uuidString
