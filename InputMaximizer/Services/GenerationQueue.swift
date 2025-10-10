@@ -10,20 +10,21 @@ import SwiftUI
 /// Represents a single item in the generation queue
 struct QueueItem: Identifiable, Equatable {
     let id: UUID
-    let request: GeneratorService.Request
+    var request: GeneratorService.Request
     let seriesId: String
     let partNumber: Int
     let totalParts: Int
     let folderName: String
     var status: Status
     var lessonId: String?
-    var error: String?
+    var errorMessage: String?
     
-    enum Status: Equatable {
+    enum Status: String, Codable, Equatable {
         case pending
         case generating
         case completed
         case failed
+        case cancelled
     }
     
     static func == (lhs: QueueItem, rhs: QueueItem) -> Bool {
@@ -65,62 +66,89 @@ final class GenerationQueue: ObservableObject {
     /// Process the next pending item in queue
     func processNext() async {
         // Find next pending item
-        guard let nextItem = queuedItems.first(where: { $0.status == .pending }) else {
+        guard var nextItem = queuedItems.first(where: { $0.status == .pending }) else {
             isProcessing = false
             currentItem = nil
             return
         }
         
-        isProcessing = true
-        currentItem = nextItem
-        updateItemStatus(nextItem.id, .generating)
+        // Update request with latest summary from series if this is a continuation
+        if nextItem.partNumber > 1 {
+            if let series = seriesStore.getSeries(id: nextItem.seriesId),
+               let summary = series.lastSummary,
+               let oldContext = nextItem.request.seriesContext {
+                // Create new context with updated summary
+                nextItem.request.seriesContext = GeneratorService.Request.SeriesContext(
+                    seriesId: oldContext.seriesId,
+                    partNumber: oldContext.partNumber,
+                    totalParts: oldContext.totalParts,
+                    previousSummary: summary,
+                    outline: oldContext.outline
+                )
+            }
+        }
+        
+        await MainActor.run {
+            isProcessing = true
+            currentItem = nextItem
+        }
+        await updateItemStatus(nextItem.id, .generating)
         
         do {
             // Start generation using the existing GeneratorService
-            generator.start(nextItem.request, lessonStore: lessonStore)
+            await MainActor.run {
+                generator.start(nextItem.request, lessonStore: lessonStore)
+            }
             
             // Wait for generation to complete
-            while generator.isBusy {
+            while await MainActor.run(body: { generator.isBusy }) {
                 try await Task.sleep(nanoseconds: 500_000_000) // Poll every 0.5s
             }
             
             // Check if generation succeeded
-            guard let lessonId = generator.lastLessonID else {
+            guard let lessonId = await MainActor.run(body: { generator.lastLessonID }) else {
                 throw NSError(domain: "GenerationQueue", code: 1, 
                             userInfo: [NSLocalizedDescriptionKey: "Generation failed: no lesson ID"])
             }
             
             // Update item status
-            updateItemStatus(nextItem.id, .completed, lessonId: lessonId)
+            await updateItemStatus(nextItem.id, .completed, lessonId: lessonId)
             
             // Update series metadata
-            seriesStore.addLesson(seriesId: nextItem.seriesId, lessonId: lessonId)
-            
-            // Create or update folder
-            if let index = folderStore.folders.firstIndex(where: { $0.seriesId == nextItem.seriesId }) {
-                // Existing folder - add lesson
-                if !folderStore.folders[index].lessonIDs.contains(lessonId) {
-                    folderStore.folders[index].lessonIDs.append(lessonId)
+            await MainActor.run {
+                seriesStore.addLesson(seriesId: nextItem.seriesId, lessonId: lessonId)
+                
+                // Create or update folder
+                if let index = folderStore.folders.firstIndex(where: { $0.seriesId == nextItem.seriesId }) {
+                    // Existing folder - add lesson
+                    if !folderStore.folders[index].lessonIDs.contains(lessonId) {
+                        folderStore.folders[index].lessonIDs.append(lessonId)
+                        // Save triggers automatically via didSet in FolderStore
+                    }
+                } else if nextItem.partNumber == 1 {
+                    // First part - create new folder
+                    let folder = Folder(
+                        id: UUID(),
+                        name: nextItem.folderName,
+                        lessonIDs: [lessonId],
+                        seriesId: nextItem.seriesId,
+                        createdAt: Date()
+                    )
+                    folderStore.folders.append(folder)
                     // Save triggers automatically via didSet in FolderStore
                 }
-            } else if nextItem.partNumber == 1 {
-                // First part - create new folder
-                let folder = Folder(
-                    id: UUID(),
-                    name: nextItem.folderName,
-                    lessonIDs: [lessonId],
-                    seriesId: nextItem.seriesId,
-                    createdAt: Date()
-                )
-                folderStore.folders.append(folder)
-                // Save triggers automatically via didSet in FolderStore
             }
             
             // Generate summary for next part (if not last)
             if nextItem.partNumber < nextItem.totalParts {
-                if let lesson = lessonStore.lessons.first(where: { $0.id == lessonId || $0.folderName == lessonId }) {
+                let lesson = await MainActor.run {
+                    lessonStore.lessons.first(where: { $0.id == lessonId || $0.folderName == lessonId })
+                }
+                if let lesson = lesson {
                     let summary = try await generateSummary(for: lesson)
-                    seriesStore.updateSummary(seriesId: nextItem.seriesId, summary: summary)
+                    await MainActor.run {
+                        seriesStore.updateSummary(seriesId: nextItem.seriesId, summary: summary)
+                    }
                 }
             }
             
@@ -128,9 +156,11 @@ final class GenerationQueue: ObservableObject {
             await processNext()
             
         } catch {
-            updateItemStatus(nextItem.id, .failed, error: error.localizedDescription)
-            isProcessing = false
-            currentItem = nil
+            await updateItemStatus(nextItem.id, .failed, error: error.localizedDescription)
+            await MainActor.run {
+                isProcessing = false
+                currentItem = nil
+            }
         }
     }
     
@@ -173,6 +203,7 @@ final class GenerationQueue: ObservableObject {
     }
     
     /// Update status of a queue item
+    @MainActor
     private func updateItemStatus(_ id: UUID, _ status: QueueItem.Status, lessonId: String? = nil, error: String? = nil) {
         guard let index = queuedItems.firstIndex(where: { $0.id == id }) else { return }
         queuedItems[index].status = status
@@ -180,8 +211,10 @@ final class GenerationQueue: ObservableObject {
             queuedItems[index].lessonId = lessonId
         }
         if let error = error {
-            queuedItems[index].error = error
+            queuedItems[index].errorMessage = error
         }
+        // Force UI update
+        objectWillChange.send()
     }
     
     /// Cancel a specific item
@@ -193,14 +226,17 @@ final class GenerationQueue: ObservableObject {
             generator.cancel()
         }
         
-        queuedItems[index].status = .failed
-        queuedItems[index].error = "Cancelled by user"
+        queuedItems[index].status = .cancelled
+        queuedItems[index].errorMessage = "Cancelled by user"
         
         // If this was current item, stop processing
         if currentItem?.id == itemId {
             isProcessing = false
             currentItem = nil
         }
+        
+        // Force UI update
+        objectWillChange.send()
     }
     
     /// Cancel all items in a series
@@ -223,13 +259,16 @@ final class GenerationQueue: ObservableObject {
     func retry(itemId: UUID) {
         guard let index = queuedItems.firstIndex(where: { $0.id == itemId }) else { return }
         queuedItems[index].status = .pending
-        queuedItems[index].error = nil
+        queuedItems[index].errorMessage = nil
         
         if !isProcessing {
             Task {
                 await processNext()
             }
         }
+        
+        // Force UI update
+        objectWillChange.send()
     }
     
     /// Clear completed items

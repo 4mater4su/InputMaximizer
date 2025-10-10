@@ -1065,6 +1065,15 @@ struct ContentView: View {
         displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
         lessonLangs = LessonLanguageResolver.resolve(for: currentLesson)
         loadKeywordPairs(for: currentLesson.folderName)
+        
+        // Set up AirPods/remote control "next lesson" callback
+        audioManager.segmentDelay = storedDelay
+        audioManager.requestNextLesson = { [weak audioManager] in
+            DispatchQueue.main.async {
+                self.goToNextLessonAndPlay()
+                audioManager?.didFinishLesson = false
+            }
+        }
     }
     
     private func handleLessonChange(_ newFolderName: String) {

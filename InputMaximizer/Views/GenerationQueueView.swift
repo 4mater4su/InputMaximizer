@@ -39,8 +39,9 @@ struct GenerationQueueView: View {
             }
             
             // Queue items
-            ForEach(queue.queuedItems) { item in
+            ForEach(queue.queuedItems, id: \.id) { item in
                 QueueItemRow(item: item, queue: queue)
+                    .id("\(item.id)-\(item.status)")  // Force update when status changes
             }
             
             // Current generation status
@@ -87,7 +88,7 @@ private struct QueueItemRow: View {
                     .font(.subheadline)
                     .fontWeight(.medium)
                 
-                if let error = item.error {
+                if let error = item.errorMessage {
                     Text(error)
                         .font(.caption)
                         .foregroundStyle(.red)
@@ -138,6 +139,9 @@ private struct QueueItemRow: View {
         case .failed:
             Image(systemName: "xmark.circle.fill")
                 .foregroundStyle(.red)
+        case .cancelled:
+            Image(systemName: "minus.circle.fill")
+                .foregroundStyle(.orange)
         }
     }
     
@@ -147,6 +151,7 @@ private struct QueueItemRow: View {
         case .generating: return .blue
         case .completed: return .green
         case .failed: return .red
+        case .cancelled: return .orange
         }
     }
 }
