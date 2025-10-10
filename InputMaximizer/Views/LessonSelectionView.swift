@@ -110,6 +110,13 @@ extension LessonStore {
         lessons.remove(at: idx)
         try saveListToDisk()
     }
+    
+    /// Delete multiple lessons at once
+    func deleteLessons(ids: [String]) throws {
+        for id in ids {
+            try deleteLesson(id: id)
+        }
+    }
 }
 
 // MARK: - User Folders
@@ -237,6 +244,13 @@ extension FolderStore {
             folders[i].lessonIDs.removeAll { $0 == lessonID }
         }
     }
+    
+    /// Remove multiple lesson IDs from all folders
+    func removeLessonsFromAllFolders(_ lessonIDs: [String]) {
+        for id in lessonIDs {
+            removeLessonFromAllFolders(id)
+        }
+    }
 }
 
 // MARK: - Folder Lesson Card
@@ -327,6 +341,8 @@ struct FolderDetailView: View {
     @State private var renameText: String = ""
     @State private var selectedLessonIDs = Set<String>()
     @State private var isReorderingEnabled = false
+    @State private var isSelectionMode = false
+    @State private var selectedLessonsForBatch = Set<String>()
 
     private var emptyView: some View {
                 ContentUnavailableView(
@@ -351,20 +367,41 @@ struct FolderDetailView: View {
     }
     
     private func lessonRow(for lesson: Lesson) -> some View {
-                    Button { selectedLesson = lesson } label: {
-            FolderLessonCard(lesson: lesson)
-                .environment(\.layoutDirection, .leftToRight)
+        Button { 
+            if isSelectionMode {
+                if selectedLessonsForBatch.contains(lesson.id) {
+                    selectedLessonsForBatch.remove(lesson.id)
+                } else {
+                    selectedLessonsForBatch.insert(lesson.id)
+                }
+            } else {
+                selectedLesson = lesson 
+            }
+        } label: {
+            HStack {
+                if isSelectionMode {
+                    Image(systemName: selectedLessonsForBatch.contains(lesson.id) ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(selectedLessonsForBatch.contains(lesson.id) ? .blue : .secondary)
+                }
+                FolderLessonCard(lesson: lesson)
+                    .environment(\.layoutDirection, .leftToRight)
+            }
         }
         .buttonStyle(.plain)
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-        .moveDisabled(false)
+        .moveDisabled(isSelectionMode || !isReorderingEnabled)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            swipeActionsContent(for: lesson)
+            if !isSelectionMode {
+                swipeActionsContent(for: lesson)
+            }
         }
         .contextMenu {
-            contextMenuContent(for: lesson)
+            if !isSelectionMode {
+                contextMenuContent(for: lesson)
+            }
         }
     }
     
@@ -425,7 +462,7 @@ struct FolderDetailView: View {
         .scrollContentBackground(.hidden)
         .background(Color.appBackground)
             .environment(\.defaultMinListRowHeight, 0)
-            .environment(\.editMode, isReorderingEnabled ? .constant(.active) : .constant(.inactive))
+            .environment(\.editMode, (isReorderingEnabled && !isSelectionMode) ? .constant(.active) : .constant(.inactive))
             .environment(\.layoutDirection, .rightToLeft)
             .scrollIndicators(.hidden)
     }
@@ -440,6 +477,14 @@ struct FolderDetailView: View {
         .toolbarBackground(Color.appBackground, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if isSelectionMode && !selectedLessonsForBatch.isEmpty {
+                    Button(role: .destructive) {
+                        showDeleteConfirm = true
+                    } label: {
+                        Label("Delete (\(selectedLessonsForBatch.count))", systemImage: "trash")
+                    }
+                }
+                
                 Button {
                     folderStore.toggleSeriesStatus(id: currentFolder.id)
                 } label: {
@@ -463,6 +508,17 @@ struct FolderDetailView: View {
                               systemImage: isReorderingEnabled ? "checkmark" : "arrow.up.arrow.down")
                     }
                     
+                    Button {
+                        isSelectionMode.toggle()
+                        selectedLessonsForBatch.removeAll()
+                        if isSelectionMode {
+                            isReorderingEnabled = false
+                        }
+                    } label: {
+                        Label(isSelectionMode ? "Cancel Selection" : "Select Lessons", 
+                              systemImage: isSelectionMode ? "xmark" : "checkmark.circle")
+                    }
+                    
                 Button {
                     renameText = currentFolder.name
                     showRenameSheet = true
@@ -480,20 +536,33 @@ struct FolderDetailView: View {
         }
         .sheet(isPresented: $showMembersSheet) { membersSheet }
         .sheet(isPresented: $showRenameSheet) { renameSheet }
-        .alert("Delete lesson?", isPresented: $showDeleteConfirm, presenting: lessonToDelete) { lesson in
+        .alert(isSelectionMode ? "Delete \(selectedLessonsForBatch.count) lesson(s)?" : "Delete lesson?", 
+               isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
                 audioManager.stop()
                 do {
-                    try store.deleteLesson(id: lesson.id)
-                    folderStore.removeLessonFromAllFolders(lesson.id)
+                    if isSelectionMode {
+                        let idsToDelete = Array(selectedLessonsForBatch)
+                        try store.deleteLessons(ids: idsToDelete)
+                        folderStore.removeLessonsFromAllFolders(idsToDelete)
+                        selectedLessonsForBatch.removeAll()
+                        isSelectionMode = false
+                    } else if let lesson = lessonToDelete {
+                        try store.deleteLesson(id: lesson.id)
+                        folderStore.removeLessonFromAllFolders(lesson.id)
+                    }
                     store.load()
                 } catch {
                     print("Delete failed: \(error)")
                 }
             }
             Button("Cancel", role: .cancel) {}
-        } message: { lesson in
-            Text("“\(lesson.title)” will be removed from your device.")
+        } message: {
+            if isSelectionMode {
+                Text("This action cannot be undone.")
+            } else if let lesson = lessonToDelete {
+                Text("\"\(lesson.title)\" will be removed from your device.")
+            }
         }
         .onChange(of: showMembersSheet, initial: false) { _, isShowing in
             if isShowing {
