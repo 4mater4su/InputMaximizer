@@ -253,7 +253,7 @@ struct ContentView: View {
     
     @State private var lessonLangs: LessonLanguages
     
-    @AppStorage("continuousPlaybackEnabled") private var continuousPlaybackEnabled: Bool = false
+    @AppStorage("completeSeriesPlayback") private var completeSeriesPlayback: Bool = false
 
     // Turn sentence explosion on/off.
     // OFF now; flip to true when you want to experiment.
@@ -832,8 +832,8 @@ struct ContentView: View {
     private func goToNextLessonAndPlay() {
         guard !lessons.isEmpty else { return }
         
-        // Check if continuous playback is enabled and we're in a series
-        if continuousPlaybackEnabled && isInSeries {
+        // Check if complete series playback is enabled and we're in a series
+        if completeSeriesPlayback && isInSeries {
             // If we're at the last lesson, stop playback
             if currentLessonIndex >= lessons.count - 1 {
                 audioManager.stop()

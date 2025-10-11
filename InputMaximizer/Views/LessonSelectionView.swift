@@ -353,7 +353,7 @@ struct FolderDetailView: View {
     @State private var isSelectionMode = false
     @State private var selectedLessonsForBatch = Set<String>()
     @State private var memberSearchText: String = ""
-    @AppStorage("continuousPlaybackEnabled") private var continuousPlaybackEnabled: Bool = false
+    @AppStorage("completeSeriesPlayback") private var completeSeriesPlayback: Bool = false
 
     private var emptyView: some View {
                 ContentUnavailableView(
@@ -496,15 +496,15 @@ struct FolderDetailView: View {
                     }
                 }
                 
-                // Continuous playback button - only show for series
+                // Complete series playback button - only show for series
                 if currentFolder.isSeries {
                     Button {
-                        continuousPlaybackEnabled.toggle()
+                        completeSeriesPlayback.toggle()
                     } label: {
-                        Image(systemName: continuousPlaybackEnabled ? "play.circle.fill" : "play.circle")
-                            .foregroundColor(continuousPlaybackEnabled ? .blue : .secondary)
+                        Image(systemName: completeSeriesPlayback ? "play.circle.fill" : "play.circle")
+                            .foregroundColor(completeSeriesPlayback ? .blue : .secondary)
                     }
-                    .accessibilityLabel(continuousPlaybackEnabled ? "Disable continuous playback" : "Enable continuous playback")
+                    .accessibilityLabel(completeSeriesPlayback ? "Disable complete series playback" : "Enable complete series playback")
                 }
                 
                 Button {
