@@ -126,12 +126,17 @@ struct Folder: Identifiable, Codable, Hashable {
     var name: String
     var lessonIDs: [String]
     var isSeries: Bool
+    var parentID: UUID?
     
-    init(id: UUID = UUID(), name: String, lessonIDs: [String], isSeries: Bool = false) {
+    // Helper computed property
+    var isRootFolder: Bool { parentID == nil }
+    
+    init(id: UUID = UUID(), name: String, lessonIDs: [String], isSeries: Bool = false, parentID: UUID? = nil) {
         self.id = id
         self.name = name
         self.lessonIDs = lessonIDs
         self.isSeries = isSeries
+        self.parentID = parentID
     }
     
     // Custom decoding for backwards compatibility
@@ -141,10 +146,11 @@ struct Folder: Identifiable, Codable, Hashable {
         name = try container.decode(String.self, forKey: .name)
         lessonIDs = try container.decode([String].self, forKey: .lessonIDs)
         isSeries = try container.decodeIfPresent(Bool.self, forKey: .isSeries) ?? false
+        parentID = try container.decodeIfPresent(UUID.self, forKey: .parentID)
     }
     
     private enum CodingKeys: String, CodingKey {
-        case id, name, lessonIDs, isSeries
+        case id, name, lessonIDs, isSeries, parentID
     }
 }
 
@@ -196,8 +202,67 @@ final class FolderStore: ObservableObject {
         let unique = uniqueName(from: name)
         folders.append(Folder(name: unique, lessonIDs: lessonIDs, isSeries: isSeries))
     }
+    
+    // MARK: - Hierarchical Operations
+    
+    /// Get all root folders (no parent)
+    func rootFolders() -> [Folder] {
+        folders.filter { $0.parentID == nil }
+    }
+    
+    /// Get subfolders of a specific folder
+    func subfolders(of parentID: UUID) -> [Folder] {
+        folders.filter { $0.parentID == parentID }
+    }
+    
+    /// Add subfolder to a parent
+    func addSubfolder(named name: String, parentID: UUID, lessonIDs: [String] = [], isSeries: Bool = false) {
+        guard depth(of: parentID) < 4 else { return } // Max 5 levels (0-4)
+        let unique = uniqueName(from: name)
+        folders.append(Folder(name: unique, lessonIDs: lessonIDs, isSeries: isSeries, parentID: parentID))
+    }
+    
+    /// Calculate folder depth (0 = root)
+    func depth(of folderID: UUID) -> Int {
+        guard let folder = folders.first(where: { $0.id == folderID }),
+              let parentID = folder.parentID else { return 0 }
+        return 1 + depth(of: parentID)
+    }
+    
+    /// Get full breadcrumb path
+    func breadcrumbPath(for folderID: UUID) -> [Folder] {
+        var path: [Folder] = []
+        var currentID: UUID? = folderID
+        
+        while let id = currentID,
+              let folder = folders.first(where: { $0.id == id }) {
+            path.insert(folder, at: 0)
+            currentID = folder.parentID
+        }
+        
+        return path
+    }
+    
+    /// Get parent folder
+    func parent(of folder: Folder) -> Folder? {
+        guard let parentID = folder.parentID else { return nil }
+        return folders.first(where: { $0.id == parentID })
+    }
 
-    func remove(_ folder: Folder) { folders.removeAll { $0.id == folder.id } }
+    func remove(_ folder: Folder) { 
+        // Check if folder has subfolders and cascade delete them
+        let hasSubfolders = !subfolders(of: folder.id).isEmpty
+        
+        if hasSubfolders {
+            // Cascade delete all subfolders recursively
+            let subs = subfolders(of: folder.id)
+            for sub in subs {
+                remove(sub) // Recursive
+            }
+        }
+        
+        folders.removeAll { $0.id == folder.id } 
+    }
 
     func index(of id: UUID) -> Int? { folders.firstIndex { $0.id == id } }
 
@@ -354,6 +419,8 @@ struct FolderDetailView: View {
     @State private var selectedLessonsForBatch = Set<String>()
     @State private var memberSearchText: String = ""
     @AppStorage("completeSeriesPlayback") private var completeSeriesPlayback: Bool = false
+    @State private var showCreateSubfolderSheet = false
+    @State private var newSubfolderName = ""
 
     private var emptyView: some View {
                 ContentUnavailableView(
@@ -463,10 +530,34 @@ struct FolderDetailView: View {
 
     private var lessonList: some View {
         List {
-            if lessonsInFolder.isEmpty {
+            // Subfolders section
+            let subfolders = folderStore.subfolders(of: currentFolder.id)
+            if !subfolders.isEmpty {
+                Section("Subfolders") {
+                    ForEach(subfolders) { subfolder in
+                        NavigationLink(value: subfolder) {
+                            HStack {
+                                Image(systemName: subfolder.isSeries ? "text.book.closed.fill" : "folder.fill")
+                                    .foregroundColor(subfolder.isSeries ? .blue : .secondary)
+                                Text(subfolder.name)
+                                Spacer()
+                                Text("\(subfolder.lessonIDs.count)")
+                                    .foregroundColor(.secondary)
+                                    .font(.caption)
+                            }
+                        }
+                        .listRowBackground(Color.clear)
+                    }
+                }
+            }
+            
+            // Lessons section
+            if lessonsInFolder.isEmpty && subfolders.isEmpty {
                 emptyView
-            } else {
-                lessonRows
+            } else if !lessonsInFolder.isEmpty {
+                Section("Lessons") {
+                    lessonRows
+                }
             }
         }
             .listStyle(.plain)
@@ -487,6 +578,24 @@ struct FolderDetailView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarBackground(Color.appBackground, for: .navigationBar)
         .toolbar {
+            // Breadcrumb navigation
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 2) {
+                    Text(currentFolder.name)
+                        .font(.headline)
+                    
+                    if !currentFolder.isRootFolder {
+                        let path = folderStore.breadcrumbPath(for: currentFolder.id)
+                        let pathNames = path.dropLast().map { $0.name }.joined(separator: " > ")
+                        if !pathNames.isEmpty {
+                            Text(pathNames)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 if isSelectionMode && !selectedLessonsForBatch.isEmpty {
                     Button(role: .destructive) {
@@ -523,6 +632,15 @@ struct FolderDetailView: View {
                 }
                 
                 Menu {
+                    // Create Subfolder - only if under depth limit
+                    if folderStore.depth(of: currentFolder.id) < 4 {
+                        Button {
+                            showCreateSubfolderSheet = true
+                        } label: {
+                            Label("Create Subfolder", systemImage: "folder.badge.plus")
+                        }
+                    }
+                    
                     Button {
                         isReorderingEnabled.toggle()
                     } label: {
@@ -556,8 +674,18 @@ struct FolderDetailView: View {
             ContentView(selectedLesson: lesson, lessons: lessonsInFolder, folder: currentFolder)
                 .environmentObject(audioManager)
         }
+        .navigationDestination(for: Folder.self) { subfolder in
+            FolderDetailView(
+                folder: subfolder,
+                lessons: lessons
+            )
+            .environmentObject(store)
+            .environmentObject(audioManager)
+            .environmentObject(folderStore)
+        }
         .sheet(isPresented: $showMembersSheet) { membersSheet }
         .sheet(isPresented: $showRenameSheet) { renameSheet }
+        .sheet(isPresented: $showCreateSubfolderSheet) { createSubfolderSheet }
         .alert(isSelectionMode ? "Delete \(selectedLessonsForBatch.count) lesson(s)?" : "Delete lesson?", 
                isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
@@ -758,6 +886,39 @@ struct FolderDetailView: View {
                         showRenameSheet = false
                     }
                     .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+    
+    private var createSubfolderSheet: some View {
+        NavigationStack {
+            Form {
+                TextField("Subfolder name", text: $newSubfolderName)
+                    .textInputAutocapitalization(.words)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.appBackground)
+            .navigationTitle("New Subfolder")
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.appBackground, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showCreateSubfolderSheet = false
+                        newSubfolderName = ""
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        folderStore.addSubfolder(
+                            named: newSubfolderName,
+                            parentID: currentFolder.id
+                        )
+                        showCreateSubfolderSheet = false
+                        newSubfolderName = ""
+                    }
+                    .disabled(newSubfolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
@@ -1055,7 +1216,7 @@ struct LessonSelectionView: View {
                         }
 
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                                    ForEach(filteredFolders, id: \.folder.id) { item in
+                                    ForEach(filteredFolders.filter { $0.folder.isRootFolder }, id: \.folder.id) { item in
                                         NavigationLink(value: item.folder) {
                                         VStack(alignment: .leading, spacing: 8) {
                                             Image(systemName: item.folder.isSeries ? "text.book.closed.fill" : "folder.fill")
