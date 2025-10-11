@@ -353,6 +353,7 @@ struct FolderDetailView: View {
     @State private var isSelectionMode = false
     @State private var selectedLessonsForBatch = Set<String>()
     @State private var memberSearchText: String = ""
+    @AppStorage("continuousPlaybackEnabled") private var continuousPlaybackEnabled: Bool = false
 
     private var emptyView: some View {
                 ContentUnavailableView(
@@ -495,6 +496,17 @@ struct FolderDetailView: View {
                     }
                 }
                 
+                // Continuous playback button - only show for series
+                if currentFolder.isSeries {
+                    Button {
+                        continuousPlaybackEnabled.toggle()
+                    } label: {
+                        Image(systemName: continuousPlaybackEnabled ? "play.circle.fill" : "play.circle")
+                            .foregroundColor(continuousPlaybackEnabled ? .blue : .secondary)
+                    }
+                    .accessibilityLabel(continuousPlaybackEnabled ? "Disable continuous playback" : "Enable continuous playback")
+                }
+                
                 Button {
                     folderStore.toggleSeriesStatus(id: currentFolder.id)
                 } label: {
@@ -541,7 +553,7 @@ struct FolderDetailView: View {
             }
         }
         .navigationDestination(item: $selectedLesson) { lesson in
-            ContentView(selectedLesson: lesson, lessons: lessonsInFolder)
+            ContentView(selectedLesson: lesson, lessons: lessonsInFolder, folder: currentFolder)
                 .environmentObject(audioManager)
         }
         .sheet(isPresented: $showMembersSheet) { membersSheet }

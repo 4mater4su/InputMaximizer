@@ -252,19 +252,29 @@ struct ContentView: View {
     @State private var displaySegments: [DisplaySegment] = []
     
     @State private var lessonLangs: LessonLanguages
+    
+    @AppStorage("continuousPlaybackEnabled") private var continuousPlaybackEnabled: Bool = false
 
     // Turn sentence explosion on/off.
     // OFF now; flip to true when you want to experiment.
     private var shouldExplode: Bool { false }
     
+    // Check if current lesson is in a series folder
+    private var isInSeries: Bool {
+        return folder?.isSeries ?? false
+    }
+    
     // MARK: - Init
-    init(selectedLesson: Lesson, lessons: [Lesson], isViewingAllLessons: Bool = false) {
+    init(selectedLesson: Lesson, lessons: [Lesson], isViewingAllLessons: Bool = false, folder: Folder? = nil) {
         self.selectedLesson = selectedLesson
         _lessons = State(initialValue: lessons)
         _currentLessonIndex = State(initialValue: lessons.firstIndex(of: selectedLesson) ?? 0)
         _lessonLangs = State(initialValue: LessonLanguageResolver.resolve(for: selectedLesson))
         self.isViewingAllLessons = isViewingAllLessons
+        self.folder = folder
     }
+    
+    private let folder: Folder?
 
     // MARK: - Keywords loader
     private func loadKeywordPairs(for folder: String) {
@@ -821,6 +831,16 @@ struct ContentView: View {
     /// Start playback in the lane that matches the current continuous mode
     private func goToNextLessonAndPlay() {
         guard !lessons.isEmpty else { return }
+        
+        // Check if continuous playback is enabled and we're in a series
+        if continuousPlaybackEnabled && isInSeries {
+            // If we're at the last lesson, stop playback
+            if currentLessonIndex >= lessons.count - 1 {
+                audioManager.stop()
+                return
+            }
+        }
+        
         currentLessonIndex = (currentLessonIndex + 1) % lessons.count
         let next = lessons[currentLessonIndex]
         audioManager.loadLesson(folderName: next.folderName, lessonTitle: next.title)
@@ -979,7 +999,7 @@ struct ContentView: View {
 
 
     // MARK: - View
-    var body: some View {
+    private var mainContent: some View {
         VStack(spacing: 10) {
 
             // Transcript with auto-scroll and tap-to-start
@@ -1092,20 +1112,28 @@ struct ContentView: View {
             }
 
         }
-        .gesture(
-            DragGesture()
-                .onEnded { value in
-                    // Swipe from right to left (negative translation.width)
-                    // Allow generous vertical movement to make gesture very forgiving
-                    if value.translation.width < -50 && abs(value.translation.height) < 400 {
-                        loadKeywordPairs(for: currentLesson.folderName)
-                        showKeywords = true
+    }
+    
+    private var contentWithGestures: some View {
+        mainContent
+            .gesture(
+                DragGesture()
+                    .onEnded { value in
+                        // Swipe from right to left (negative translation.width)
+                        // Allow generous vertical movement to make gesture very forgiving
+                        if value.translation.width < -50 && abs(value.translation.height) < 400 {
+                            loadKeywordPairs(for: currentLesson.folderName)
+                            showKeywords = true
+                        }
                     }
-                }
-        )
-        .accessibilityHint("Swipe left to open keywords and phrases")
-        .coordinateSpace(name: "lessonScroll")
-        .onAppear {
+            )
+            .accessibilityHint("Swipe left to open keywords and phrases")
+            .coordinateSpace(name: "lessonScroll")
+    }
+    
+    private var contentWithLifecycle: some View {
+        contentWithGestures
+            .onAppear {
             let base = audioManager.previewSegments(for: currentLesson.folderName)
             displaySegments = makeDisplaySegments(from: base, explode: shouldExplode)
             lessonLangs = LessonLanguageResolver.resolve(for: currentLesson)
@@ -1118,7 +1146,11 @@ struct ContentView: View {
                 }
             }
         }
-        .onChange(of: store.lessons, initial: false) { _, newLessons in
+    }
+    
+    private var contentWithObservers: some View {
+        contentWithLifecycle
+            .onChange(of: store.lessons, initial: false) { _, newLessons in
             // Only sync if we're viewing all lessons, not a folder subset
             guard isViewingAllLessons else { return }
             
@@ -1174,8 +1206,11 @@ struct ContentView: View {
         .onChange(of: storedDelay, initial: false) { _, newValue in
             audioManager.segmentDelay = newValue
         }
-
-        .overlay(alignment: .top) {
+    }
+    
+    private var contentWithOverlay: some View {
+        contentWithObservers
+            .overlay(alignment: .top) {
             if let message = toastMessage {
                 ToastBanner(message: message, isSuccess: toastIsSuccess) {
                     // Check if this is a keyword extraction completion toast
@@ -1202,13 +1237,16 @@ struct ContentView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        //.navigationBarBackButtonHidden(true)   // hide system back button
+    }
+    
+    private var contentWithNavigation: some View {
+        contentWithOverlay
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            //.navigationBarBackButtonHidden(true)   // hide system back button
 
-        // MARK: - Toolbar
-        .toolbar {
+            // MARK: - Toolbar
+            .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 ToolbarChips(
                     fontComfortModeRaw: $fontComfortModeRaw,
@@ -1249,8 +1287,11 @@ struct ContentView: View {
                 }
             }
         }
-        
-        .sheet(isPresented: $showDelaySheet) {
+    }
+    
+    var body: some View {
+        contentWithNavigation
+            .sheet(isPresented: $showDelaySheet) {
             NavigationStack {
                 Form {
                     Section {
